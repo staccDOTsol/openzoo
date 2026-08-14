@@ -10,7 +10,7 @@ usage:
                          (run it twice — the second run reuses the bound corpus and is near-free)
   npx openzoo contexts   list corpora bound to the zoo (never re-uploaded)
   npx openzoo contexts --forget <hash|all>   drop manifest entries
-  npx openzoo balance    wallet balance (USDC + SOL, with USD value)
+  npx openzoo balance    wallet balance (USDC + TOKEN + SOL, with USD value)
   npx openzoo address    print the funding address
   npx openzoo help       this text
 
