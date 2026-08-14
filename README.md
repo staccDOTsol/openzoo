@@ -168,8 +168,9 @@ Pin the key with `OPENZOO_TUNNEL_TOKEN` if your IDE stores it. Keys never leave 
 
   Both are first-class: each is the underlying of a live Solana rail the zoo quotes (USDC → yUSDCx, TOKEN → wTOKENx). That's the whole funding story — the shim converts whichever the 402 quotes internally, at payment time, for exactly the amount needed.
 - **SOL is optional but nice.** The gateway sponsors payment-transaction fees. If the wallet holds a pinch of SOL (~0.003), the internal conversion settles as its own transaction first; with zero SOL the conversion rides inside the gateway-sponsored payment transaction instead.
+- **The same wallet file also holds an EVM key.** `npx openzoo address` prints both addresses: the Solana one, and the EVM one used by the Base and Robinhood Chain rails. Fund Base with plain **USDC on Base** (nothing is converted); for Robinhood Chain, deposit USDG at [x402.accrue.fund/start](https://x402.accrue.fund/start) so the wallet holds the settlement asset.
 - **Spend caps.** The proxy refuses any single quote above `OPENZOO_MAX_USD_PER_CALL` (default $0.50).
-- `npx openzoo balance` / `npx openzoo address` — check funds (USDC + TOKEN + SOL + USD value) / print the address.
+- `npx openzoo balance` — funds on every rail, grouped per chain: Solana (USDC + TOKEN + SOL), Base (USDC + ETH), Robinhood Chain (USDG, the ODDBALLER / IOU / ROBINHOODS memecoins, ETH). USD value where a price is known; `$?` where not. `npx openzoo address` — both funding addresses.
 
 ## Honest pricing note
 
@@ -182,15 +183,17 @@ The receipt names which base you got; `extra.directUsd` / `extra.savesVsDirect` 
 
 ## Payment rails
 
+All three rails have settled real payments (2026-08-14):
+
 | rail | network | status |
 |---|---|---|
-| **Solana** (default) | `solana:5eykt…` | **live** — Token-2022 `TransferChecked`, partial-signed, gateway pays fees. Tested end-to-end against the production 402. Settlement uses a wrapped settlement mint as internal plumbing; you only ever hold and send USDC or TOKEN. |
-| Base | `eip155:8453` | **offered by the zoo** — standard x402 EIP-3009 `transferWithAuthorization` against native USDC. Fund the wallet's EVM address with USDC on Base; nothing is converted. Settlement from this package is live-untested. |
-| Robinhood Chain | `eip155:4663` | experimental, behind `OPENZOO_ENABLE_RH=1`. The zoo quotes it, but its settlement asset has no conversion path here (conversion is Solana-only), so there is no plain balance you can fund and have the shim spend — use Solana or Base. |
+| **Solana** (default) | `solana:5eykt…` | **live** — Token-2022 `TransferChecked`, partial-signed, gateway pays fees. Settles daily; tested end-to-end against the production 402. Settlement uses a wrapped settlement mint as internal plumbing; you only ever hold and send USDC or TOKEN. |
+| Base | `eip155:8453` | **live** — standard x402 EIP-3009 `transferWithAuthorization` against native USDC, batched settle through the facilitator. Fund the wallet's EVM address with USDC on Base; nothing is converted. |
+| Robinhood Chain | `eip155:4663` | **live** — EIP-3009 against the RH settlement asset, batched settle through the facilitator. There is no auto-conversion path here (conversion is Solana-only), so the wallet must hold the settlement asset itself: deposit USDG at [x402.accrue.fund/start](https://x402.accrue.fund/start). Default rail selection skips it unless `OPENZOO_ENABLE_RH=1`; `OPENZOO_RAIL=robinhood` forces it outright. |
 
-`npx openzoo` prints the rails off a live 402 at startup, and the funding line is derived from those rails — so a new chain shows up without this package shipping again.
+`npx openzoo` prints the rails off a live 402 at startup, and the funding line is derived from those rails — so a new chain (the wrapped RH memecoin twins are in-deploy, for example) shows up without this package shipping again.
 
-The rail is chosen from the 402's `accepts[]` itself (Solana first). Amounts are always taken as raw units from the 402, and Solana decimals are read from the mint **on-chain** — never hardcoded. (The zoo's own pasted prompt hardcodes `decimals = 6`; that's wrong for 18-decimal mints and this package deliberately does not copy the bug.)
+The rail is chosen from the 402's `accepts[]` itself (Solana first). **Steer it with `OPENZOO_RAIL=solana|base|robinhood`** — the picker then uses only that rail, and errors clearly if the live 402 does not offer it. Amounts are always taken as raw units from the 402, and Solana decimals are read from the mint **on-chain** — never hardcoded. (The zoo's own pasted prompt used to hardcode `decimals = 6`; this package deliberately does not copy the bug.)
 
 ## Configuration
 
@@ -200,12 +203,15 @@ The rail is chosen from the 402's `accepts[]` itself (Solana first). Amounts are
 | `OPENZOO_API_BASE` | `https://x402-tokens.fly.dev` | the zoo's door |
 | `OPENZOO_RPC` | mainnet-beta public RPC | Solana RPC |
 | `OPENZOO_TOKEN` | (internal) | preferred 402 rail — leave unset |
+| `OPENZOO_RAIL` | (unset) | force a rail: `solana` \| `base` \| `robinhood`. Errors if the live 402 doesn't offer it |
+| `OPENZOO_BASE_RPC` | `https://mainnet.base.org` | Base RPC (balances / preflight) |
+| `OPENZOO_RH_RPC` | `https://rpc.mainnet.chain.robinhood.com` | Robinhood Chain RPC (balances / preflight) |
 | `OPENZOO_WALLET` | `~/.openzoo/wallet.json` | wallet path |
 | `OPENZOO_MAX_USD_PER_CALL` | `0.5` | refuse quotes above this |
 | `OPENZOO_DEMO_MAX_USD` | `0.01` | demo spend cap |
 | `OPENZOO_CONTEXT_MIN_CHARS` | `16384` | bodies bigger than this bind once + reuse |
 | `OPENZOO_NO_CONTEXT_CACHE` | `0` | set `1` to always ship the full body |
-| `OPENZOO_ENABLE_RH` | `0` | allow the Robinhood rail |
+| `OPENZOO_ENABLE_RH` | `0` | let default selection fall through to the Robinhood rail (`OPENZOO_RAIL=robinhood` forces it without this) |
 
 ## What's tested
 

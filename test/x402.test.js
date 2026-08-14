@@ -56,6 +56,36 @@ test('pickAccept prefers solana over EVM rows, and gates robinhood', () => {
   assert.equal(railOf(pickAccept(rhOnly, 'yUSDCx', { allowRH: true })), 'robinhood');
 });
 
+test('forceRail (OPENZOO_RAIL) pins selection to the named rail', () => {
+  const baseRow = {
+    scheme: 'exact', network: 'eip155:8453', asset: '0x' + '11'.repeat(20),
+    maxAmountRequired: '100', payTo: '0x' + '22'.repeat(20), extra: {},
+  };
+  const rhRow = { ...baseRow, network: 'eip155:4663' };
+  const solRow = fixture.accepts[0];
+  const mixed = { x402Version: 1, accepts: [solRow, baseRow, rhRow] };
+
+  // Forced rail present: picked even though Solana rows exist.
+  assert.equal(railOf(pickAccept(mixed, 'yUSDCx', { forceRail: 'base' })), 'base');
+  assert.equal(railOf(pickAccept(mixed, 'yUSDCx', { forceRail: 'solana' })), 'solana');
+  // Forcing robinhood is explicit intent — no allowRH needed.
+  assert.equal(railOf(pickAccept(mixed, 'yUSDCx', { forceRail: 'robinhood' })), 'robinhood');
+  // Symbol preference still applies within the forced rail.
+  assert.equal(pickAccept(mixed, 'yUSDCx', { forceRail: 'solana' }).extra.symbol, 'yUSDCx');
+});
+
+test('forceRail errors clearly when the live 402 does not offer that rail', () => {
+  const solOnly = { x402Version: 1, accepts: [fixture.accepts[0]] };
+  assert.throws(
+    () => pickAccept(solOnly, 'yUSDCx', { forceRail: 'base' }),
+    /OPENZOO_RAIL=base but the live 402 offers no base rail \(offered: solana\)/,
+  );
+  assert.throws(
+    () => pickAccept(solOnly, 'yUSDCx', { forceRail: 'plasma' }),
+    /not a rail — use solana, base or robinhood/,
+  );
+});
+
 test('buildPayment constructs the exact solana X-PAYMENT the gateway documents', () => {
   const accept = pickAccept(fixture, 'yUSDCx');
   const keypair = Keypair.generate();
