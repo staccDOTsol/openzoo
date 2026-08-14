@@ -40,7 +40,25 @@ curl http://localhost:8402/v1/chat/completions -H 'Content-Type: application/jso
   -d '{"model":"nvidia/nemotron-3.5-lightning","messages":[{"role":"user","content":"hi"}]}'
 ```
 
-Model ids come from `GET http://localhost:8402/v1/models` (free, no payment).
+**OpenAI SDK (Python):**
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:8402/v1", api_key="sk-openzoo")
+r = client.chat.completions.create(model="nvidia/nemotron-3.5-lightning",
+                                   messages=[{"role": "user", "content": "hi"}])
+```
+
+**OpenAI SDK (JS/TS):**
+```js
+import OpenAI from "openai";
+const client = new OpenAI({ baseURL: "http://localhost:8402/v1", apiKey: "sk-openzoo" });
+const r = await client.chat.completions.create({
+  model: "nvidia/nemotron-3.5-lightning",
+  messages: [{ role: "user", content: "hi" }],
+});
+```
+
+Model ids come from `GET http://localhost:8402/v1/models` (free, no payment). Requires Node ≥ 18 (for `npx openzoo` itself; your harness can be anything).
 
 ## Use as MCP
 
@@ -50,11 +68,15 @@ The same package is an MCP server sharing the same wallet and payment core:
 claude mcp add openzoo -- npx -y openzoo mcp
 ```
 
-Other MCP hosts:
+**Claude Desktop** — add to `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\Claude\claude_desktop_config.json`), then restart the app:
 
 ```json
 { "mcpServers": { "openzoo": { "command": "npx", "args": ["-y", "openzoo", "mcp"] } } }
 ```
+
+**Cursor** — Settings → MCP → *Add new global MCP server*, or drop the same JSON into `~/.cursor/mcp.json` (per-project: `.cursor/mcp.json`).
+
+**Windsurf / Cline / any MCP host** — same shape: command `npx`, args `["-y", "openzoo", "mcp"]`, stdio transport.
 
 Tools:
 - **`zoo_ask`** — `{prompt, corpus?, model?, max_tokens?}`. The flagship: hand it a *huge* `corpus` (hundreds of thousands to ~1M tokens — a body the model itself would refuse) and a question; the zoo's leCore memory spills the corpus so the model reads only a few thousand tokens. Returns the answer plus the receipt (`billedUsd`, `savesVsDirect`, tokens actually read). An MCP-capable agent can delegate a giant-context question without touching its own model config.
