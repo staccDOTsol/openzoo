@@ -6,6 +6,8 @@ const HELP = `openzoo — local x402-paying proxy + MCP server for openzoo.fun
 usage:
   npx openzoo            start the proxy on http://localhost:8402/v1
   npx openzoo mcp        stdio MCP server (tools: zoo_ask, zoo_models, zoo_wallet)
+  npx openzoo tunnel     public HTTPS url for cloud IDEs that cannot reach localhost
+                         (installs cloudflared itself; mints a required api key)
   npx openzoo demo       ~1M-token needle demo: direct refuses, the zoo answers
                          (run it twice — the second run reuses the bound corpus and is near-free)
   npx openzoo contexts   list corpora bound to the zoo (never re-uploaded)
@@ -24,7 +26,8 @@ env:
   OPENZOO_MAX_USD_PER_CALL (0.5)  OPENZOO_DEMO_MAX_USD (0.01)
   OPENZOO_CONTEXT_MIN_CHARS (16384 — bodies bigger than this bind once + reuse)
   OPENZOO_NO_CONTEXT_CACHE (0 — set 1 to always ship the full body)
-  OPENZOO_ENABLE_RH (0 — Robinhood Chain rail, experimental)`;
+  OPENZOO_ENABLE_RH (0 — Robinhood Chain rail, experimental)
+  OPENZOO_TUNNEL_MAX_USD (1.00 — tunnel session ceiling)  OPENZOO_TUNNEL_TOKEN (pin the api key)`;
 
 async function main() {
   switch (cmd) {
@@ -34,6 +37,9 @@ async function main() {
       break;
     case 'mcp':
       await (await import('../lib/mcp.js')).startMcp();
+      break;
+    case 'tunnel':
+      await (await import('../lib/tunnel.js')).runTunnel();
       break;
     case 'demo':
       await (await import('../lib/demo.js')).runDemo();

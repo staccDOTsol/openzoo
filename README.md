@@ -126,6 +126,39 @@ npx openzoo contexts --forget all     # drop everything
 
 Opt out with `OPENZOO_NO_CONTEXT_CACHE=1` (always ship the full body); tune the threshold with `OPENZOO_CONTEXT_MIN_CHARS` (default 16384 chars).
 
+## Using openzoo from a cloud IDE (Cursor, Windsurf, hosted agents)
+
+Some IDEs run their model calls **from their own servers**, not your machine. Point one of those at `http://localhost:8402` and you get, verbatim:
+
+```
+Provider returned error: Access to private networks is forbidden
+```
+
+That is reachability, not payment — their cloud cannot dial your laptop. Give it a public URL instead:
+
+```bash
+npx openzoo tunnel
+```
+
+It installs `cloudflared` itself (one-time, cached in `~/.openzoo/bin`; a Cloudflare account is not needed), opens a quick tunnel to your local proxy, and prints:
+
+```
+base_url = https://<random>.trycloudflare.com/v1
+api_key  = oz_<random>          # in tunnel mode the key is REAL auth
+```
+
+**Tunnel mode is the one mode where the api key matters.** A public URL in front of a wallet is a public URL in front of your money, so:
+
+- every request without `Authorization: Bearer <that key>` is refused **401** before anything is forwarded, quoted or paid;
+- the per-call cap (`OPENZOO_MAX_USD_PER_CALL`, default $0.50) still applies;
+- a session ceiling stops all spending at `OPENZOO_TUNNEL_MAX_USD` (default **$1.00**);
+- every served request prints its receipt and the running session total;
+- the URL dies when you Ctrl-C, and the session's total spend is printed on exit.
+
+Pin the key with `OPENZOO_TUNNEL_TOKEN` if your IDE stores it. Keys never leave your machine either way — the tunnel forwards to the same local proxy, which signs with the same local wallet.
+
+**MCP clients don't need any of this.** If your tool speaks MCP, use the hosted server at `https://mcp.openzoo.fun/mcp` — cloud-reachable, no local process, mint a wallet with `zoo_wallet`.
+
 ## The wallet model
 
 - **Burner, local, yours.** A keypair in `~/.openzoo/wallet.json`, created on first run, chmod 600. Keys never leave your machine — the zoo only ever sees signed transfers.
