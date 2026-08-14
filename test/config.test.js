@@ -11,11 +11,15 @@ test('the funding hint follows the rails a live 402 offers', () => {
   );
 });
 
-test('rails with no fundable underlying are named, not guessed at', () => {
-  // Robinhood settles in an asset the shim has no EVM conversion path for, so
-  // it must never appear as something to fund.
-  assert.equal(railFundingHint(['solana', 'base', 'robinhood']), 'USDC or TOKEN on Solana · USDC on Base');
-  assert.deepEqual(unfundableRails(['solana', 'base', 'robinhood']), ['Robinhood Chain']);
+test('robinhood is fundable with plain tokens now the EVM conversion path exists', () => {
+  // lib/evmwrap.js converts plain USDG / memecoins into the quoted vault at
+  // payment time, so Robinhood funds like any other rail — with the gas caveat
+  // riding the hint, since the conversion txs are the wallet's own.
+  assert.equal(
+    railFundingHint(['solana', 'base', 'robinhood']),
+    'USDC or TOKEN on Solana · USDC on Base · USDG or ODDBALLER or ROBINHOODS on Robinhood Chain (plus a sliver of RH ETH for the conversion gas)',
+  );
+  assert.deepEqual(unfundableRails(['solana', 'base', 'robinhood']), []);
   assert.deepEqual(unfundableRails(['solana', 'base']), []);
 });
 
