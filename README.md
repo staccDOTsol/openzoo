@@ -168,7 +168,7 @@ Pin the key with `OPENZOO_TUNNEL_TOKEN` if your IDE stores it. Keys never leave 
 
   Both are first-class: each is the underlying of a live Solana rail the zoo quotes (USDC → yUSDCx, TOKEN → wTOKENx). That's the whole funding story — the shim converts whichever the 402 quotes internally, at payment time, for exactly the amount needed.
 - **SOL is optional but nice.** The gateway sponsors payment-transaction fees. If the wallet holds a pinch of SOL (~0.003), the internal conversion settles as its own transaction first; with zero SOL the conversion rides inside the gateway-sponsored payment transaction instead.
-- **The same wallet file also holds an EVM key.** `npx openzoo address` prints both addresses: the Solana one, and the EVM one used by the Base and Robinhood Chain rails. Fund Base with plain **USDC on Base** (nothing is converted); for Robinhood Chain, deposit USDG at [x402.accrue.fund/start](https://x402.accrue.fund/start) so the wallet holds the settlement asset.
+- **The same wallet file also holds an EVM key.** `npx openzoo address` prints both addresses: the Solana one, and the EVM one used by the Base and Robinhood Chain rails. Fund Base with plain **USDC on Base** (nothing is converted); for Robinhood Chain, hold the plain token you want to pay with (USDG or a quoted memecoin) plus a sliver of RH ETH for gas — conversion happens automatically at payment time.
 - **Spend caps.** The proxy refuses any single quote above `OPENZOO_MAX_USD_PER_CALL` (default $0.50).
 - `npx openzoo balance` — funds on every rail, grouped per chain: Solana (USDC + TOKEN + SOL), Base (USDC + ETH), Robinhood Chain (USDG, the ODDBALLER / IOU / ROBINHOODS memecoins, ETH). USD value where a price is known; `$?` where not. `npx openzoo address` — both funding addresses.
 
@@ -189,7 +189,7 @@ All three rails have settled real payments (2026-08-14):
 |---|---|---|
 | **Solana** (default) | `solana:5eykt…` | **live** — Token-2022 `TransferChecked`, partial-signed, gateway pays fees. Settles daily; tested end-to-end against the production 402. Settlement uses a wrapped settlement mint as internal plumbing; you only ever hold and send USDC or TOKEN. |
 | Base | `eip155:8453` | **live** — standard x402 EIP-3009 `transferWithAuthorization` against native USDC, batched settle through the facilitator. Fund the wallet's EVM address with USDC on Base; nothing is converted. |
-| Robinhood Chain | `eip155:4663` | **live** — EIP-3009 against the RH settlement asset, batched settle through the facilitator. There is no auto-conversion path here (conversion is Solana-only), so the wallet must hold the settlement asset itself: deposit USDG at [x402.accrue.fund/start](https://x402.accrue.fund/start). Default rail selection skips it unless `OPENZOO_ENABLE_RH=1`; `OPENZOO_RAIL=robinhood` forces it outright. |
+| Robinhood Chain | `eip155:4663` | **live** — EIP-3009, batched settle through the facilitator. Hold the plain token a row is quoted in (USDG, or the ODDBALLER / IOU / ROBINHOODS memecoins) and the shim converts exactly enough at payment time, automatically — two small on-chain steps paid from the wallet's own RH ETH. No gas? The error says exactly how much ETH to send and where. Default rail selection skips this chain unless `OPENZOO_ENABLE_RH=1`; `OPENZOO_RAIL=robinhood` forces it outright. |
 
 `npx openzoo` prints the rails off a live 402 at startup, and the funding line is derived from those rails — so a new chain (the wrapped RH memecoin twins are in-deploy, for example) shows up without this package shipping again.
 
