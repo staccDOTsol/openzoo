@@ -89,13 +89,42 @@ Tools:
 npx openzoo demo
 ```
 
-Builds a ~965k-token document with one planted fact, shows that buying direct refuses it (*"The input token count exceeds the maximum number of tokens allowed."* — recorded, see [benches.openzoo.fun](https://benches.openzoo.fun)), then fetches the live x402 quote for the same body — the quote is free:
+Builds a ~965k-token document with one planted fact, shows that buying direct refuses it (*"The input token count exceeds the maximum number of tokens allowed."* — recorded, see [benches.openzoo.fun](https://benches.openzoo.fun)), binds the body ONCE to the zoo's holographic memory, then pays for a question that ships alone:
 
 ```
-quote: $0.009747 · pricing=counterfactual · direct would be $0.097474 · savesVsDirect=10.0×
+bound once in 14.8s: 3.7MB → context ctx_01KZZY8YQE…
+quote for the ask: $0.000480 · pricing=markup (3× a tiny body — the 3.7MB corpus is not re-priced)
 ```
 
-If the wallet is funded with USDC it pays (capped at `OPENZOO_DEMO_MAX_USD`, default $0.01) and prints the answer, the tokens the model actually read, and the receipt. If not, it prints exactly what to fund. Long waits (the multi-MB upload, pricing, payment, the answer) show a live progress line with stage + elapsed seconds.
+If the wallet is funded with USDC it pays (capped at `OPENZOO_DEMO_MAX_USD`, default $0.01) and prints the answer, the tokens the model actually read, and the receipt. If not, it prints exactly what to fund. Long waits (the one-time upload, pricing, payment, the answer) show a live progress line with stage + elapsed seconds.
+
+**Run it twice.** The second run finds the corpus in the local manifest and never uploads it:
+
+```
+★ corpus already bound (context ctx_01KZZY8YQE…) — skipped the 3.7MB upload entirely.
+...
+★ corpus already bound — skipped 3.7MB upload; whole run took 4.3s and cost $0.000480
+```
+
+## Repeat calls are near-free (0.3.0: the body never ships twice)
+
+The zoo keeps your corpus in leCore holographic memory; the shim keeps a manifest at `~/.openzoo/contexts.json` (chmod 600) mapping `sha256(corpus)` → the zoo's `context_id`, scoped per API base. When a request carries a corpus the manifest already knows:
+
+- **nothing big is uploaded** — the ask ships alone with an `X-HRR-Context` header,
+- **the 402 prices the tiny ask** (markup basis, honestly labeled `pricing=markup`), typically a few hundredths of a cent instead of re-pricing megabytes,
+- **the answer still comes from your corpus** — the zoo recalls the relevant slices server-side.
+
+This works in all three fronts: the **proxy** (a big pasted body in the last message is split at its last blank line, bound once, and reused on every later call — even with a different question), the **MCP** `zoo_ask` `corpus` parameter, and the **demo**. If the zoo ever forgets a context (sidecar wipe), the gateway answers 404 *before* any payment and the shim transparently re-binds once and retries — a stale manifest never fails a call.
+
+Manage it:
+
+```bash
+npx openzoo contexts                  # list bound corpora (hash, context id, age, api base)
+npx openzoo contexts --forget 60464d  # drop one by hash prefix
+npx openzoo contexts --forget all     # drop everything
+```
+
+Opt out with `OPENZOO_NO_CONTEXT_CACHE=1` (always ship the full body); tune the threshold with `OPENZOO_CONTEXT_MIN_CHARS` (default 16384 chars).
 
 ## The wallet model
 
@@ -110,6 +139,7 @@ If the wallet is funded with USDC it pays (capped at `OPENZOO_DEMO_MAX_USD`, def
 Two bases, reported per call in the 402 (`extra.pricing`):
 - **Short prompts price at a markup** (3× provider cost) — there's nothing to spill, you're paying for passthrough.
 - **Big bodies price at a counterfactual discount** (~10× cheaper than buying the same call direct) — the zoo's leCore memory means it never forwards your whole body upstream, and passes the savings on. Measured numbers at [benches.openzoo.fun](https://benches.openzoo.fun).
+- **Asks against a bound corpus price on the markup basis** (3× a tiny body — the receipt says `pricing=markup`). That is not a discount trick: 3× of a few hundred tokens is normally far below even the counterfactual price of shipping the corpus, which is the whole point of binding once.
 
 The receipt names which base you got; `extra.directUsd` / `extra.savesVsDirect` let you check the math.
 
@@ -134,6 +164,8 @@ The rail is chosen from the 402's `accepts[]` itself (Solana first). Amounts are
 | `OPENZOO_WALLET` | `~/.openzoo/wallet.json` | wallet path |
 | `OPENZOO_MAX_USD_PER_CALL` | `0.5` | refuse quotes above this |
 | `OPENZOO_DEMO_MAX_USD` | `0.01` | demo spend cap |
+| `OPENZOO_CONTEXT_MIN_CHARS` | `16384` | bodies bigger than this bind once + reuse |
+| `OPENZOO_NO_CONTEXT_CACHE` | `0` | set `1` to always ship the full body |
 | `OPENZOO_ENABLE_RH` | `0` | allow the Robinhood rail |
 
 ## What's tested
