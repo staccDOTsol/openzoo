@@ -152,8 +152,10 @@ The receipt names which base you got; `extra.directUsd` / `extra.savesVsDirect` 
 | rail | network | status |
 |---|---|---|
 | **Solana** (default) | `solana:5eykt…` | **live** — Token-2022 `TransferChecked`, partial-signed, gateway pays fees. Tested end-to-end against the production 402. Settlement uses a wrapped settlement mint as internal plumbing; you only ever hold and send USDC or TOKEN. |
-| Base | `eip155:8453` | implemented (standard x402 EIP-3009 `transferWithAuthorization`), **live-untested** — the zoo's 402s currently offer only Solana rows. |
-| Robinhood Chain | `eip155:4663` | experimental, behind `OPENZOO_ENABLE_RH=1` — the zoo ships this rail dark and facilitator settlement there is unverified. |
+| Base | `eip155:8453` | **offered by the zoo** — standard x402 EIP-3009 `transferWithAuthorization` against native USDC. Fund the wallet's EVM address with USDC on Base; nothing is converted. Settlement from this package is live-untested. |
+| Robinhood Chain | `eip155:4663` | experimental, behind `OPENZOO_ENABLE_RH=1`. The zoo quotes it, but its settlement asset has no conversion path here (conversion is Solana-only), so there is no plain balance you can fund and have the shim spend — use Solana or Base. |
+
+`npx openzoo` prints the rails off a live 402 at startup, and the funding line is derived from those rails — so a new chain shows up without this package shipping again.
 
 The rail is chosen from the 402's `accepts[]` itself (Solana first). Amounts are always taken as raw units from the 402, and Solana decimals are read from the mint **on-chain** — never hardcoded. (The zoo's own pasted prompt hardcodes `decimals = 6`; that's wrong for 18-decimal mints and this package deliberately does not copy the bug.)
 
