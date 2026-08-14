@@ -139,7 +139,6 @@ The rail is chosen from the 402's `accepts[]` itself (Solana first). Amounts are
 ## What's tested
 
 - Unit tests run against a **captured production 402 body** (`test/fixtures/live-402.json`): parsing, rail selection, and byte-level verification of the signed Solana transaction and the EVM typed-data payload.
-- Live-verified: `/v1/models` through the proxy (200), 402 parse + quote + wallet check against mainnet, on-chain mint/decimals read, and full payment construction (signed, not broadcast) against a production quote.
-- **Not yet live-verified: an actual settled paid call** — this session's wallet was unfunded, so settlement (the facilitator accepting the signed transfer) is untested from this client. The construction matches the gateway's own documented flow byte-for-byte.
+- Live-verified: `/v1/models` through the proxy (200), 402 parse + quote against mainnet, on-chain mint/decimals read, the internal USDC conversion (funded from plain USDC, settled on mainnet), and **a real settled paid call** — the full demo ran end-to-end against the production gateway: quote, automatic top-up from USDC, payment accepted by the facilitator, answer + receipt returned.
 
 MIT
