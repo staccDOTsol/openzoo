@@ -7,7 +7,7 @@ usage:
   npx openzoo            start the proxy on http://localhost:8402/v1
   npx openzoo mcp        stdio MCP server (tools: zoo_ask, zoo_models, zoo_wallet)
   npx openzoo demo       ~1M-token needle demo: direct refuses, the zoo answers
-  npx openzoo balance    wallet balances (yUSDCx / wTOKENx)
+  npx openzoo balance    wallet balance (USDC + SOL, with USD value)
   npx openzoo address    print the funding address
   npx openzoo help       this text
 
@@ -17,7 +17,7 @@ point any OpenAI-compatible harness at:
 
 env:
   OPENZOO_PORT (8402)  OPENZOO_API_BASE (https://x402-tokens.fly.dev)
-  OPENZOO_RPC (mainnet-beta)  OPENZOO_TOKEN (yUSDCx)  OPENZOO_WALLET (~/.openzoo/wallet.json)
+  OPENZOO_RPC (mainnet-beta)  OPENZOO_TOKEN (402 rail preference)  OPENZOO_WALLET (~/.openzoo/wallet.json)
   OPENZOO_MAX_USD_PER_CALL (0.5)  OPENZOO_DEMO_MAX_USD (0.01)
   OPENZOO_ENABLE_RH (0 — Robinhood Chain rail, experimental)`;
 

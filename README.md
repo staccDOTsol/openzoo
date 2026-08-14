@@ -92,18 +92,18 @@ npx openzoo demo
 Builds a ~965k-token document with one planted fact, shows that buying direct refuses it (*"The input token count exceeds the maximum number of tokens allowed."* — recorded, see [benches.openzoo.fun](https://benches.openzoo.fun)), then fetches the live x402 quote for the same body — the quote is free:
 
 ```
-quote: $0.009747 yUSDCx · pricing=counterfactual · direct would be $0.097474 · savesVsDirect=10.0×
+quote: $0.009747 · pricing=counterfactual · direct would be $0.097474 · savesVsDirect=10.0×
 ```
 
-If the wallet is funded it pays (capped at `OPENZOO_DEMO_MAX_USD`, default $0.01) and prints the answer, the tokens the model actually read, and the receipt. If not, it prints exactly what to fund.
+If the wallet is funded with USDC it pays (capped at `OPENZOO_DEMO_MAX_USD`, default $0.01) and prints the answer, the tokens the model actually read, and the receipt. If not, it prints exactly what to fund. Long waits (the multi-MB upload, pricing, payment, the answer) show a live progress line with stage + elapsed seconds.
 
 ## The wallet model
 
 - **Burner, local, yours.** A keypair in `~/.openzoo/wallet.json`, created on first run, chmod 600. Keys never leave your machine — the zoo only ever sees signed transfers.
-- **Fund it with yUSDCx** (mint `6ZjjxcoicqM4nniddkuPVwew4PDwY3swbfHsGbCuLuTv`), the $1-stable rail: wrap USDC at [x402.accrue.fund/start](https://x402.accrue.fund/start) and send to the address `npx openzoo address` prints. A few cents goes a long way.
-- **You don't need SOL.** The gateway is the transaction feePayer; you only sign the token transfer.
+- **Fund it with plain USDC.** Send a few cents of USDC to the address `npx openzoo address` prints. That's the whole funding story — the shim converts whatever the 402 quotes internally, at payment time, for exactly the amount needed.
+- **SOL is optional but nice.** The gateway sponsors payment-transaction fees. If the wallet holds a pinch of SOL (~0.003), the internal conversion settles as its own transaction first; with zero SOL the conversion rides inside the gateway-sponsored payment transaction instead.
 - **Spend caps.** The proxy refuses any single quote above `OPENZOO_MAX_USD_PER_CALL` (default $0.50).
-- `npx openzoo balance` / `npx openzoo address` — check funds / print the address.
+- `npx openzoo balance` / `npx openzoo address` — check funds (USDC + SOL + USD value) / print the address.
 
 ## Honest pricing note
 
@@ -117,7 +117,7 @@ The receipt names which base you got; `extra.directUsd` / `extra.savesVsDirect` 
 
 | rail | network | status |
 |---|---|---|
-| **Solana** (default) | `solana:5eykt…` | **live** — Token-2022 `TransferChecked`, partial-signed, gateway pays fees. Tested end-to-end against the production 402. |
+| **Solana** (default) | `solana:5eykt…` | **live** — Token-2022 `TransferChecked`, partial-signed, gateway pays fees. Tested end-to-end against the production 402. Settlement uses a wrapped settlement mint as internal plumbing; you only ever hold and send USDC. |
 | Base | `eip155:8453` | implemented (standard x402 EIP-3009 `transferWithAuthorization`), **live-untested** — the zoo's 402s currently offer only Solana rows. |
 | Robinhood Chain | `eip155:4663` | experimental, behind `OPENZOO_ENABLE_RH=1` — the zoo ships this rail dark and facilitator settlement there is unverified. |
 
@@ -130,7 +130,7 @@ The rail is chosen from the 402's `accepts[]` itself (Solana first). Amounts are
 | `OPENZOO_PORT` | `8402` | proxy port |
 | `OPENZOO_API_BASE` | `https://x402-tokens.fly.dev` | the zoo's door |
 | `OPENZOO_RPC` | mainnet-beta public RPC | Solana RPC |
-| `OPENZOO_TOKEN` | `yUSDCx` | which 402 row to pay |
+| `OPENZOO_TOKEN` | (internal) | preferred 402 rail — leave unset |
 | `OPENZOO_WALLET` | `~/.openzoo/wallet.json` | wallet path |
 | `OPENZOO_MAX_USD_PER_CALL` | `0.5` | refuse quotes above this |
 | `OPENZOO_DEMO_MAX_USD` | `0.01` | demo spend cap |
