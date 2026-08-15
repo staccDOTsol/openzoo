@@ -4,10 +4,10 @@ const cmd = process.argv[2] || 'proxy';
 const HELP = `openzoo — local x402-paying proxy + MCP server for openzoo.fun
 
 usage:
-  npx openzoo            start the proxy on http://localhost:8402/v1
+  npx openzoo            start the proxy: http://localhost:8402/v1 (keyless) PLUS a
+                         public HTTPS url for cloud IDEs (key required, printed at start)
   npx openzoo mcp        stdio MCP server (tools: zoo_ask, zoo_models, zoo_wallet)
-  npx openzoo tunnel     public HTTPS url for cloud IDEs that cannot reach localhost
-                         (installs cloudflared itself; mints a required api key)
+  npx openzoo tunnel     public-url-only mode (everything key-gated, no keyless localhost)
   npx openzoo demo       ~1M-token needle demo: direct refuses, the zoo answers
                          (run it twice — the second run reuses the bound corpus and is near-free)
   npx openzoo contexts   list corpora bound to the zoo (never re-uploaded)
@@ -35,13 +35,14 @@ env:
   OPENZOO_NO_CONTEXT_CACHE (0 — set 1 to always ship the full body)
   OPENZOO_ENABLE_RH (0 — let DEFAULT selection fall through to the Robinhood rail;
                      OPENZOO_RAIL=robinhood forces it without this)
-  OPENZOO_TUNNEL_MAX_USD (1.00 — tunnel session ceiling)  OPENZOO_TUNNEL_TOKEN (pin the api key)`;
+  OPENZOO_TUNNEL_MAX_USD (1.00 — public-url session ceiling)  OPENZOO_TUNNEL_TOKEN (pin the api key)
+  OPENZOO_NO_TUNNEL (0 — set 1 for localhost-only, no public url)`;
 
 async function main() {
   switch (cmd) {
     case 'proxy':
     case 'start':
-      await (await import('../lib/proxy.js')).startProxy();
+      await (await import('../lib/proxy.js')).startProxy({ autoTunnel: true });
       break;
     case 'mcp':
       await (await import('../lib/mcp.js')).startMcp();
