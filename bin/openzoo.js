@@ -6,9 +6,8 @@ const HELP = `openzoo — local x402-paying proxy + MCP server for openzoo.fun
 usage:
   npx openzoo            start the proxy: http://localhost:8402/v1 (keyless) PLUS a
                          public HTTPS url for cloud IDEs (key required, printed at start)
-  npx openzoo claude     launch Claude Code through the zoo — every turn pays x402
-                         (needs the proxy running; sets ANTHROPIC_BASE_URL for you)
-  npx openzoo launch <cmd> [args]   same, for any Anthropic-shaped harness
+  npx openzoo launch <cmd> [args]   launch a Messages API-compatible client
+                                    (needs the proxy running)
   npx openzoo mcp        stdio MCP server (tools: zoo_ask, zoo_bind, zoo_models, zoo_wallet, zoo_contexts)
   npx openzoo tunnel     public-url-only mode (everything key-gated, no keyless localhost)
   npx openzoo demo       ~1M-token needle demo: direct refuses, the zoo answers
@@ -50,15 +49,9 @@ async function main() {
     case 'mcp':
       await (await import('../lib/mcp.js')).startMcp();
       break;
-    case 'claude':
     case 'launch': {
-      // `npx openzoo claude [args]` runs Claude Code (or, with `launch <cmd>`,
-      // any Anthropic-shaped harness) through the local zoo — inference paid
-      // per turn over x402. The proxy must already be running.
       const rest = process.argv.slice(3);
-      const [harness, hargs] = cmd === 'launch'
-        ? [rest[0], rest.slice(1)]
-        : ['claude', rest];
+      const [harness, hargs] = [rest[0], rest.slice(1)];
       if (!harness) throw new Error('usage: openzoo launch <command> [args...]');
       await (await import('../lib/launch.js')).launchHarness(harness, hargs);
       break;
