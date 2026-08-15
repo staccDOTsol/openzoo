@@ -8,6 +8,8 @@ usage:
                          public HTTPS url for cloud IDEs (key required, printed at start)
   npx openzoo cursor [path]   start proxy+tunnel, write MCP config, and LAUNCH
                               Cursor already pointed at the zoo (env inherited)
+                              --profile  use an isolated editor profile the
+                                         vendor account cannot re-sync over
   npx openzoo vscode [path]   same, for VS Code
   npx openzoo editor [path]   whichever is installed (Cursor wins if both)
   npx openzoo launch <cmd> [args]   launch a TERMINAL Messages API client
