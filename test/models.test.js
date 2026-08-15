@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveModel } from '../lib/models.js';
 
+// Hermetic: resolveModel honours OPENZOO_DEFAULT_MODEL, so an ambient value
+// (a dev shell, a project .env) would otherwise flip every family-hint case.
+delete process.env.OPENZOO_DEFAULT_MODEL;
+
 const CATALOG = [
   'google/gemini-3.7-flash',
   'google/gemini-3.7-flash:batch',
