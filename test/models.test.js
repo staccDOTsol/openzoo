@@ -90,3 +90,24 @@ test('degenerate inputs never throw', () => {
   assert.equal(resolveModel('gpt-4o', []), null);
   assert.equal(resolveModel('gpt-4o', null), null);
 });
+
+test('an openzoo-* twin resolves EXACTLY to the model it was minted from', async () => {
+  const { augmentModelList } = await import('../lib/models.js');
+  // A catalog with a near-neighbour that similarity scoring used to prefer.
+  const C = ['anthropic/claude-opus-5', 'anthropic/claude-opus-5-fast',
+             'anthropic/claude-sonnet-5', 'anthropic/claude-sonnet-5:batch',
+             'deepseek/deepseek-v4-pro-0813'];
+  const merged = augmentModelList({ object: 'list', data: C.map((id) => ({ id })) });
+  for (const t of merged.data.filter((m) => m.id.startsWith('openzoo-'))) {
+    assert.equal(resolveModel(t.id, C), t.served_by, `${t.id} must land on its source`);
+  }
+  // ...and the env override must NOT hijack an explicit twin (it did: every
+  // picked model silently became the env one).
+  process.env.OPENZOO_DEFAULT_MODEL = 'deepseek/deepseek-v4-pro-0813';
+  try {
+    assert.equal(resolveModel('openzoo-claude-opus-5', C), 'anthropic/claude-opus-5');
+    assert.equal(resolveModel('openzoo-claude-sonnet-5', C), 'anthropic/claude-sonnet-5');
+    // a FOREIGN id still honours the override
+    assert.equal(resolveModel('gpt-4o', C), 'deepseek/deepseek-v4-pro-0813');
+  } finally { delete process.env.OPENZOO_DEFAULT_MODEL; }
+});

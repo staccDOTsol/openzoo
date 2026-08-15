@@ -12,11 +12,19 @@ usage:
                                a missing dir is created)
                               --profile  use an isolated editor profile the
                                          vendor account cannot re-sync over
+                              --block-backend  OPT-IN: point cursor's own backend
+                                         at 127.0.0.1 so it cannot re-sync over your
+                                         model list. WARNING: that host also serves
+                                         cursor's own catalog, so the picker may show
+                                         only "Auto". Undo: npx openzoo unblock
   npx openzoo vscode [path]   same, for VS Code
   npx openzoo editor [path]   whichever is installed (Cursor wins if both)
+  npx openzoo claude [dir]        Claude Code CLI on the zoo (x402 per turn); --desktop for the app
+                                          by default, --terminal for the Claude Code CLI
   npx openzoo launch <cmd> [args]   launch a TERMINAL Messages API client
                                     (claude, aider...) already pointed at the zoo
   npx openzoo mcp        stdio MCP server (tools: zoo_ask, zoo_bind, zoo_models, zoo_wallet, zoo_contexts)
+  npx openzoo unblock    restore the editor's own backend in the hosts file
   npx openzoo tunnel     public-url-only mode (everything key-gated, no keyless localhost)
   npx openzoo demo       ~1M-token needle demo: direct refuses, the zoo answers
                          (run it twice — the second run reuses the bound corpus and is near-free)
@@ -63,11 +71,22 @@ async function main() {
     case 'mcp':
       await (await import('../lib/mcp.js')).startMcp();
       break;
+    case 'claude':
+      await (await import('../lib/launch.js')).launchClaude(process.argv.slice(3));
+      break;
     case 'launch': {
       const rest = process.argv.slice(3);
       const [harness, hargs] = [rest[0], rest.slice(1)];
       if (!harness) throw new Error('usage: openzoo launch <command> [args...]');
       await (await import('../lib/launch.js')).launchHarness(harness, hargs);
+      break;
+    }
+    case 'unblock': {
+      const { unblockBackend, unredirect443, isBlocked } = await import('../lib/hosts.js');
+      try { unredirect443(); } catch { /* no redirect */ }
+      try { (await import('../lib/hosts.js')).unbindBackend443(); } catch { /* no backend */ }
+      const r = unblockBackend();
+      console.log(r.already ? 'not blocked — nothing to undo' : (isBlocked() ? 'still blocked (sudo declined?)' : 'restored: the editor can reach its own backend again'));
       break;
     }
     case 'tunnel':
