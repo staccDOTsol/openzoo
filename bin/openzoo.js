@@ -6,8 +6,10 @@ const HELP = `openzoo — local x402-paying proxy + MCP server for openzoo.fun
 usage:
   npx openzoo            start the proxy: http://localhost:8402/v1 (keyless) PLUS a
                          public HTTPS url for cloud IDEs (key required, printed at start)
-  npx openzoo cursor [path]   start proxy+tunnel, write MCP config, and LAUNCH
-                              Cursor already pointed at the zoo (env inherited)
+  npx openzoo cursor [dir]    start proxy+tunnel, write MCP config + every model
+                              into the picker, and LAUNCH Cursor on [dir]
+                              (defaults to the current directory; ~ works;
+                               a missing dir is created)
                               --profile  use an isolated editor profile the
                                          vendor account cannot re-sync over
   npx openzoo vscode [path]   same, for VS Code
