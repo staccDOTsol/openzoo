@@ -73,10 +73,16 @@ test('every shipped alias id resolves against the live-shaped catalog', async ()
     assert.ok(resolveModel(id, CATALOG), `alias ${id} did not resolve`);
   }
   const merged = augmentModelList({ object: 'list', data: CATALOG.map((id) => ({ id })) });
-  assert.equal(merged.data.length, CATALOG.length + ALIAS_IDS.length);
-  // no duplicates when an alias already exists upstream
+  // real models + one openzoo-<short> twin each + the harness aliases
+  assert.equal(merged.data.length, CATALOG.length * 2 + ALIAS_IDS.length);
+  // every twin points at a real model and is prefixed
+  const twins = merged.data.filter((m) => m.id.startsWith('openzoo-'));
+  assert.equal(twins.length, CATALOG.length);
+  for (const t of twins) assert.ok(CATALOG.includes(t.served_by), `${t.id} -> ${t.served_by}`);
+  // IDEMPOTENT: re-running must not double-add (no openzoo-openzoo-*)
   const again = augmentModelList(merged);
   assert.equal(again.data.length, merged.data.length);
+  assert.equal(again.data.filter((m) => m.id.startsWith('openzoo-openzoo')).length, 0);
 });
 
 test('degenerate inputs never throw', () => {
