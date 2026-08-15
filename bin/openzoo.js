@@ -30,12 +30,12 @@ env:
   OPENZOO_RPC (mainnet-beta)  OPENZOO_TOKEN (402 rail preference)  OPENZOO_WALLET (~/.openzoo/wallet.json)
   OPENZOO_RAIL (unset — force a rail: solana | base | robinhood)
   OPENZOO_BASE_RPC (https://mainnet.base.org)  OPENZOO_RH_RPC (rpc.mainnet.chain.robinhood.com)
-  OPENZOO_MAX_USD_PER_CALL (0.5)  OPENZOO_DEMO_MAX_USD (0.01)
+  OPENZOO_MAX_USD_PER_CALL (unset — NO per-call ceiling; set to add one)  OPENZOO_DEMO_MAX_USD (0.01)
   OPENZOO_CONTEXT_MIN_CHARS (16384 — bodies bigger than this bind once + reuse)
   OPENZOO_NO_CONTEXT_CACHE (0 — set 1 to always ship the full body)
   OPENZOO_ENABLE_RH (0 — let DEFAULT selection fall through to the Robinhood rail;
                      OPENZOO_RAIL=robinhood forces it without this)
-  OPENZOO_TUNNEL_MAX_USD (1.00 — public-url session ceiling)  OPENZOO_TUNNEL_TOKEN (pin the api key)
+  OPENZOO_TUNNEL_MAX_USD (unset — NO public-url session ceiling; set to add one)  OPENZOO_TUNNEL_TOKEN (pin the api key)
   OPENZOO_NO_TUNNEL (0 — set 1 for localhost-only, no public url)`;
 
 async function main() {
