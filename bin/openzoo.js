@@ -6,8 +6,11 @@ const HELP = `openzoo — local x402-paying proxy + MCP server for openzoo.fun
 usage:
   npx openzoo            start the proxy: http://localhost:8402/v1 (keyless) PLUS a
                          public HTTPS url for cloud IDEs (key required, printed at start)
-  npx openzoo launch <cmd> [args]   launch a Messages API-compatible client
-                                    (needs the proxy running)
+  npx openzoo cursor     wire Cursor to the zoo (writes MCP config, prints the
+                         base_url/key to paste into its AI settings)
+  npx openzoo vscode     same, for VS Code
+  npx openzoo launch <cmd> [args]   launch a TERMINAL Messages API client
+                                    (claude, aider...) already pointed at the zoo
   npx openzoo mcp        stdio MCP server (tools: zoo_ask, zoo_bind, zoo_models, zoo_wallet, zoo_contexts)
   npx openzoo tunnel     public-url-only mode (everything key-gated, no keyless localhost)
   npx openzoo demo       ~1M-token needle demo: direct refuses, the zoo answers
@@ -45,6 +48,11 @@ async function main() {
     case 'proxy':
     case 'start':
       await (await import('../lib/proxy.js')).startProxy({ autoTunnel: true });
+      break;
+    case 'cursor':
+    case 'vscode':
+      // GUI editors read config files, not env vars — see lib/setup.js.
+      (await import('../lib/setup.js')).setupEditor(cmd);
       break;
     case 'mcp':
       await (await import('../lib/mcp.js')).startMcp();
