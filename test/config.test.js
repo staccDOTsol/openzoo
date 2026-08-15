@@ -17,7 +17,7 @@ test('robinhood is fundable with plain tokens now the EVM conversion path exists
   // riding the hint, since the conversion txs are the wallet's own.
   assert.equal(
     railFundingHint(['solana', 'base', 'robinhood']),
-    'USDC or TOKEN on Solana · USDC on Base · USDG or ODDBALLER or ROBINHOODS on Robinhood Chain (plus a sliver of RH ETH for the conversion gas)',
+    'USDC or TOKEN on Solana · USDC on Base · USDG or ODDBALLER or IOU or ROBINHOODS on Robinhood Chain (plus a sliver of RH ETH for the conversion gas)',
   );
   assert.deepEqual(unfundableRails(['solana', 'base', 'robinhood']), []);
   assert.deepEqual(unfundableRails(['solana', 'base']), []);
