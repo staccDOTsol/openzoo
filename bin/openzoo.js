@@ -134,7 +134,7 @@ async function main() {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          model: (mi !== -1 && process.argv[mi + 1]) || process.env.OPENZOO_DEFAULT_MODEL || 'deepseek/deepseek-v4-pro-0813',
+          model: (mi !== -1 && process.argv[mi + 1]) || process.env.OPENZOO_DEFAULT_MODEL || 'anthropic/claude-opus-5',
           messages: [{ role: 'user', content: question }],
           max_tokens: Number(process.env.OPENZOO_ASK_MAX_TOKENS || 1024),
         }),
