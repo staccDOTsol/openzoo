@@ -77,6 +77,55 @@ async function main() {
       console.log('\nthese corpora never ship again — asks against them send only the question + X-HRR-Context.');
       break;
     }
+    case 'bind': {
+      const target = process.argv[3];
+      if (!target) throw new Error('usage: openzoo bind <file-or-directory> [--ext .txt,.md] [--force]');
+      const { bindPath } = await import('../lib/bindpath.js');
+      const ei = process.argv.indexOf('--ext');
+      const exts = ei !== -1 && process.argv[ei + 1]
+        ? process.argv[ei + 1].split(',').map((e) => (e.startsWith('.') ? e : `.${e}`))
+        : undefined;
+      const mb = (n) => (n / 1048576).toFixed(1);
+      const out = await bindPath(target, {
+        exts,
+        force: process.argv.includes('--force'),
+        onProgress: (p) => {
+          if (p.stage === 'reused') console.log(`already bound — ${mb(p.bytes)}MB across ${p.files} file(s) reused, nothing uploaded`);
+          if (p.stage === 'start') console.log(`binding ${mb(p.bytes)}MB from ${p.files} file(s) in ${p.parts} part(s)...`);
+          if (p.stage === 'part') console.log(`  part ${p.index}/${p.of} bound (${mb(p.bytes)}MB)`);
+        },
+      });
+      console.log('');
+      console.log(`context: ${out.contextId}`);
+      console.log(`ask it:  npx openzoo ask "your question" --context ${out.contextId}`);
+      console.log('or send X-HRR-Context: <id> with a small body to /v1/chat/completions');
+      break;
+    }
+    case 'ask': {
+      const question = process.argv[3];
+      if (!question) throw new Error('usage: openzoo ask "<question>" [--context <id>] [--model <id>]');
+      const ci = process.argv.indexOf('--context');
+      const mi = process.argv.indexOf('--model');
+      const { PayClient } = await import('../lib/pay.js');
+      const { config } = await import('../lib/config.js');
+      const client = new PayClient();
+      const headers = { 'content-type': 'application/json' };
+      if (ci !== -1 && process.argv[ci + 1]) headers['x-hrr-context'] = process.argv[ci + 1];
+      const { response, receipt } = await client.fetch(`${config.apiBase}/v1/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: (mi !== -1 && process.argv[mi + 1]) || process.env.OPENZOO_DEFAULT_MODEL || 'deepseek/deepseek-v4-pro-0813',
+          messages: [{ role: 'user', content: question }],
+          max_tokens: Number(process.env.OPENZOO_ASK_MAX_TOKENS || 1024),
+        }),
+      });
+      if (!response.ok) throw new Error(`zoo returned HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);
+      const data = await response.json();
+      console.log(data.choices?.[0]?.message?.content ?? '(no content)');
+      if (receipt) console.error(`\n${receipt.line}`);
+      break;
+    }
     case 'balance':
       await (await import('../lib/info.js')).printBalance();
       break;
