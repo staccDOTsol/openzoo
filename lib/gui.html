@@ -172,10 +172,23 @@ async function send() {
     if (state.ctx) headers["x-hrr-context"] = state.ctx;
     const r = await fetch("/v1/chat/completions", {
       method: "POST", headers,
-      body: JSON.stringify({ model: $("model").value, messages: state.messages, max_tokens: 2048 }),
+      // reasoning models bill their thinking inside max_tokens — 2048 bought
+      // a whole essay of invisible reasoning and zero visible words (measured
+      // live: deepseek, finish_reason "length", empty content, $0.0172)
+      body: JSON.stringify({
+        model: $("model").value,
+        messages: state.messages,
+        max_tokens: /deepseek|grok|thinking|fable|sonnet-5|-r1|reason/i.test($("model").value) ? 16384 : 4096,
+      }),
     });
     const d = await r.json();
-    const content = d.choices?.[0]?.message?.content || d.error?.message || JSON.stringify(d).slice(0, 300);
+    const ch = d.choices?.[0];
+    let content = ch?.message?.content || "";
+    if (!content && ch?.finish_reason === "length") {
+      content = "🦥 the animal thought so hard it ran out of room before saying anything. try again — the cage just got bigger.";
+    } else if (!content) {
+      content = d.error?.message || "🦉 the zoo returned something unusual: " + JSON.stringify(d).slice(0, 200);
+    }
     thinking.textContent = content;
     state.messages.push({ role: "assistant", content });
     const x = d.x402 || {};
