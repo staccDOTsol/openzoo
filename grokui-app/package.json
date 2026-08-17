@@ -1,0 +1,66 @@
+{
+  "name": "openzoo-grokui",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone desktop chat client — same message canvas as Grok Bot, backed by openzoo.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac --arm64 --x64",
+    "dist:linux": "electron-builder --linux --arm64 --x64",
+    "dist:win": "electron-builder --win --arm64 --x64",
+    "dist:all": "electron-builder -mwl --arm64 --x64"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "fun.openzoo.grokui",
+    "productName": "openzoo",
+    "files": [
+      "main.js",
+      "../lib/grokui.mjs",
+      "../lib/podagent.mjs",
+      "!**/node_modules/**/{test,__tests__}/**"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "Network"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ]
+    }
+  }
+}

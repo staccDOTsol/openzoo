@@ -1,0 +1,45 @@
+name: grokui multiarch build
+
+# Real multiarch installers, built NATIVELY per OS — cross-compiling Windows/
+# Linux installers from a single macOS box (no Docker/wine) isn't reliable,
+# so each platform gets its own runner via electron-builder.
+on:
+  push:
+    tags: ["grokui-v*"]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            script: dist:mac
+            artifact: mac-dmg
+            glob: grokui-app/dist/*.dmg
+          - os: windows-latest
+            script: dist:win
+            artifact: win-installer
+            glob: grokui-app/dist/*.exe
+          - os: ubuntu-latest
+            script: dist:linux
+            artifact: linux-appimage
+            glob: grokui-app/dist/*.AppImage
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install deps
+        working-directory: grokui-app
+        run: npm install
+      - name: Build (${{ matrix.script }})
+        working-directory: grokui-app
+        run: npm run ${{ matrix.script }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openzoo-grokui-${{ matrix.artifact }}
+          path: ${{ matrix.glob }}
+          if-no-files-found: error

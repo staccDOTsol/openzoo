@@ -23,6 +23,17 @@ usage:
                                           by default, --terminal for the Claude Code CLI
   npx openzoo launch <cmd> [args]   launch a TERMINAL Messages API client
                                     (claude, aider...) already pointed at the zoo
+  npx openzoo grokbot         KEEP Grok Bot's UI, serve YOUR RunPod box under it:
+                              spawns a CPU box, MITMs api2.cursor.sh, and answers
+                              EnsureSandBox with your box instead of a cursorvm pod.
+                              Inference x402-paid; needs RUNPOD_API_KEY + sudo.
+  npx openzoo grok-cli        point the grok CLI at the zoo — GROK MODELS ONLY,
+                              paid per call by x402 instead of xAI first-party billing,
+                              then TAKE OVER the app's backend: pins api2.cursor.sh in
+                              /etc/hosts, serves it locally on :443 with byok_enabled,
+                              and launches Grok Bot with Node TLS override (sudo required;
+                              ctrl-c restores /etc/hosts).
+                              --no-takeover plain launch · --no-launch config only
   npx openzoo mcp        stdio MCP server (tools: zoo_ask, zoo_bind, zoo_models, zoo_wallet, zoo_contexts)
   npx openzoo unblock    restore the editor's own backend in the hosts file
   npx openzoo tunnel     public-url-only mode (everything key-gated, no keyless localhost)
@@ -67,6 +78,16 @@ async function main() {
     case 'vscode':
       // GUI editors read config files, not env vars — see lib/setup.js.
       await (await import('../lib/setup.js')).setupEditor(cmd === 'editor' ? undefined : cmd, process.argv[3]);
+      break;
+    case 'grokbot':
+      await (await import('../lib/grokbot.js')).runGrokBot(process.argv.slice(3));
+      break;
+    case 'grok-cli':
+    case 'grok':
+      // Grok Bot (com.anysphere.sand) fronts the `grok` CLI, and the CLI reads
+      // ~/.grok/config.toml — so pointing that model table at the local proxy
+      // is enough; no patching of the app bundle.
+      await (await import('../lib/grokcli.js')).setupGrokBot(process.argv.slice(3));
       break;
     case 'mcp':
       await (await import('../lib/mcp.js')).startMcp();
