@@ -111,6 +111,11 @@ workspace folder, not their real project. Same one-line-no-prose reply format:
                                                        starting a real process, checking
                                                        actual CLI/login state, etc. — instead
                                                        of guessing or saying you can't.
+Via RUN you can also make YOUR OWN paid openzoo calls — POST to
+http://localhost:8402/v1/chat/completions (or /v1/hrr/bind) with curl/python/etc. Auth is
+"Authorization: Bearer sk-openzoo" — any string works, x402 pays per call, not the key. Do
+NOT tell the user you "can't fire the paid calls" or need "their client's bearer key" —
+that's wrong, you can make these calls yourself via RUN.
 For normal questions just answer directly — do not use any of these unless the request
 actually calls for delegation or file work.`;
 
@@ -194,10 +199,21 @@ actually calls for delegation or file work.` };
 // (instead of a private per-member log) so each bot sees what the others in
 // the group already said — including earlier replies from THIS round, since
 // runTurn pushes to t.history sequentially, one member at a time.
+// OpenAI-shaped multimodal content: plain string when there's no image,
+// [{type:'text',...}, {type:'image_url',...}] array when there is — mixing
+// the two shapes on a string-only history entry would break providers that
+// expect ONE consistent form per message.
+function contentFor(text, images) {
+  if (!images || !images.length) return text;
+  // an empty text block alongside image_url content gets rejected (400) by
+  // at least one provider path — always give it something
+  return [{ type: 'text', text: text || 'Describe this image.' }, ...images.map((url) => ({ type: 'image_url', image_url: { url } }))];
+}
+
 function buildMemberMessages(t, member) {
   const msgs = [{ role: 'system', content: member.systemPrompt || SYSTEM }];
   for (const h of t.history) {
-    if (h.who === 'user') msgs.push({ role: 'user', content: h.text });
+    if (h.who === 'user') msgs.push({ role: 'user', content: contentFor(h.text, h.images) });
     else if (h.name === member.name) msgs.push({ role: 'assistant', content: h.text });
     else msgs.push({ role: 'user', content: `[${h.name}]: ${h.text}` });
   }
@@ -341,10 +357,10 @@ async function tryDirective(reply, originId) {
 // its full reply (or directive ack) is settled. Background turns — a SPAWNed
 // subagent nobody's looking at yet — run with onEvent omitted and just use
 // the plain non-streaming brain(), which is cheaper when nothing renders it.
-async function runTurn(threadId, userText, onEvent) {
+async function runTurn(threadId, userText, onEvent, images) {
   const t = threads.get(threadId);
   if (!t) return;
-  t.history.push({ who: 'user', text: userText });
+  t.history.push(images && images.length ? { who: 'user', text: userText, images } : { who: 'user', text: userText });
   t.lastActivityAt = Date.now();
   if (t.members) {
     t.status = 'thinking';
@@ -392,7 +408,7 @@ async function runTurn(threadId, userText, onEvent) {
     bindThread(t).catch(() => {});
     return;
   }
-  t.messages.push({ role: 'user', content: userText });
+  t.messages.push({ role: 'user', content: contentFor(userText, images) });
   t.status = 'thinking';
   let reply = '';
   onEvent?.({ type: 'start', name: t.name, color: t.color });
@@ -508,6 +524,8 @@ const APP_HTML = `<!doctype html>
   .bubble { padding: 11px 16px; border-radius: 20px; white-space: pre-wrap; word-break: break-word;
             -webkit-user-select: text; user-select: text; cursor: text; }
   .bubble a { color: #6ab0ff; text-decoration: underline; cursor: pointer; }
+  .bubble-images { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .bubble-images img { max-width: 160px; max-height: 160px; border-radius: 12px; display: block; }
   .runcard { background: #1c1c1e; border: 1px solid #333; border-radius: 14px; padding: 12px 14px; max-width: 100%; }
   .runcmd { font-family: Menlo, monospace; font-size: 12.5px; color: #ececec; white-space: pre-wrap;
             word-break: break-word; margin-bottom: 8px; }
@@ -548,6 +566,11 @@ const APP_HTML = `<!doctype html>
   .achip { display: flex; align-items: center; gap: 6px; background: #2c2c2e; color: #ececec; border-radius: 10px;
            padding: 4px 8px; font-size: 12px; }
   .achip .ax { cursor: pointer; color: #8e8e93; }
+  .achip.aimg { padding: 4px; position: relative; }
+  .achip.aimg img { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; display: block; }
+  .achip.aimg .ax { position: absolute; top: -4px; right: -4px; background: #000; border-radius: 50%;
+                     width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;
+                     font-size: 10px; }
   #inp { flex: 1; background: transparent; border: none; color: #ececec; font: inherit;
          padding: 6px 0; min-width: 0; }
   #inp::placeholder { color: #8e8e93; }
@@ -701,7 +724,7 @@ const APP_HTML = `<!doctype html>
   }
 
   let lastSpeaker = null;
-  function addRow(who, text, color, name, run) {
+  function addRow(who, text, color, name, run, images) {
     const speakerKey = who + '|' + name;
     if (who === 'bot' && speakerKey !== lastSpeaker) {
       const hdr = document.createElement('div');
@@ -757,7 +780,19 @@ const APP_HTML = `<!doctype html>
     } else {
       const bubble = document.createElement('div');
       bubble.className = 'bubble';
-      bubble.innerHTML = renderMentions(text);
+      if (images && images.length) {
+        const strip = document.createElement('div');
+        strip.className = 'bubble-images';
+        for (const url of images) {
+          const img = document.createElement('img');
+          img.src = url;
+          strip.appendChild(img);
+        }
+        bubble.appendChild(strip);
+      }
+      const textEl = document.createElement('div');
+      textEl.innerHTML = renderMentions(text);
+      bubble.appendChild(textEl);
       row.appendChild(bubble);
     }
     log.appendChild(row);
@@ -777,13 +812,14 @@ const APP_HTML = `<!doctype html>
     lastSpeaker = null;
     for (const h of full.history) {
       addRow(h.who, h.text, h.color || t.color, h.name || t.name,
-        h.runId ? { id: h.runId, status: h.runStatus, output: h.runOutput } : undefined);
+        h.runId ? { id: h.runId, status: h.runStatus, output: h.runOutput } : undefined, h.images);
     }
     if (full.status === 'thinking') addRow('bot', '…', t.color, t.name);
     if (wasNearBottom) log.scrollTop = log.scrollHeight;
   }
 
   let pendingFiles = [];
+  let pendingImages = [];
   const attachChips = document.getElementById('attachChips');
   function renderAttachChips() {
     attachChips.innerHTML = '';
@@ -792,6 +828,13 @@ const APP_HTML = `<!doctype html>
       chip.className = 'achip';
       chip.innerHTML = '<span>' + escapeHtml(f.name) + (f.content === null ? ' (binary — name only)' : '') + '</span><span class="ax">✕</span>';
       chip.querySelector('.ax').addEventListener('click', () => { pendingFiles.splice(i, 1); renderAttachChips(); });
+      attachChips.appendChild(chip);
+    });
+    pendingImages.forEach((img, i) => {
+      const chip = document.createElement('span');
+      chip.className = 'achip aimg';
+      chip.innerHTML = '<img src="' + img.dataUrl + '"><span class="ax">✕</span>';
+      chip.querySelector('.ax').addEventListener('click', () => { pendingImages.splice(i, 1); renderAttachChips(); });
       attachChips.appendChild(chip);
     });
   }
@@ -803,28 +846,54 @@ const APP_HTML = `<!doctype html>
       r.readAsText(file);
     });
   }
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = () => resolve(null);
+      r.readAsDataURL(file);
+    });
+  }
+  async function addPastedImage(file) {
+    const dataUrl = await readFileAsDataUrl(file);
+    if (dataUrl) pendingImages.push({ name: file.name || 'pasted-image', dataUrl });
+    renderAttachChips();
+    send.classList.toggle('show', inp.value.trim().length > 0 || pendingFiles.length > 0 || pendingImages.length > 0);
+  }
+  inp.addEventListener('paste', (e) => {
+    const items = Array.from(e.clipboardData?.items || []);
+    const imageItems = items.filter((it) => it.type && it.type.startsWith('image/'));
+    if (!imageItems.length) return; // let normal text paste through
+    e.preventDefault();
+    for (const it of imageItems) { const f = it.getAsFile(); if (f) addPastedImage(f); }
+  });
 
   async function submit() {
     const task = inp.value.trim();
-    if ((!task && !pendingFiles.length) || !activeId) return;
+    if ((!task && !pendingFiles.length && !pendingImages.length) || !activeId) return;
     inp.value = '';
     send.classList.remove('show');
     let full = task;
+    // an image with no caption still needs SOME text — an empty text block
+    // alongside image_url content gets rejected (400) by at least one path
+    if (!full && pendingImages.length) full = 'Describe this image.';
     for (const f of pendingFiles) {
       full += f.content !== null
         ? '\\n\\n--- attached: ' + f.name + ' ---\\n' + f.content
         : '\\n\\n(attached binary file: ' + f.name + ', ' + f.size + ' bytes — content not readable as text)';
     }
+    const images = pendingImages.map((i) => i.dataUrl);
     pendingFiles = [];
+    pendingImages = [];
     renderAttachChips();
     await fetch('/drive', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ threadId: activeId, task: full }),
+      body: JSON.stringify({ threadId: activeId, task: full, images }),
     });
     render();
   }
 
-  inp.addEventListener('input', () => { send.classList.toggle('show', inp.value.trim().length > 0 || pendingFiles.length > 0); });
+  inp.addEventListener('input', () => { send.classList.toggle('show', inp.value.trim().length > 0 || pendingFiles.length > 0 || pendingImages.length > 0); });
   send.addEventListener('click', submit);
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
 
@@ -1079,10 +1148,11 @@ const server = http.createServer((req, res) => {
     const chunks = [];
     req.on('data', (d) => chunks.push(d));
     req.on('end', async () => {
-      let threadId = '', task = '';
+      let threadId = '', task = '', images = [];
       try {
         const j = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         threadId = j.threadId; task = (j.task || '').toString();
+        images = Array.isArray(j.images) ? j.images.filter((u) => typeof u === 'string') : [];
       } catch { /* ignore */ }
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
@@ -1113,7 +1183,7 @@ const server = http.createServer((req, res) => {
         saveThreads();
         return;
       }
-      runTurn(threadId, task).catch(() => {});
+      runTurn(threadId, task, undefined, images).catch(() => {});
     });
     return;
   }
