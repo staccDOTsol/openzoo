@@ -1,0 +1,74 @@
+name: grokui linux
+
+# One workflow per platform, deliberately.
+#
+# This used to be a single matrix job plus a `release` job with `needs: build`,
+# which meant ANY platform failing blocked the whole release, and you could not
+# re-run one platform alone — macOS is the slow, fragile leg (~8m, much of it
+# Apple's notarization queue), so it took the other two down with it.
+#
+# Now each platform builds AND publishes its own assets. The release accumulates
+# as they land: linux and windows are up in ~2-4m while macOS is still
+# notarizing, and a mac failure costs only the DMGs.
+on:
+  push:
+    tags: ["grokui-v*"]
+  workflow_dispatch: {}
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install deps
+        working-directory: grokui-app
+        run: npm install
+
+      - name: Build
+        working-directory: grokui-app
+        run: npm run dist:linux
+
+      - name: Verify output
+        run: |
+          set -eu
+          ls -lh grokui-app/dist/*.AppImage
+          [ "$(find grokui-app/dist -name '*.AppImage' | wc -l)" -gt 0 ] \
+            || { echo 'FAIL: no AppImage produced'; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openzoo-grokui-linux-appimage
+          path: grokui-app/dist/*.AppImage
+          if-no-files-found: error
+
+      # Create-or-append. Three workflows race for the same release, so create
+      # is best-effort and upload always --clobber's: whoever gets there first
+      # makes it, the rest attach to it. Retried because github.com 503s
+      # intermittently and has already eaten a publish step in this repo.
+      - name: Publish AppImages to the release
+        if: startsWith(github.ref, 'refs/tags/grokui-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          TAG="${GITHUB_REF#refs/tags/}"
+          for i in 1 2 3 4 5 6; do
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "openzoo grokui ${TAG#grokui-}" --generate-notes 2>/dev/null && break
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            echo "release not ready (attempt $i) — retrying"; sleep $((i * 10))
+          done
+          for i in 1 2 3 4 5 6; do
+            if gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber grokui-app/dist/*.AppImage; then
+              echo "uploaded"; exit 0
+            fi
+            echo "upload failed (attempt $i) — retrying"; sleep $((i * 10))
+          done
+          echo "FAILED to upload after 6 attempts; artifacts are attached to this run"
+          exit 1

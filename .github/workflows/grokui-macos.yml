@@ -1,0 +1,143 @@
+name: grokui macos
+
+# See grokui-linux.yml for why this is one workflow per platform.
+#
+# macOS is the slow, fragile leg — ~8m, and a large part of that is Apple's
+# NOTARIZATION QUEUE, which is a network wait no faster hardware shortens. It
+# used to block linux and windows from publishing at all; now it only ever
+# costs the DMGs.
+#
+# scripts/release-mac.sh is the escape hatch: builds, signs and notarizes on the
+# maintainer's own Mac and uploads to the release, for when github.com is down
+# or a DMG is wanted in a hurry.
+on:
+  push:
+    tags: ["grokui-v*"]
+  workflow_dispatch: {}
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install deps
+        working-directory: grokui-app
+        run: npm install
+
+      # Real Developer ID signing + notarization when the secrets exist, and a
+      # clean ad-hoc fallback when they don't (see build/afterPack.js). Without
+      # notarization macOS shows "Apple could not verify openzoo is free of
+      # malware" on first launch; with it, the app just opens.
+      #
+      # Requires, as repo secrets:
+      #   MAC_CERT_P12       base64 of a DEVELOPER ID APPLICATION .p12 export
+      #                      (NOT "Development" or "Distribution Managed" —
+      #                      those are for Xcode/App Store and cannot notarize
+      #                      a directly-distributed DMG)
+      #   MAC_CERT_PASSWORD  the .p12 export password
+      #   APPLE_API_KEY_ID / APPLE_API_ISSUER / APPLE_API_KEY_P8
+      #                      App Store Connect API key used to notarize
+      #   APPLE_TEAM_ID      e.g. 38DS45YWYM
+      # Notarization takes EITHER an App Store Connect API key (.p8 + key id +
+      # issuer) OR an Apple ID with an app-specific password. Enable it only
+      # when one of those actually exists — electron-builder's default is a
+      # hard failure when `notarize` is on and the options can't be built, and
+      # a fork with no Apple account must still get a working (ad-hoc) build.
+      - name: Enable notarization (only when credentials exist)
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$APPLE_API_KEY_P8" ]; then
+            mkdir -p ~/private_keys
+            echo "$APPLE_API_KEY_P8" | base64 --decode > ~/private_keys/AuthKey.p8
+            echo "APPLE_API_KEY=$HOME/private_keys/AuthKey.p8" >> "$GITHUB_ENV"
+            echo "notarize=api-key"
+          elif [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ]; then
+            echo "notarize=apple-id"
+          else
+            echo "notarize=off (no credentials); ad-hoc signature only"
+            exit 0
+          fi
+          node -e "
+            const fs=require('fs'), f='grokui-app/package.json';
+            const p=JSON.parse(fs.readFileSync(f,'utf8'));
+            // electron-builder 25 wants a BOOLEAN here and reads the team from
+            // the APPLE_TEAM_ID env var; passing {teamId} makes it warn
+            // 'Please specify notarization Team ID in the APPLE_TEAM_ID env
+            // var instead of notarize.teamId' and ignore the field.
+            p.build.mac.notarize=true;
+            fs.writeFileSync(f, JSON.stringify(p,null,2)+'\n');
+            console.log('notarize enabled for team', process.env.APPLE_TEAM_ID);
+          "
+
+      - name: Build
+        working-directory: grokui-app
+        env:
+          # electron-builder picks these up automatically. When CSC_LINK is
+          # empty it skips real signing and afterPack's ad-hoc signature stands,
+          # so unconfigured forks still produce a working (if unnotarized) app.
+          CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        # macOS runners default to a 256-descriptor limit, and codesign --deep
+        # over the packaged dependency tree blows straight through it:
+        #   EMFILE: too many open files ... viem/_esm/chains/definitions/tac.js
+        shell: bash
+        run: |
+          ulimit -n 65535 2>/dev/null || ulimit -n unlimited 2>/dev/null || true
+          echo "open-file limit: $(ulimit -n)"
+          npm run dist:mac
+
+      - name: Verify signature
+        shell: bash
+        run: |
+          set -eu
+          ls -lh grokui-app/dist/*.dmg
+          APP="$(find grokui-app/dist -maxdepth 2 -name 'openzoo.app' | head -1)"
+          if [ -n "$APP" ]; then
+            codesign --verify --deep --strict "$APP" || { echo 'FAIL: signature does not verify'; exit 1; }
+            codesign -dv --verbose=2 "$APP" 2>&1 | grep -E 'Authority|TeamIdentifier' || true
+            spctl -a -vvv -t install "$APP" 2>&1 || true
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openzoo-grokui-mac-dmg
+          path: grokui-app/dist/*.dmg
+          if-no-files-found: error
+
+      - name: Publish DMGs to the release
+        if: startsWith(github.ref, 'refs/tags/grokui-v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          TAG="${GITHUB_REF#refs/tags/}"
+          for i in 1 2 3 4 5 6; do
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "openzoo grokui ${TAG#grokui-}" --generate-notes 2>/dev/null && break
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            echo "release not ready (attempt $i) — retrying"; sleep $((i * 10))
+          done
+          for i in 1 2 3 4 5 6; do
+            if gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber grokui-app/dist/*.dmg; then
+              echo "uploaded"; exit 0
+            fi
+            echo "upload failed (attempt $i) — retrying"; sleep $((i * 10))
+          done
+          echo "FAILED to upload after 6 attempts; artifacts are attached to this run"
+          exit 1
