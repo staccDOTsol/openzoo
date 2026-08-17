@@ -141,10 +141,28 @@ supervise() {
   done
 }
 
-supervise "openzoo proxy" 8402 node "$OZ_ENTRY" &
-log "openzoo proxy :8402"
-supervise "grokui" "$OZ_GROKUI_PORT" node "$UI_ENTRY" &
-log "grokui :${OZ_GROKUI_PORT}"
+# ONE ORCHESTRATOR, NOT TWO.
+#
+# box-server.mjs runs ensureOz() on boot and every 90s, and ensureOz starts its
+# OWN openzoo (from /workspace/.oz-app) and its OWN grokui. If this script also
+# starts them, both race for the same ports and the log fills with
+#   openzoo: listen EADDRINUSE: address already in use 0.0.0.0:8402
+# The loser dies, supervise() restarts it, it loses again — and a thrashing
+# grokui drops in-flight requests, which surfaces in the UI as
+# "the model returned nothing", i.e. it looks like a provider fault when it is
+# two of our own processes fighting.
+#
+# So: when OZ_UI_B64 is present, box-server is the orchestrator and owns both
+# services. Without it (a bare `docker run`), nothing else would start them and
+# this script must.
+if [ -z "${OZ_UI_B64:-}" ]; then
+  supervise "openzoo proxy" 8402 node "$OZ_ENTRY" &
+  log "openzoo proxy :8402"
+  supervise "grokui" "$OZ_GROKUI_PORT" node "$UI_ENTRY" &
+  log "grokui :${OZ_GROKUI_PORT}"
+else
+  log "box-server present — it owns openzoo/grokui; not starting duplicates (EADDRINUSE)"
+fi
 
 # ---- 6. reaper: spawn sets an absolute expiry -------------------------------
 if [ -n "${OPENZOO_EXPIRES_UNIX:-}" ]; then
