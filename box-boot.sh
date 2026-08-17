@@ -22,6 +22,10 @@ OZ_DIR=/workspace/.oz-app
 export OZ_GROKUI_BIND="${OZ_GROKUI_BIND:-0.0.0.0}"
 export OPENZOO_BIND="${OPENZOO_BIND:-0.0.0.0}"
 export OZ_GROKUI_PORT="${OZ_GROKUI_PORT:-4173}"
+# Threads default to the volume, because that is where box-server unpacks
+# uploads. Without this a bot GLOBs ~/.openzoo/grokui-workspace, finds nothing,
+# and looks broken while the user's files sit in /workspace.
+export OZ_WORKSPACE_DIR="${OZ_WORKSPACE_DIR:-/workspace}"
 export OPENAI_BASE_URL="${OPENAI_BASE_URL:-http://127.0.0.1:8402/v1}"
 
 log() { echo "[box-boot] $*"; }
