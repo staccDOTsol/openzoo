@@ -1,6 +1,6 @@
 {
   "name": "openzoo-grokui",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "private": true,
   "description": "Standalone desktop chat client — same message canvas as Grok Bot, backed by openzoo.",
   "main": "main.js",
@@ -24,7 +24,8 @@
       "preload.js",
       "lib/**/*",
       "!**/node_modules/**/{test,__tests__}/**",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "build/**/*"
     ],
     "directories": {
       "output": "dist"
@@ -44,7 +45,8 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "notarize": false
+      "notarize": false,
+      "icon": "build/icon.icns"
     },
     "linux": {
       "target": [
@@ -56,7 +58,8 @@
           ]
         }
       ],
-      "category": "Network"
+      "category": "Network",
+      "icon": "build/icon.png"
     },
     "win": {
       "target": [
@@ -67,7 +70,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "icon": "build/icon.ico"
     },
     "afterPack": "build/afterPack.js",
     "npmRebuild": false
