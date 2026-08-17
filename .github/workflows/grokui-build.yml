@@ -14,11 +14,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS is NOT built here — it is built, signed and notarized on the
-          # maintainer's own Mac with scripts/release-mac.sh --publish, which
-          # attaches the DMGs to this release afterwards. The signing cert and
-          # its password live in ~/openzoo-signing; CI keeps MAC_CERT_P12 etc.
-          # as secrets only so this can be reverted by re-adding the entry.
+          # All four desktop targets build here: mac arm64 + x64 (one job, both
+          # arches), windows, linux. They run in PARALLEL, so wall clock is the
+          # slowest leg — macOS at ~8m, of which a large part is Apple's
+          # notarization queue and is not something faster hardware fixes.
+          #
+          # Docker Build Cloud cannot help here and is not a substitute: it
+          # builds LINUX CONTAINER IMAGES only (its builders are exactly
+          # linux-amd64 and linux-arm64). A .dmg needs a Mac for codesign and
+          # notarytool; a .exe needs Windows. Build Cloud is used by
+          # docker-box.yml for the box image, which is a different artifact.
+          #
+          # scripts/release-mac.sh remains as the escape hatch: it builds,
+          # signs and notarizes on the maintainer's Mac and uploads to the
+          # release, for when github.com is down or a DMG is wanted quickly.
+          - os: macos-latest
+            script: dist:mac
+            artifact: mac-dmg
+            glob: grokui-app/dist/*.dmg
           - os: windows-latest
             script: dist:win
             artifact: win-installer
@@ -55,10 +68,6 @@ jobs:
       # when one of those actually exists — electron-builder's default is a
       # hard failure when `notarize` is on and the options can't be built, and
       # a fork with no Apple account must still get a working (ad-hoc) build.
-      # DORMANT: no macos-latest entry is in the matrix any more, so this never
-      # runs. Kept deliberately — re-adding that one matrix entry restores the
-      # full macOS CI build with signing and notarization, and the secrets it
-      # reads are still set. Delete both together or neither.
       - name: Enable notarization (macOS, only when credentials exist)
         if: matrix.os == 'macos-latest'
         env:
@@ -140,12 +149,11 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      # No *.dmg here on purpose — macOS ships from the maintainer's Mac.
-      - name: Verify every CI platform is present
+      - name: Verify every platform is present
         run: |
           set -eu
           ls -lh artifacts/
-          for pat in '*.exe' '*.AppImage'; do
+          for pat in '*.dmg' '*.exe' '*.AppImage'; do
             # shellcheck disable=SC2086
             count=$(find artifacts -name "$pat" | wc -l)
             [ "$count" -gt 0 ] || { echo "FAIL: no $pat — refusing to publish a partial release"; exit 1; }
