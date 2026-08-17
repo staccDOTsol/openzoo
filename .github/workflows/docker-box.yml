@@ -1,0 +1,128 @@
+# Build the openzoo box image and push it to Docker Hub.
+#
+# Triggers on any grokui-v* / v* tag, so cutting a release publishes the image
+# with no further action. Also runnable by hand with an explicit tag to
+# reproduce an older image.
+#
+# The image bakes grokui + openzoo + node_modules onto disk so a box never
+# fetches from GitHub at boot: RunPod egress IPs get 429'd, and a 429 from
+# raw.githubusercontent lands as a file whose CONTENTS are the text
+# "429: Too Many Requests", which then fails like an app bug rather than a
+# download bug.
+name: docker-box
+
+on:
+  push:
+    tags: ['grokui-v*', 'v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'openzoo tag to bake (blank = newest grokui-v*)'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the tag being baked
+        id: oz
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="${{ github.event.inputs.tag }}"
+          fi
+          if [ -z "$TAG" ]; then TAG=latest; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "baking $TAG"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # amd64 only here, and --load'ed, so the smoke test can actually RUN it.
+      # A multi-arch build produces a manifest that cannot be loaded into the
+      # local docker, so the gate has to happen before the push build below.
+      # Layers are shared via the gha cache, so this is not built twice.
+      - name: Build (amd64, for smoke test)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: box.Dockerfile
+          build-args: OZ_TAG=${{ steps.oz.outputs.tag }}
+          platforms: linux/amd64
+          load: true
+          tags: openzoo-box:smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The gate. A 429 corpse, a missing bin, a musl base, or a UI that does
+      # not actually serve fails HERE and nothing reaches Docker Hub.
+      - name: Smoke test
+        run: |
+          set -eu
+          docker run --rm openzoo-box:smoke cat /etc/os-release | grep -qi debian \
+            || { echo 'FAIL: base is not Debian'; exit 1; }
+          docker run --rm openzoo-box:smoke test -f /opt/openzoo/bin/openzoo.js \
+            || { echo 'FAIL: /opt/openzoo/bin/openzoo.js missing'; exit 1; }
+          docker run --rm openzoo-box:smoke test -d /opt/openzoo/node_modules \
+            || { echo 'FAIL: /opt/openzoo/node_modules missing'; exit 1; }
+          docker run --rm openzoo-box:smoke sh -c 'head -c 3 /opt/grokui/grokui.mjs | grep -q 429' \
+            && { echo 'FAIL: baked grokui.mjs is a 429 corpse'; exit 1; } || true
+          echo "baked tag: $(docker run --rm openzoo-box:smoke cat /opt/openzoo/.oz-tag)"
+
+          docker run --rm -d --name ozbox -p 4173:4173 -p 8402:8402 openzoo-box:smoke
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -fsS -o /tmp/g.html http://127.0.0.1:4173/; then ok=1; break; fi
+            sleep 1
+          done
+          echo '--- container logs ---'; docker logs ozbox 2>&1 | tail -20
+          [ "$ok" = 1 ] || { echo 'FAIL: grokui never served on :4173'; docker rm -f ozbox; exit 1; }
+          if head -c 3 /tmp/g.html | grep -q 429; then echo 'FAIL: served a 429'; exit 1; fi
+          grep -qi '<!doctype html' /tmp/g.html \
+            || { echo 'FAIL: not HTML:'; head -c 200 /tmp/g.html; docker rm -f ozbox; exit 1; }
+          echo "OK: $(wc -c < /tmp/g.html) bytes of grokui HTML"
+          docker rm -f ozbox
+
+      - name: Compute Hub tags
+        id: meta
+        run: |
+          T="${{ steps.oz.outputs.tag }}"
+          SHA="sha-$(echo ${{ github.sha }} | cut -c1-7)"
+          U="${{ secrets.DOCKERHUB_USERNAME }}"
+          {
+            echo "tags<<EOF"
+            for repo in openzoo-box grokui; do
+              echo "$U/$repo:latest"
+              if [ "$T" != "latest" ]; then echo "$U/$repo:$T"; fi
+              echo "$U/$repo:$SHA"
+            done
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: box.Dockerfile
+          build-args: OZ_TAG=${{ steps.oz.outputs.tag }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "### Pushed to Docker Hub" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

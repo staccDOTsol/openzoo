@@ -1,0 +1,8 @@
+.git
+.github
+node_modules
+grokui-app/node_modules
+grokui-app/dist
+grokui-app/.prod-modules
+**/*.log
+.DS_Store
