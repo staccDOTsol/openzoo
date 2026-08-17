@@ -28,7 +28,19 @@ SIGN_DIR="${OZ_SIGN_DIR:-$HOME/openzoo-signing}"
 P12="$SIGN_DIR/openzoo-devid.p12"
 P12_PASS_FILE="$SIGN_DIR/p12-password.txt"
 PUBLISH=0
-[ "${1:-}" = "--publish" ] && PUBLISH=1
+# Default to BOTH architectures because a release needs Intel too. --arm64
+# halves the work — a second full package, a second ~9,300-file codesign walk,
+# a 104MB x64 Electron download and a second notarization wait on Apple's
+# queue — and is the right choice when iterating on this Mac rather than
+# cutting a release.
+ARCHES="--arm64 --x64"
+for a in "$@"; do
+  case "$a" in
+    --publish) PUBLISH=1 ;;
+    --arm64)   ARCHES="--arm64" ;;
+    --x64)     ARCHES="--x64" ;;
+  esac
+done
 
 say() { printf '\n\033[1;32m==>\033[0m %s\n' "$*"; }
 die() { printf '\n\033[1;31mFAIL:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -102,8 +114,12 @@ fi
 # descriptor limit; this is the same guard CI needs.
 ulimit -n 65535 2>/dev/null || true
 
-say "building (this takes a few minutes)"
-CSC_KEYCHAIN="$KEYCHAIN" CSC_NAME="$IDENTITY" npm run dist:mac
+say "building $ARCHES — this takes a few minutes"
+# CSC_NAME takes the BARE common name. Passing the full identity string fails
+# with: 'Please remove prefix "Developer ID Application:" from the specified
+# name — appropriate certificate will be chosen automatically'.
+CSC_NAME_BARE="${IDENTITY#Developer ID Application: }"
+CSC_KEYCHAIN="$KEYCHAIN" CSC_NAME="$CSC_NAME_BARE" npx electron-builder --mac $ARCHES
 
 if [ "$RESTORE_NOTARIZE" = 1 ]; then
   node -e "

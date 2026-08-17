@@ -88,14 +88,63 @@ function copyNodeModules(context) {
   const dest = path.join(appDir, 'node_modules');
   fs.rmSync(dest, { recursive: true, force: true });
   fs.cpSync(src, dest, { recursive: true, dereference: true });
+
+  // STRIP SYMLINKS THAT ESCAPE THE BUNDLE.
+  //
+  // Despite dereference:true, cpSync recreates npm's .bin entries as symlinks
+  // pointing at the ABSOLUTE source path (…/grokui-app/.prod-modules/…).
+  // codesign refuses to sign a bundle containing one:
+  //   openzoo.app: invalid destination for symbolic link in bundle
+  // and the build dies AFTER packaging, which reads like a signing-identity
+  // problem and is not. It only bites where .prod-modules already exists next
+  // to the build, which is why a clean CI runner never hit it and the first
+  // local build did.
+  //
+  // .bin holds CLI shims. Electron resolves modules with require(), which
+  // never consults .bin, and main.js spawns the proxy by its real path
+  // (node_modules/openzoo/bin/openzoo.js), not through the shim. Dropping
+  // these is safe; leaving them makes the app unsignable.
+  let stripped = 0;
+  const strip = (dir) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isSymbolicLink()) {
+        const target = path.resolve(dir, fs.readlinkSync(p));
+        if (!target.startsWith(path.resolve(dest))) { fs.rmSync(p, { force: true }); stripped++; }
+      } else if (e.isDirectory()) {
+        if (e.name === '.bin') { fs.rmSync(p, { recursive: true, force: true }); stripped++; continue; }
+        strip(p);
+      }
+    }
+  };
+  strip(dest);
+
   const n = fs.readdirSync(path.join(dest, '@solana')).length;
-  console.log(`[afterPack] copied production node_modules -> ${dest} (@solana: ${n})`);
+  console.log(`[afterPack] copied production node_modules -> ${dest} (@solana: ${n}, stripped ${stripped} escaping symlink(s)/.bin)`);
 }
 
 exports.default = async function afterPack(context) {
   copyNodeModules(context);
   if (context.electronPlatformName !== 'darwin') return;
   const app = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
+
+  // SKIP THE AD-HOC PASS WHEN A REAL IDENTITY EXISTS.
+  //
+  // This ad-hoc signature is a FALLBACK for builds with no Apple certificate —
+  // without it electron-builder ships an unsigned app that macOS calls
+  // "damaged". But when CSC_NAME/CSC_LINK is set, electron-builder signs the
+  // very same bundle with the Developer ID immediately afterwards, so the
+  // ad-hoc pass is thrown away — and it is not cheap: `codesign --deep` plus
+  // `--verify --deep --strict` each walk all ~9,300 files of the bundle
+  // (asar is off), for every architecture built.
+  const realSigning = Boolean(process.env.CSC_NAME || process.env.CSC_LINK || process.env.CSC_IDENTITY_AUTO_DISCOVERY);
+  if (realSigning) {
+    console.log('[afterPack] real signing identity present — skipping the ad-hoc pass (electron-builder signs next)');
+    return;
+  }
+
   // Helpers and frameworks must be signed before the outer bundle, or the
   // outer signature seals over unsigned nested code. --deep does that ordering.
   execFileSync('codesign', ['--force', '--deep', '--sign', '-', '--timestamp=none', app], { stdio: 'inherit' });
