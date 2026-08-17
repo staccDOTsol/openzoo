@@ -315,6 +315,32 @@ function sanitizeRunCommand(command) {
   return command.replace(/<\|+[^<>\n]*\|+>/g, '').trim();
 }
 
+// Finds a RUN directive anywhere a line starts with it, NOT only at the very
+// start of the reply.
+//
+// This anchor used to be /^RUN:/ with no `m` flag, so `^` matched only the
+// first character of the whole reply. The moment a model wrote ANY preamble
+// ("Command only, as requested:") before its directive, the match failed and
+// the directive degraded silently into ordinary chat text — nothing ran, no
+// error surfaced. MEASURED live: a bot repeatedly emitted correct RUN blocks,
+// saw nothing happen, concluded "I don't actually have a working shell/RUN
+// tool", and began fabricating plausible terminal output and wallet receipts
+// instead. The user had to reverse-engineer it themselves and ask for "the cmd
+// without any pretext". Models put preamble before directives constantly, so
+// this failed far more often than it worked.
+//
+// Also tolerates the directive being wrapped in a markdown code fence, which
+// is the other shape models reach for unprompted.
+function parseRun(reply) {
+  const m = /^[ \t>*-]*RUN:[ \t]*([\s\S]+)/m.exec(reply);
+  if (!m) return null;
+  let cmd = m[1];
+  const fenced = /^```[\w-]*\n([\s\S]*?)```/.exec(cmd.trim());
+  if (fenced) cmd = fenced[1];
+  else cmd = cmd.replace(/\n```[\s\S]*$/, ''); // trailing fence + any posttext
+  return sanitizeRunCommand(cmd);
+}
+
 function execCommand(command, cwd) {
   return new Promise((resolve) => {
     exec(command, { cwd, timeout: 120000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
@@ -442,9 +468,9 @@ async function runTurn(threadId, userText, onEvent, images) {
           ? (await brainStream(msgs, (delta) => onEvent({ type: 'delta', name: m.name, color: m.color, delta }), t.contextId)).trim()
           : (await brain(msgs, t.contextId)).trim();
       } catch (e) { r = `error: ${e.message}`; }
-      const runMatch = /^RUN:\s*([\s\S]+)/.exec(r);
-      if (runMatch) {
-        const command = runMatch[1].trim();
+      const runCmd = parseRun(r);
+      if (runCmd) {
+        const command = runCmd;
         if (t.runMode === 'auto') {
           const output = await execCommand(command, dirFor(t.id));
           const shown = `$ ${command}\n${output}`;
@@ -486,9 +512,9 @@ async function runTurn(threadId, userText, onEvent, images) {
     reply = `error: ${e.message}`;
   }
   t.messages.push({ role: 'assistant', content: reply });
-  const runMatch = /^RUN:\s*([\s\S]+)/.exec(reply);
-  if (runMatch) {
-    const command = runMatch[1].trim();
+  const runCmd = parseRun(reply);
+  if (runCmd) {
+    const command = runCmd;
     if (t.runMode === 'auto') {
       const output = await execCommand(command, dirFor(t.id));
       const shown = `$ ${command}\n${output}`;
