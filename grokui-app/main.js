@@ -49,8 +49,18 @@ function waitFor(url, retries, intervalMs) {
 // it's not already cached.
 async function ensureProxy() {
   if (await pingUrl('http://127.0.0.1:8402/v1/session')) return; // already running
-  const shell = process.env.SHELL || '/bin/zsh';
-  proxyProc = spawn(shell, ['-ilc', 'npx -y openzoo@latest'], { stdio: 'inherit' });
+  // Windows has neither /bin/zsh nor `-ilc`, so the POSIX form threw
+  // `Error: spawn /bin/zsh ENOENT` out of the main process and killed the app
+  // on launch with "A JavaScript error occurred in the main process" — every
+  // Windows build was dead on arrival. cmd.exe needs no login-shell trick
+  // because Windows GUI apps DO inherit the user PATH.
+  if (process.platform === 'win32') {
+    proxyProc = spawn(process.env.COMSPEC || 'cmd.exe', ['/c', 'npx -y openzoo@latest'],
+      { stdio: 'inherit', windowsHide: true });
+  } else {
+    const shell = process.env.SHELL || '/bin/zsh';
+    proxyProc = spawn(shell, ['-ilc', 'npx -y openzoo@latest'], { stdio: 'inherit' });
+  }
   await waitFor('http://127.0.0.1:8402/v1/session', 60, 500); // up to ~30s (first-run npx fetch)
 }
 
