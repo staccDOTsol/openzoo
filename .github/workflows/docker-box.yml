@@ -133,10 +133,15 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.slug }}
           outputs: type=image,name=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DIGEST_REPO }},push-by-digest=true,name-canonical=true,push=true
 
+      # The digest is "sha256:abc…" and a COLON is not allowed in an artifact
+      # path — upload-artifact rejects the whole upload, which failed this job
+      # after the image had already built and pushed successfully. Strip the
+      # prefix here; the merge job puts it back.
       - name: Export digest
         run: |
           mkdir -p /tmp/digests
-          touch "/tmp/digests/${{ steps.push.outputs.digest }}"
+          digest="${{ steps.push.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -180,7 +185,8 @@ jobs:
           U="${{ secrets.DOCKERHUB_USERNAME }}"
           T="${{ steps.oz.outputs.tag }}"
           SHA="sha-$(echo ${{ github.sha }} | cut -c1-7)"
-          SRC=$(printf "docker.io/$U/${{ env.DIGEST_REPO }}@%s " $(ls /tmp/digests))
+          # Filenames are the bare hex (see "Export digest"); re-add sha256:.
+          SRC=$(printf "docker.io/$U/${{ env.DIGEST_REPO }}@sha256:%s " $(ls /tmp/digests))
           echo "digests: $SRC"
           for repo in ${{ env.DIGEST_REPO }} grokui; do
             for name in latest "$SHA" $( [ "$T" != latest ] && echo "$T" ); do
