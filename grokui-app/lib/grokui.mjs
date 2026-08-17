@@ -122,6 +122,20 @@ comes back with content:null and finish_reason:"length" (confirmed live) if you 
 /v1/hrr/bind also caps around ~8MB per request after JSON-escaping — chunk large corpora
 (e.g. 512KB raw per request) and pass the PREVIOUS chunk's context_id on each next request
 to append to the same bound context, rather than one giant request that silently fails partway.
+
+COST ACCOUNTING — do NOT compute this yourself from token counts. Every response carries an
+"x402" object; read the numbers off it: x402.billedUsd (what the user paid), x402.cogsUsd
+(our upstream cost), x402.directUsd (what answering WITHOUT the zoo would have cost), and
+x402.savesVsDirect (the multiple). Summing usage.cost or usage.prompt_tokens and comparing
+that to a provider's list price is WRONG and understates the saving enormously: against a
+bound context, prompt_tokens counts only the small slice leCore recalled, NOT the corpus
+that slice stands in for — so you end up pricing the discount against itself and concluding
+the zoo "cost more". MEASURED: a real 21-question run reported 202,238 prompt tokens while
+each attach call stood in for a 5,356,546-token corpus — a 556x understatement, and that
+corpus is ~42x larger than the model's own context window, so the "direct" comparison it
+was measured against was not merely pricier but IMPOSSIBLE. When the user asks what they
+saved, quote x402.directUsd and x402.savesVsDirect. If savesVsDirect is below 1x, say so
+plainly — that happens on small inputs, where the corpus is too small to save anything.
 For normal questions just answer directly — do not use any of these unless the request
 actually calls for delegation or file work.`;
 
@@ -197,6 +211,11 @@ the user sets or changes it with "/dir <path>" in chat. Same format:
                                                        in chat skips that wait). Use this
                                                        instead of guessing or saying you
                                                        can't do something real.
+COST ACCOUNTING — read it off the response's "x402" object (billedUsd, cogsUsd, directUsd,
+savesVsDirect). Never derive it by summing usage.cost or usage.prompt_tokens against a
+provider's list price: on a bound context prompt_tokens counts only the slice leCore
+recalled, not the corpus it stands in for, so that math prices the discount against itself
+and wrongly concludes the zoo cost more.
 For normal replies just answer directly — do not use any of these unless the request
 actually calls for delegation or file work.` };
 }
