@@ -45,7 +45,38 @@ function prodModules(projectDir) {
   // resolve on its own — the win job died with `spawnSync npm ENOENT`.
   execFileSync('npm install --omit=dev --ignore-scripts --no-audit --no-fund',
     { cwd: staging, stdio: 'inherit', shell: true });
+  prune(stagedNM);
   return stagedNM;
+}
+
+// Drop what is never loaded at runtime. This is not about disk — it is about
+// FILE COUNT: codesign --deep walks every file in the bundle and died with
+// EMFILE even at a 65535 descriptor limit. viem alone shipped 8,599 files of
+// 27,634, the same chain definitions three times over (_esm, _cjs, _types).
+// We only ever `import` from viem, so Node resolves the "import" condition and
+// _cjs is dead; _types is TypeScript declarations and never loaded at all.
+function prune(nm) {
+  let removed = 0;
+  const rm = (p) => {
+    if (!fs.existsSync(p)) return;
+    removed += 1;
+    fs.rmSync(p, { recursive: true, force: true });
+  };
+  rm(path.join(nm, 'viem', '_types'));
+  rm(path.join(nm, 'viem', '_cjs'));
+  // sourcemaps and type declarations across the tree: debugging artefacts that
+  // no runtime import can reach.
+  const walk = (dir) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith('.map') || e.name.endsWith('.d.ts') || e.name.endsWith('.d.cts')) rm(full);
+    }
+  };
+  walk(nm);
+  console.log(`[afterPack] pruned ${removed} unreachable files/dirs from the production tree`);
 }
 
 function copyNodeModules(context) {
