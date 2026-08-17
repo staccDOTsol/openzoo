@@ -293,6 +293,8 @@ function newGroupThread(names) {
 // chunk after the first carries the PREVIOUS chunk's context_id so the
 // sidecar appends to the same bound context instead of starting fresh.
 const BIND_CHUNK_BYTES = 512 * 1024;
+// Chained auto-run commands per user message. Each hop is a paid call.
+const AUTO_MAX_STEPS = Number(process.env.OZ_AUTO_MAX_STEPS || 8);
 async function bindThread(t) {
   // Only bind what's NEW since the last successful bind, continuing the
   // existing context_id — previously this rebuilt and re-sent the WHOLE
@@ -520,6 +522,7 @@ async function runTurn(threadId, userText, onEvent, images) {
     bindThread(t).catch(() => {});
     return;
   }
+  if (!/^\(command output\)/.test(userText)) t.autoSteps = 0;
   t.messages.push({ role: 'user', content: contentFor(userText, images) });
   t.status = 'thinking';
   let reply = '';
@@ -538,10 +541,31 @@ async function runTurn(threadId, userText, onEvent, images) {
     if (t.runMode === 'auto') {
       const output = await execCommand(command, dirFor(t.id));
       const shown = `$ ${command}\n${output}`;
-      t.messages.push({ role: 'user', content: `output:\n${output}` });
       t.history.push({ who: 'bot', text: shown });
       onEvent?.({ type: 'final', name: t.name, color: t.color, text: shown });
-    } else {
+      // FEED THE OUTPUT BACK. The 'ask' path already does this on approve, so
+      // auto mode was strictly LESS capable than the gated one: the command
+      // ran, the result was shown, and the model never saw it — no diagnosis,
+      // no follow-up, no next step. It looked like "auto mode does nothing".
+      //
+      // Bounded, because this is a loop that spends real money on every hop:
+      // AUTO_MAX_STEPS chained commands per user message, reset whenever the
+      // user speaks again.
+      t.autoSteps = (t.autoSteps || 0) + 1;
+      t.status = 'idle';
+      t.lastActivityAt = Date.now();
+      saveThreads();
+      if (t.autoSteps < AUTO_MAX_STEPS) {
+        runTurn(threadId, `(command output)\n${output}`, onEvent).catch(() => {});
+      } else {
+        const note = `(auto-run stopped after ${AUTO_MAX_STEPS} chained commands — say "continue" to keep going)`;
+        t.history.push({ who: 'bot', text: note });
+        onEvent?.({ type: 'final', name: t.name, color: t.color, text: note });
+        saveThreads();
+      }
+      return;
+    }
+    {
       const runId = randomUUID();
       t.pendingRun = { runId, command, cwd: dirFor(t.id) };
       t.history.push({ who: 'bot', text: command, runId, runStatus: 'pending' });
