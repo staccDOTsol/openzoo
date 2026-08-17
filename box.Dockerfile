@@ -13,8 +13,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
     OPENZOO_NO_TUNNEL=1 \
     OZ_GROKUI_PORT=4173
 
+# openssh-server is baked, not apt-get'd at boot: our RunPod dockerStartCmd
+# REPLACES the image's init, so nothing starts sshd, and without it every
+# execInBox gets "connection refused" — the agent has no hands. Installing it
+# at boot put that on the critical path of a network that 429s.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git tar \
+ && apt-get install -y --no-install-recommends ca-certificates curl git tar openssh-server \
  && rm -rf /var/lib/apt/lists/*
 
 # Resolve "latest" to the newest version tag (grokui-v* preferred, else v*).
