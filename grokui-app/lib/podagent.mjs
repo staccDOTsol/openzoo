@@ -27,7 +27,7 @@ const PORTS = (process.env.OZ_AGENT_PORTS || '1337,6080,1340,6081')
   .split(',').map((s) => Number(s.trim())).filter(Boolean);
 const LOG = process.env.OZ_AGENT_LOG || '/var/log/openzoo/agent.jsonl';
 export const PROXY = process.env.OZ_PROXY || 'http://127.0.0.1:8402/v1';
-const MODEL = process.env.OZ_BRAIN_MODEL || 'deepseek/deepseek-v4-pro-0813';
+export const MODEL = process.env.OZ_BRAIN_MODEL || 'deepseek/deepseek-v4-pro-0813';
 const MAX_STEPS = Number(process.env.OZ_MAX_STEPS || 10);
 
 // Matches the Grok Bot chat surface itself (dark canvas, right-aligned grey
@@ -243,13 +243,27 @@ async function postChat(body, contextId) {
 
 /** One openzoo chat turn. Paid per call by the box's own wallet via the local
  *  proxy — no key, no account. */
+// Which model actually serves a turn is decided HERE, not by the caller: a
+// thread carrying an image routes to VISION_MODEL. A system prompt written
+// once at thread creation therefore cannot name it correctly, and a bot left
+// to guess asserts whatever its training prior says — MEASURED: a Claude-served
+// turn insisted it was Claude while the app's default is DeepSeek, and burned
+// several paid turns arguing. So the prompt carries a placeholder and the real
+// id is substituted at call time, per turn.
+function withModelId(messages, model) {
+  return messages.map((m) => (m.role === 'system' && typeof m.content === 'string' && m.content.includes('__OZ_MODEL__')
+    ? { ...m, content: m.content.replaceAll('__OZ_MODEL__', model) }
+    : m));
+}
+
 export async function brain(messages, contextId) {
   // explicit plugins, not relying on the gateway's "inject when caller said
   // nothing" default — an explicit array is always respected as-is, so every
   // bot on every model actually has web search. max_tokens 900 was cutting
   // real (especially web-search-backed) answers off mid-sentence.
+  const model = hasImages(messages) ? VISION_MODEL : MODEL;
   const r = await postChat(
-    { model: hasImages(messages) ? VISION_MODEL : MODEL, max_tokens: 4096, messages, plugins: [{ id: 'web' }] },
+    { model, max_tokens: 4096, messages: withModelId(messages, model), plugins: [{ id: 'web' }] },
     contextId,
   );
   const j = await r.json().catch(() => ({}));
@@ -261,8 +275,9 @@ export async function brain(messages, contextId) {
  *  live-typing UI) and resolves with the full accumulated text at the end, so
  *  callers that need to parse a directive out of the complete reply still can. */
 export async function brainStream(messages, onDelta, contextId) {
+  const model = hasImages(messages) ? VISION_MODEL : MODEL;
   const r = await postChat(
-    { model: hasImages(messages) ? VISION_MODEL : MODEL, max_tokens: 4096, messages, plugins: [{ id: 'web' }], stream: true },
+    { model, max_tokens: 4096, messages: withModelId(messages, model), plugins: [{ id: 'web' }], stream: true },
     contextId,
   );
   if (!r.ok || !r.body) {
