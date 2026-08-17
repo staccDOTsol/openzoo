@@ -368,7 +368,12 @@ function parseRun(reply) {
   // several such calls were dropped. Same failure as the old /^RUN:/ anchor,
   // different shape: a silently discarded directive reads to the model as a
   // tool that does nothing, and it fabricates rather than reporting failure.
-  const dsml = /<[|\s]*DSML[^>]*\bparameter\b[^>]*name="command"[^>]*>([\s\S]*?)<\/[|\s]*DSML/i.exec(reply);
+  // The separator is NOT always an ASCII pipe. DeepSeek's real special tokens
+  // use U+FF5C FULLWIDTH VERTICAL LINE (｜) — matching only `|` parsed the
+  // pretty-printed form in tests while missing what the model actually emits,
+  // which is exactly how this survived one round of "fixed".
+  const SEP = '[|｜\\s]*';
+  const dsml = new RegExp(`<${SEP}DSML[^>]*\\bparameter\\b[^>]*name="command"[^>]*>([\\s\\S]*?)<\\/${SEP}DSML`, 'i').exec(reply);
   if (dsml) return sanitizeRunCommand(dsml[1]);
 
   const m = /^[ \t>*-]*RUN:[ \t]*([\s\S]+)/m.exec(reply);
