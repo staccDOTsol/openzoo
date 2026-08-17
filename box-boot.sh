@@ -44,40 +44,63 @@ if [ -n "${OZ_UI_B64:-}" ]; then
   log "box-server :8080"
 fi
 
-# ---- 3. grokui from /opt, replacing any 429 corpse ---------------------------
-# The "starts with 429" test is deliberate: an older box may have a POISONED
-# /workspace on a persisted volume. Re-copy rather than trusting the file exists.
-mkdir -p "$GROKUI_DIR"
-if [ ! -f "$GROKUI_DIR/grokui.mjs" ] || head -c 3 "$GROKUI_DIR/grokui.mjs" | grep -q '429'; then
-  cp /opt/grokui/grokui.mjs /opt/grokui/podagent.mjs "$GROKUI_DIR/"
-  log "grokui copied from /opt"
+# ---- 3. RUN FROM /opt. Do not stage the app onto the volume. ----------------
+# This used to copy /opt/openzoo (20,555 files) onto /workspace and run from
+# there, guarded by `if [ ! -f /workspace/.oz-app/bin/openzoo.js ]`. That guard
+# is a TRAP on a network volume: one interrupted copy leaves bin/openzoo.js in
+# place, so every later boot SKIPS the copy and re-runs the same incomplete
+# tree forever. Observed in production as an unrecoverable crash loop —
+#   Cannot find module '/workspace/.oz-app/node_modules/viem/accounts'
+# — every ~15s, which also meant the container never stayed up long enough to
+# hold an HTTP port mapping, so every *.proxy.runpod.net URL 404'd.
+#
+# The copy bought nothing: the app is read-only at runtime and all mutable
+# state lives in /root/.openzoo. Running from the image is faster to boot,
+# cannot half-succeed, and is identical on every restart.
+OZ_ENTRY=/opt/openzoo/bin/openzoo.js
+UI_ENTRY=/opt/grokui/grokui.mjs
+log "running ${OZ_ENTRY} ($(cat /opt/openzoo/.oz-tag 2>/dev/null || echo unknown)) from the image"
+
+# A workspace copy is still available for anything that wants to EDIT the app,
+# but it is opt-in and never on the boot path.
+if [ "${OZ_STAGE_WORKSPACE:-0}" = "1" ]; then
+  mkdir -p "$OZ_DIR" "$GROKUI_DIR"
+  # Marker written only after a COMPLETE copy, so a partial one retries.
+  if [ ! -f "$OZ_DIR/.copy-complete" ]; then
+    rm -rf "$OZ_DIR"; mkdir -p "$OZ_DIR"
+    cp -a /opt/openzoo/. "$OZ_DIR/" && touch "$OZ_DIR/.copy-complete" && log "staged to $OZ_DIR"
+  fi
+  cp /opt/grokui/grokui.mjs /opt/grokui/podagent.mjs "$GROKUI_DIR/" 2>/dev/null || true
+  [ -f "$OZ_DIR/.copy-complete" ] && OZ_ENTRY="$OZ_DIR/bin/openzoo.js" && UI_ENTRY="$GROKUI_DIR/grokui.mjs"
 fi
 
-# ---- 4. openzoo proxy from /opt ---------------------------------------------
-if [ ! -f "$OZ_DIR/bin/openzoo.js" ]; then
-  mkdir -p "$OZ_DIR"
-  cp -a /opt/openzoo/. "$OZ_DIR/"
-  log "openzoo copied from /opt ($(cat /opt/openzoo/.oz-tag 2>/dev/null || echo unknown))"
-fi
+# ---- 4. supervise: RESTART a dead service, don't kill the box ---------------
+# Tearing the container down on any single exit turned one crash into a restart
+# loop, and a thrashing container loses its port mappings. Restart the service
+# that died and leave the box — and its HTTP routes — up.
+supervise() {
+  local name="$1" port="$2"; shift 2
+  local delay=1
+  while :; do
+    "$@" || true
+    log "$name exited — restarting in ${delay}s"
+    sleep "$delay"
+    [ "$delay" -lt 30 ] && delay=$((delay * 2))
+  done
+}
 
-# ---- 5. run both; if either dies the container dies (so RunPod restarts it) --
-node "$OZ_DIR/bin/openzoo.js" &
-OZ_PID=$!
+supervise "openzoo proxy" 8402 node "$OZ_ENTRY" &
 log "openzoo proxy :8402"
-
-node "$GROKUI_DIR/grokui.mjs" &
-UI_PID=$!
+supervise "grokui" "$OZ_GROKUI_PORT" node "$UI_ENTRY" &
 log "grokui :${OZ_GROKUI_PORT}"
 
-# ---- 6. reaper: spawn sets an absolute expiry -------------------------------
+# ---- 5. reaper: spawn sets an absolute expiry -------------------------------
 if [ -n "${OPENZOO_EXPIRES_UNIX:-}" ]; then
   ( while :; do
-      [ "$(date +%s)" -ge "$OPENZOO_EXPIRES_UNIX" ] && { log "expired"; kill -TERM $OZ_PID $UI_PID 2>/dev/null; exit 0; }
+      if [ "$(date +%s)" -ge "$OPENZOO_EXPIRES_UNIX" ]; then log "expired"; kill -TERM 0; fi
       sleep 15
     done ) &
 fi
 
-wait -n $OZ_PID $UI_PID
-log "a service exited — shutting the box down"
-kill -TERM $OZ_PID $UI_PID 2>/dev/null || true
-wait || true
+# Hold the container open regardless of what any one service is doing.
+wait
