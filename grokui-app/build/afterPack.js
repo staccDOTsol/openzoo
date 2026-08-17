@@ -41,8 +41,10 @@ function prodModules(projectDir) {
     const from = path.join(projectDir, f);
     if (fs.existsSync(from)) fs.copyFileSync(from, path.join(staging, f));
   }
-  execFileSync('npm', ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'],
-    { cwd: staging, stdio: 'inherit' });
+  // shell:true because on Windows npm is npm.cmd, which execFileSync will not
+  // resolve on its own — the win job died with `spawnSync npm ENOENT`.
+  execFileSync('npm install --omit=dev --ignore-scripts --no-audit --no-fund',
+    { cwd: staging, stdio: 'inherit', shell: true });
   return stagedNM;
 }
 
