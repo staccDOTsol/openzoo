@@ -49,14 +49,38 @@ jobs:
       #   APPLE_API_KEY_ID / APPLE_API_ISSUER / APPLE_API_KEY_P8
       #                      App Store Connect API key used to notarize
       #   APPLE_TEAM_ID      e.g. 38DS45YWYM
-      - name: Write notarization key (macOS, only when configured)
-        if: matrix.os == 'macos-latest' && env.APPLE_API_KEY_P8 != ''
+      # Notarization takes EITHER an App Store Connect API key (.p8 + key id +
+      # issuer) OR an Apple ID with an app-specific password. Enable it only
+      # when one of those actually exists — electron-builder's default is a
+      # hard failure when `notarize` is on and the options can't be built, and
+      # a fork with no Apple account must still get a working (ad-hoc) build.
+      - name: Enable notarization (macOS, only when credentials exist)
+        if: matrix.os == 'macos-latest'
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          mkdir -p ~/private_keys
-          echo "$APPLE_API_KEY_P8" | base64 --decode > ~/private_keys/AuthKey.p8
-          echo "APPLE_API_KEY=$HOME/private_keys/AuthKey.p8" >> "$GITHUB_ENV"
+          if [ -n "$APPLE_API_KEY_P8" ]; then
+            mkdir -p ~/private_keys
+            echo "$APPLE_API_KEY_P8" | base64 --decode > ~/private_keys/AuthKey.p8
+            echo "APPLE_API_KEY=$HOME/private_keys/AuthKey.p8" >> "$GITHUB_ENV"
+            echo "notarize=api-key"
+          elif [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ]; then
+            echo "notarize=apple-id"
+          else
+            echo "notarize=off (no credentials); ad-hoc signature only"
+            exit 0
+          fi
+          node -e "
+            const fs=require('fs'), f='grokui-app/package.json';
+            const p=JSON.parse(fs.readFileSync(f,'utf8'));
+            p.build.mac.notarize={teamId:process.env.APPLE_TEAM_ID};
+            fs.writeFileSync(f, JSON.stringify(p,null,2)+'\n');
+            console.log('notarize enabled for team', process.env.APPLE_TEAM_ID);
+          "
+        continue-on-error: false
 
       - name: Build (${{ matrix.script }})
         working-directory: grokui-app
@@ -69,6 +93,8 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: npm run ${{ matrix.script }}
       - uses: actions/upload-artifact@v4
         with:
