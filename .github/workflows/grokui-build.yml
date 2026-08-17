@@ -14,10 +14,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
-            script: dist:mac
-            artifact: mac-dmg
-            glob: grokui-app/dist/*.dmg
+          # macOS is NOT built here — it is built, signed and notarized on the
+          # maintainer's own Mac with scripts/release-mac.sh --publish, which
+          # attaches the DMGs to this release afterwards. The signing cert and
+          # its password live in ~/openzoo-signing; CI keeps MAC_CERT_P12 etc.
+          # as secrets only so this can be reverted by re-adding the entry.
           - os: windows-latest
             script: dist:win
             artifact: win-installer
@@ -54,6 +55,10 @@ jobs:
       # when one of those actually exists — electron-builder's default is a
       # hard failure when `notarize` is on and the options can't be built, and
       # a fork with no Apple account must still get a working (ad-hoc) build.
+      # DORMANT: no macos-latest entry is in the matrix any more, so this never
+      # runs. Kept deliberately — re-adding that one matrix entry restores the
+      # full macOS CI build with signing and notarization, and the secrets it
+      # reads are still set. Delete both together or neither.
       - name: Enable notarization (macOS, only when credentials exist)
         if: matrix.os == 'macos-latest'
         env:
@@ -135,11 +140,12 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Verify every platform is present
+      # No *.dmg here on purpose — macOS ships from the maintainer's Mac.
+      - name: Verify every CI platform is present
         run: |
           set -eu
           ls -lh artifacts/
-          for pat in '*.dmg' '*.exe' '*.AppImage'; do
+          for pat in '*.exe' '*.AppImage'; do
             # shellcheck disable=SC2086
             count=$(find artifacts -name "$pat" | wc -l)
             [ "$count" -gt 0 ] || { echo "FAIL: no $pat — refusing to publish a partial release"; exit 1; }
@@ -182,3 +188,31 @@ jobs:
           echo "FAILED: could not publish $TAG after 6 attempts"
           echo "Installers ARE built and attached to this run as artifacts."
           exit 1
+
+      # macOS is not in CI, so a release is INCOMPLETE until the local script
+      # runs. Say so on the release itself and in the run summary — the whole
+      # point of moving mac local is speed, and the cost of that speed is a
+      # manual step, which is exactly the kind of thing that gets forgotten.
+      # A release that quietly lacks macOS is the failure mode to avoid.
+      - name: Flag that macOS is still pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          TAG="${GITHUB_REF#refs/tags/}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+               -q '.assets[].name' 2>/dev/null | grep -q '\.dmg$'; then
+            echo "macOS assets already attached."
+            exit 0
+          fi
+          NOTE='> **macOS installers are not attached yet.** They are built, signed and notarized on the maintainer'"'"'s Mac and uploaded separately — run `./scripts/release-mac.sh --publish`.'
+          BODY="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body -q .body 2>/dev/null || true)"
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes "$NOTE"$'\n\n'"$BODY" || true
+          {
+            echo "### ⚠️ macOS still pending for $TAG"
+            echo ''
+            echo 'Windows and Linux are attached. To finish the release:'
+            echo '```bash'
+            echo 'cd openzoo-shim && ./scripts/release-mac.sh --publish'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
