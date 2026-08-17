@@ -192,6 +192,17 @@ async function main() {
     case 'balance':
       await (await import('../lib/info.js')).printBalance();
       break;
+    case 'topup':
+    case 'prepay':
+      await (await import('../lib/info.js')).topUp(process.argv[3]);
+      break;
+    case 'credit':
+    case 'credits': {
+      const bal = await (await import('../lib/info.js')).creditBalance();
+      console.log(`prepaid credit: $${bal.toFixed(6)}`);
+      if (bal <= 0) console.log('buy some with:  npx openzoo topup 10');
+      break;
+    }
     case 'address':
       (await import('../lib/info.js')).printAddress();
       break;
