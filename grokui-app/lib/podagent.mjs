@@ -184,8 +184,32 @@ function execFrame(command, cwd = '/tmp') {
 // on a text-only model silently ignoring pasted images, any message with
 // multimodal (image_url) content routes to a model KNOWN to support vision.
 const VISION_MODEL = process.env.OZ_VISION_MODEL || 'anthropic/claude-sonnet-5';
+const msgHasImage = (m) => Array.isArray(m.content) && m.content.some((c) => c?.type === 'image_url');
+
+// How far back an image still counts as "being discussed". Beyond this the
+// thread drops back to the cheaper text model.
+const VISION_WINDOW = Number(process.env.OZ_VISION_WINDOW || 8);
+
+// This used to scan the WHOLE history, so a single pasted image pinned every
+// later turn in that thread to the vision model forever — permanently, and
+// invisibly, at 1.5x input and 2.5x output (claude-sonnet-5 $6/$30 per M vs
+// deepseek-v4-pro $3.96/$11.88, priced live off /v1/models). A thread where
+// someone shared one screenshot an hour ago was still paying vision rates for
+// pure text chat.
 function hasImages(messages) {
-  return messages.some((m) => Array.isArray(m.content) && m.content.some((c) => c?.type === 'image_url'));
+  return messages.slice(-VISION_WINDOW).some(msgHasImage);
+}
+
+// When we DO fall back to the text model, the old image_url blocks must not go
+// with it — a non-vision model either errors on them or silently ignores them
+// while still being billed for the payload. Replace them with a marker so the
+// model knows an image was there rather than seeing a gap it might deny.
+function stripImages(messages) {
+  return messages.map((m) => {
+    if (!msgHasImage(m)) return m;
+    const text = m.content.filter((c) => c?.type === 'text').map((c) => c.text).join(' ').trim();
+    return { ...m, content: `${text}${text ? ' ' : ''}[image sent earlier, no longer in context]` };
+  });
 }
 
 // A non-ok response with no usable content used to silently become '', which
@@ -261,7 +285,9 @@ export async function brain(messages, contextId) {
   // nothing" default — an explicit array is always respected as-is, so every
   // bot on every model actually has web search. max_tokens 900 was cutting
   // real (especially web-search-backed) answers off mid-sentence.
-  const model = hasImages(messages) ? VISION_MODEL : MODEL;
+  const vision = hasImages(messages);
+  const model = vision ? VISION_MODEL : MODEL;
+  messages = vision ? messages : stripImages(messages);
   const r = await postChat(
     { model, max_tokens: 4096, messages: withModelId(messages, model), plugins: [{ id: 'web' }] },
     contextId,
@@ -275,7 +301,9 @@ export async function brain(messages, contextId) {
  *  live-typing UI) and resolves with the full accumulated text at the end, so
  *  callers that need to parse a directive out of the complete reply still can. */
 export async function brainStream(messages, onDelta, contextId) {
-  const model = hasImages(messages) ? VISION_MODEL : MODEL;
+  const vision = hasImages(messages);
+  const model = vision ? VISION_MODEL : MODEL;
+  messages = vision ? messages : stripImages(messages);
   const r = await postChat(
     { model, max_tokens: 4096, messages: withModelId(messages, model), plugins: [{ id: 'web' }], stream: true },
     contextId,
