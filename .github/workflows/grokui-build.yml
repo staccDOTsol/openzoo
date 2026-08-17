@@ -76,7 +76,11 @@ jobs:
           node -e "
             const fs=require('fs'), f='grokui-app/package.json';
             const p=JSON.parse(fs.readFileSync(f,'utf8'));
-            p.build.mac.notarize={teamId:process.env.APPLE_TEAM_ID};
+            // electron-builder 25 wants a BOOLEAN here and reads the team from
+            // the APPLE_TEAM_ID env var; passing {teamId} makes it warn
+            // 'Please specify notarization Team ID in the APPLE_TEAM_ID env
+            // var instead of notarize.teamId' and ignore the field.
+            p.build.mac.notarize=true;
             fs.writeFileSync(f, JSON.stringify(p,null,2)+'\n');
             console.log('notarize enabled for team', process.env.APPLE_TEAM_ID);
           "
