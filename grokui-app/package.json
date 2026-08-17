@@ -1,6 +1,6 @@
 {
   "name": "openzoo-grokui",
-  "version": "1.5.6",
+  "version": "1.5.7",
   "private": true,
   "description": "Standalone desktop chat client — same message canvas as Grok Bot, backed by openzoo.",
   "main": "main.js",
