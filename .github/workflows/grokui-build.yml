@@ -99,7 +99,14 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-        run: npm run ${{ matrix.script }}
+        # macOS runners default to a 256-descriptor limit, and codesign --deep
+        # over the packaged dependency tree blows straight through it:
+        #   EMFILE: too many open files ... viem/_esm/chains/definitions/tac.js
+        shell: bash
+        run: |
+          ulimit -n 65535 2>/dev/null || ulimit -n unlimited 2>/dev/null || true
+          echo "open-file limit: $(ulimit -n)"
+          npm run ${{ matrix.script }}
       - uses: actions/upload-artifact@v4
         with:
           name: openzoo-grokui-${{ matrix.artifact }}
