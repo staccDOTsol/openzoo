@@ -40,7 +40,42 @@ else
   log "no OPENZOO_WALLET_JSON — proxy will mint its own burner"
 fi
 
-# ---- 2. box-server on :8080 (upload/files/health), injected as base64 --------
+# ---- 2. SEED /workspace BEFORE box-server starts -----------------------------
+# box-server.mjs is its own orchestrator: on listen it calls seedFromImage(),
+# which runs a SYNCHRONOUS execFileSync `cp -a /opt/openzoo/. /workspace/.oz-app/`
+# with a 60s timeout — 20,555 files onto a RunPod network volume. Called from
+# inside the server.listen() callback, that BLOCKS THE EVENT LOOP: the socket is
+# open but nothing is served, which RunPod reports as
+#   502 — Waiting for service to respond
+# and setInterval(ensureOz, 90_000) re-blocks every 90s, so :8080 never settles.
+#
+# Grok's old inline entrypoint did this copy in the shell first, so
+# seedFromImage() found the tree present and skipped it. Removing the staging
+# from this script (to kill the /workspace crash loop) handed that copy to the
+# web server's own event loop. Do it here instead: same files, no event loop.
+#
+# The marker is what makes it safe — the thing the old code got wrong was
+# gating on bin/openzoo.js, which a half-finished copy leaves behind. A marker
+# written only after cp SUCCEEDS means a partial copy is retried, not inherited.
+if [ ! -f /workspace/.oz-app/.seeded ]; then
+  log "seeding /workspace from the image (once; box-server would otherwise do this on its event loop)"
+  rm -rf /workspace/.oz-app.tmp
+  mkdir -p /workspace/.oz-app.tmp
+  if cp -a /opt/openzoo/. /workspace/.oz-app.tmp/ 2>/dev/null; then
+    rm -rf /workspace/.oz-app
+    mv /workspace/.oz-app.tmp /workspace/.oz-app
+    touch /workspace/.oz-app/.seeded
+    log "seeded $(find /workspace/.oz-app -type f | wc -l | tr -d ' ') files"
+  else
+    rm -rf /workspace/.oz-app.tmp
+    log "seed FAILED — box-server will retry it (and may stall :8080 while it does)"
+  fi
+fi
+mkdir -p /workspace/.grokui
+cp /opt/grokui/grokui.mjs /opt/grokui/podagent.mjs /workspace/.grokui/ 2>/dev/null || true
+cp /opt/openzoo/.oz-tag /workspace/.oz-tag 2>/dev/null || true
+
+# ---- 3. box-server on :8080 (upload/files/health), injected as base64 --------
 if [ -n "${OZ_UI_B64:-}" ]; then
   printf '%s' "$OZ_UI_B64" | base64 -d > /opt/box-server.mjs 2>/dev/null || \
     printf '%s' "$OZ_UI_B64" | base64 --decode > /opt/box-server.mjs
@@ -48,7 +83,7 @@ if [ -n "${OZ_UI_B64:-}" ]; then
   log "box-server :8080"
 fi
 
-# ---- 3. RUN FROM /opt. Do not stage the app onto the volume. ----------------
+# ---- 4. RUN FROM /opt. Do not stage the app onto the volume. ----------------
 # This used to copy /opt/openzoo (20,555 files) onto /workspace and run from
 # there, guarded by `if [ ! -f /workspace/.oz-app/bin/openzoo.js ]`. That guard
 # is a TRAP on a network volume: one interrupted copy leaves bin/openzoo.js in
@@ -65,6 +100,15 @@ OZ_ENTRY=/opt/openzoo/bin/openzoo.js
 UI_ENTRY=/opt/grokui/grokui.mjs
 log "running ${OZ_ENTRY} ($(cat /opt/openzoo/.oz-tag 2>/dev/null || echo unknown)) from the image"
 
+# Publish the baked tag where the box UI looks for it. box-server.mjs reads
+# ROOT/.oz-tag (ROOT=/workspace) to report which build a box is running, but
+# the image writes it to /opt/openzoo/.oz-tag and we deliberately no longer
+# copy /opt into /workspace — that copy is what caused the unrecoverable
+# crash loop. Without this one line the version silently reads as null on an
+# otherwise healthy box, which looks like a broken box rather than a
+# cosmetic gap.
+cp /opt/openzoo/.oz-tag /workspace/.oz-tag 2>/dev/null || true
+
 # A workspace copy is still available for anything that wants to EDIT the app,
 # but it is opt-in and never on the boot path.
 if [ "${OZ_STAGE_WORKSPACE:-0}" = "1" ]; then
@@ -78,7 +122,7 @@ if [ "${OZ_STAGE_WORKSPACE:-0}" = "1" ]; then
   [ -f "$OZ_DIR/.copy-complete" ] && OZ_ENTRY="$OZ_DIR/bin/openzoo.js" && UI_ENTRY="$GROKUI_DIR/grokui.mjs"
 fi
 
-# ---- 4. supervise: RESTART a dead service, don't kill the box ---------------
+# ---- 5. supervise: RESTART a dead service, don't kill the box ---------------
 # Tearing the container down on any single exit turned one crash into a restart
 # loop, and a thrashing container loses its port mappings. Restart the service
 # that died and leave the box — and its HTTP routes — up.
@@ -89,7 +133,11 @@ supervise() {
     "$@" || true
     log "$name exited — restarting in ${delay}s"
     sleep "$delay"
-    [ "$delay" -lt 30 ] && delay=$((delay * 2))
+    # `|| true` is load-bearing under `set -e`: once delay reaches 32 the test
+    # returns 1, and as the LAST command in the loop body that kills the
+    # function — both supervisors exit, `wait` returns, and the container dies
+    # after ~6 restarts. The backoff cap must never be able to end the loop.
+    [ "$delay" -lt 30 ] && delay=$((delay * 2)) || true
   done
 }
 
@@ -98,7 +146,7 @@ log "openzoo proxy :8402"
 supervise "grokui" "$OZ_GROKUI_PORT" node "$UI_ENTRY" &
 log "grokui :${OZ_GROKUI_PORT}"
 
-# ---- 5. reaper: spawn sets an absolute expiry -------------------------------
+# ---- 6. reaper: spawn sets an absolute expiry -------------------------------
 if [ -n "${OPENZOO_EXPIRES_UNIX:-}" ]; then
   ( while :; do
       if [ "$(date +%s)" -ge "$OPENZOO_EXPIRES_UNIX" ]; then log "expired"; kill -TERM 0; fi
