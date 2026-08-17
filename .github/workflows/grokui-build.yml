@@ -145,14 +145,40 @@ jobs:
             [ "$count" -gt 0 ] || { echo "FAIL: no $pat — refusing to publish a partial release"; exit 1; }
           done
 
+      # RETRY THE PUBLISH. github.com 503s intermittently — it took out this
+      # exact step once already, and the old `create || upload` fallback made
+      # it worse: it assumed a failed create meant "already exists", so a 503
+      # became "release not found" and the job died with every installer built
+      # and nothing published. Distinguish "already exists" from "GitHub is
+      # having a moment", and only the former should fall through to upload.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -u
           TAG="${GITHUB_REF#refs/tags/}"
-          gh release create "$TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "openzoo grokui ${TAG#grokui-}" \
-            --generate-notes \
-            artifacts/* \
-          || gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber artifacts/*
+          TITLE="openzoo grokui ${TAG#grokui-}"
+
+          publish() {
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "$TITLE" --generate-notes artifacts/* 2>/tmp/err
+          }
+
+          for attempt in 1 2 3 4 5 6; do
+            if publish; then echo "published on attempt $attempt"; exit 0; fi
+            err="$(cat /tmp/err)"
+            echo "attempt $attempt failed: $err"
+
+            # Already there (e.g. a re-run): just attach the assets.
+            if echo "$err" | grep -qi 'already exists'; then
+              gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber artifacts/*
+              echo "release existed; assets uploaded"
+              exit 0
+            fi
+            # Anything else is treated as transient and retried with backoff.
+            sleep $((attempt * 20))
+          done
+
+          echo "FAILED: could not publish $TAG after 6 attempts"
+          echo "Installers ARE built and attached to this run as artifacts."
+          exit 1
