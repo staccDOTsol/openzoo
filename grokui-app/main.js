@@ -76,9 +76,34 @@ async function createWindow() {
   win.loadURL(`http://localhost:${PORT}`);
 }
 
+// Unsigned builds can't use Electron's full auto-updater (it requires signed
+// artifacts to verify updates on macOS) — this is the honest version: check
+// GitHub's latest release, ask if there's a newer one, open the releases
+// page on "yes". Never blocks startup; silently gives up if offline/rate-limited.
+async function checkForUpdates() {
+  try {
+    const res = await fetch('https://api.github.com/repos/staccDOTsol/openzoo/releases/latest');
+    if (!res.ok) return;
+    const j = await res.json();
+    const latest = (j.tag_name || '').replace(/^grokui-v/, '');
+    const current = app.getVersion();
+    if (!latest || latest === current) return;
+    const { response } = await dialog.showMessageBox({
+      type: 'info',
+      buttons: ['Get it', 'Later'],
+      defaultId: 0,
+      title: 'Update available',
+      message: `openzoo ${latest} is available — you're on ${current}.`,
+      detail: j.name || '',
+    });
+    if (response === 0) shell.openExternal(j.html_url || 'https://github.com/staccDOTsol/openzoo/releases/latest');
+  } catch { /* offline, rate-limited, or GitHub unreachable — not worth blocking on */ }
+}
+
 app.whenReady().then(() => {
   startServer();
   createWindow();
+  checkForUpdates();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
