@@ -10,11 +10,16 @@
 # "429: Too Many Requests", which then fails like an app bug rather than a
 # download bug.
 #
-# EACH ARCH BUILDS ON ITS OWN HARDWARE. This used to be one job emulating
-# arm64 through QEMU, and that leg was nearly all the wall-clock: `apt-get`
-# and `npm install` under emulation are brutally slow. ubuntu-24.04-arm is a
-# real arm64 machine and is free for public repos, so both arches now build
-# natively and a final job stitches them into one multi-arch tag.
+# BUILT ON DOCKER BUILD CLOUD (jrsdunn123/cloud), which has native linux-amd64
+# AND linux-arm64 machines plus a persistent shared cache. That replaces the
+# previous shape — a two-runner matrix that pushed by digest and needed a
+# separate merge job to stitch the manifest, because two runners cannot write
+# the same tag without clobbering each other. One builder emits a proper
+# multi-arch manifest directly, so the matrix, the digest artifacts and the
+# merge job are all gone.
+#
+# History, so nobody reintroduces a slower shape: single-job QEMU emulation
+# was ~7m30s, the native two-runner matrix ~2m50s.
 name: docker-box
 
 on:
@@ -28,22 +33,11 @@ on:
         default: ''
 
 env:
-  # Digests land here; the merge job tags both repos from them.
-  DIGEST_REPO: openzoo-box
+  CLOUD_BUILDER: cloud          # the builder named "cloud" under the Hub namespace
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux/amd64
-            runner: ubuntu-latest
-            slug: amd64
-          - platform: linux/arm64
-            runner: ubuntu-24.04-arm
-            slug: arm64
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -57,36 +51,40 @@ jobs:
           fi
           if [ -z "$TAG" ]; then TAG=latest; fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "baking $TAG on ${{ matrix.slug }}"
-
-      # No setup-qemu-action: both runners are native now. That action was also
-      # the single flakiest step here — codeload 503'd on it three times in one
-      # incident and failed the whole run before anything was built.
-      - uses: docker/setup-buildx-action@v3
+          echo "baking $TAG"
 
       - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Load a local image first so the smoke test can actually RUN it. On a
-      # native runner this costs almost nothing and it is shared with the
-      # push below through the gha cache.
-      - name: Build (${{ matrix.slug }}, for smoke test)
+      # driver: cloud sends the build to Docker's remote native machines. No
+      # setup-qemu-action — nothing is emulated, and that action was also the
+      # flakiest step here (codeload 503'd on it three times in one incident,
+      # failing the run before anything was built).
+      - name: Use the cloud builder
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: cloud
+          endpoint: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.CLOUD_BUILDER }}
+          install: true
+
+      # amd64 only, --load'ed, so the gate can actually RUN the image. A
+      # multi-arch result is a manifest and cannot be loaded into the local
+      # docker. The cloud cache makes this nearly free for the push below.
+      - name: Build (amd64, for smoke test)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: box.Dockerfile
           build-args: OZ_TAG=${{ steps.oz.outputs.tag }}
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64
           load: true
           tags: openzoo-box:smoke
-          cache-from: type=gha,scope=${{ matrix.slug }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.slug }}
 
-      # The gate, now run on BOTH architectures instead of amd64 only — an
-      # arm-specific breakage (native modules especially) used to ship blind.
-      - name: Smoke test (${{ matrix.slug }})
+      # The gate. A 429 corpse, a missing bin, a musl base, a UI that does not
+      # serve, or a missing dev toolchain fails HERE and nothing is published.
+      - name: Smoke test
         run: |
           set -eu
           docker run --rm openzoo-box:smoke cat /etc/os-release | grep -qi debian \
@@ -97,8 +95,8 @@ jobs:
             || { echo 'FAIL: /opt/openzoo/node_modules missing'; exit 1; }
           docker run --rm openzoo-box:smoke sh -c 'head -c 3 /opt/grokui/grokui.mjs | grep -q 429' \
             && { echo 'FAIL: baked grokui.mjs is a 429 corpse'; exit 1; } || true
-          # The dev toolchain is the point of the image; a box without it makes
-          # the model look broken (`python3: not found`).
+          # The dev toolchain is the point of the image; without it a bot hits
+          # `python3: not found` and looks broken when the box is at fault.
           for b in bash gcc make python3 pip3 git jq rg; do
             docker run --rm openzoo-box:smoke sh -c "command -v $b >/dev/null" \
               || { echo "FAIL: $b missing from the image"; exit 1; }
@@ -116,84 +114,35 @@ jobs:
           if head -c 3 /tmp/g.html | grep -q 429; then echo 'FAIL: served a 429'; exit 1; fi
           grep -qi '<!doctype html' /tmp/g.html \
             || { echo 'FAIL: not HTML:'; head -c 200 /tmp/g.html; docker rm -f ozbox; exit 1; }
-          echo "OK: $(wc -c < /tmp/g.html) bytes of grokui HTML on ${{ matrix.slug }}"
+          echo "OK: $(wc -c < /tmp/g.html) bytes of grokui HTML"
           docker rm -f ozbox
 
-      # Push WITHOUT a tag, by digest. Two runners cannot both write the same
-      # tag without one clobbering the other's manifest; the merge job below
-      # combines the digests into a single multi-arch tag instead.
-      - name: Push by digest (${{ matrix.slug }})
-        id: push
+      - name: Compute Hub tags
+        id: meta
+        run: |
+          T="${{ steps.oz.outputs.tag }}"
+          SHA="sha-$(echo ${{ github.sha }} | cut -c1-7)"
+          U="${{ secrets.DOCKERHUB_USERNAME }}"
+          {
+            echo "tags<<EOF"
+            for repo in openzoo-box grokui; do
+              echo "$U/$repo:latest"
+              if [ "$T" != "latest" ]; then echo "$U/$repo:$T"; fi
+              echo "$U/$repo:$SHA"
+            done
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # One build, both arches, native, straight to a multi-arch manifest.
+      - name: Build and push (amd64 + arm64)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: box.Dockerfile
           build-args: OZ_TAG=${{ steps.oz.outputs.tag }}
-          platforms: ${{ matrix.platform }}
-          cache-from: type=gha,scope=${{ matrix.slug }}
-          outputs: type=image,name=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ env.DIGEST_REPO }},push-by-digest=true,name-canonical=true,push=true
-
-      # The digest is "sha256:abc…" and a COLON is not allowed in an artifact
-      # path — upload-artifact rejects the whole upload, which failed this job
-      # after the image had already built and pushed successfully. Strip the
-      # prefix here; the merge job puts it back.
-      - name: Export digest
-        run: |
-          mkdir -p /tmp/digests
-          digest="${{ steps.push.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: digest-${{ matrix.slug }}
-          path: /tmp/digests/*
-          if-no-files-found: error
-          retention-days: 1
-
-  merge:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Resolve the tag being baked
-        id: oz
-        run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            TAG="${GITHUB_REF#refs/tags/}"
-          else
-            TAG="${{ github.event.inputs.tag }}"
-          fi
-          if [ -z "$TAG" ]; then TAG=latest; fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/download-artifact@v4
-        with:
-          path: /tmp/digests
-          pattern: digest-*
-          merge-multiple: true
-
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # One manifest per tag, over both digests. Both repos get the same image;
-      # grokui is the name the site uses, openzoo-box the descriptive one.
-      - name: Create the multi-arch tags
-        run: |
-          set -eu
-          U="${{ secrets.DOCKERHUB_USERNAME }}"
-          T="${{ steps.oz.outputs.tag }}"
-          SHA="sha-$(echo ${{ github.sha }} | cut -c1-7)"
-          # Filenames are the bare hex (see "Export digest"); re-add sha256:.
-          SRC=$(printf "docker.io/$U/${{ env.DIGEST_REPO }}@sha256:%s " $(ls /tmp/digests))
-          echo "digests: $SRC"
-          for repo in ${{ env.DIGEST_REPO }} grokui; do
-            for name in latest "$SHA" $( [ "$T" != latest ] && echo "$T" ); do
-              echo "==> $U/$repo:$name"
-              docker buildx imagetools create -t "docker.io/$U/$repo:$name" $SRC
-            done
-          done
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
 
       - name: Verify both arches are in the manifest
         run: |
@@ -209,7 +158,7 @@ jobs:
         run: |
           U="${{ secrets.DOCKERHUB_USERNAME }}"
           {
-            echo "### Pushed to Docker Hub (native amd64 + native arm64)"
+            echo "### Pushed to Docker Hub (Docker Build Cloud, native amd64 + arm64)"
             echo '```'
             echo "$U/openzoo-box:latest"
             echo "$U/grokui:latest"
