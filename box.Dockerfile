@@ -13,13 +13,31 @@ ENV DEBIAN_FRONTEND=noninteractive \
     OPENZOO_NO_TUNNEL=1 \
     OZ_GROKUI_PORT=4173
 
-# openssh-server is baked, not apt-get'd at boot: our RunPod dockerStartCmd
-# REPLACES the image's init, so nothing starts sshd, and without it every
-# execInBox gets "connection refused" — the agent has no hands. Installing it
-# at boot put that on the critical path of a network that 429s.
+# A DEV MACHINE, not a runtime. Agents in the box are asked to build, test and
+# debug real projects, and a box that lacks cc/python3 fails in ways that read
+# as the model's fault: observed live as `/bin/sh: 1: python3: not found`
+# followed by the bot inventing a workaround for a tool it simply did not have.
+# Installing this at boot is not an option — RunPod egress gets rate limited,
+# and an apt-get on the critical path is the whole bug this image exists to fix.
+#
+# openssh-server especially: our dockerStartCmd REPLACES the image init, so
+# nothing starts sshd, and without it every execInBox gets "connection refused"
+# and the agent has no hands.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git tar openssh-server \
- && rm -rf /var/lib/apt/lists/*
+ && apt-get install -y --no-install-recommends \
+      ca-certificates curl wget git tar gzip bzip2 xz-utils zip unzip rsync \
+      openssh-server \
+      build-essential pkg-config make cmake \
+      python3 python3-dev python3-pip python3-venv \
+      libssl-dev libffi-dev zlib1g-dev \
+      jq ripgrep sqlite3 less nano vim-tiny \
+      procps iproute2 net-tools lsof dnsutils ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ # bookworm marks the system python as externally managed (PEP 668), so a plain
+ # `pip install` dies with an error about a virtualenv. In a disposable box
+ # that guard protects nothing and only blocks the agent.
+ && rm -f /usr/lib/python3*/EXTERNALLY-MANAGED \
+ && ln -sf /usr/bin/python3 /usr/local/bin/python
 
 # Resolve "latest" to the newest version tag (grokui-v* preferred, else v*).
 # Clone that tag. Never alpine. Never raw.githubusercontent (429).
