@@ -611,16 +611,12 @@ const APP_HTML = `<!doctype html>
       <button class="icon-btn" id="hudBtn">◎</button>
     </div>
     <div id="hud">
-      <div class="htitle">ALL OF OPENZOO · TODAY</div>
-      <div class="hrow"><span>paid (metered)</span><span id="hPaid">—</span></div>
-      <div class="hrow"><span>our cost (cogs)</span><span id="hCogs">—</span></div>
-      <div class="hrow"><span>margin</span><span id="hMargin" class="hlime">—</span></div>
-      <div class="hrow"><span>direct would be</span><span id="hDirect" class="hember">—</span></div>
-      <div class="hrow"><span>leCore saving</span><span id="hSaved" class="hlime">—</span></div>
+      <div class="htitle">YOUR WALLET · THIS SESSION</div>
+      <div class="hrow"><span>you've paid</span><span id="hYouSpent">—</span></div>
+      <div class="hrow"><span>our cost (cogs)</span><span id="hYouCogs">—</span></div>
+      <div class="hrow"><span>margin</span><span id="hYouMargin" class="hlime">—</span></div>
+      <div class="hrow"><span>direct would be</span><span id="hYouDirect" class="hember">—</span></div>
       <div class="hfoot" id="hFoot">loading…</div>
-      <div class="htitle" style="margin-top:10px">YOUR WALLET · THIS SESSION</div>
-      <div class="hrow"><span>you've spent</span><span id="hYouSpent">—</span></div>
-      <div class="hrow"><span>your paid calls</span><span id="hYouCalls">—</span></div>
     </div>
     <div id="log"></div>
     <div id="bar">
@@ -958,27 +954,18 @@ const APP_HTML = `<!doctype html>
   async function refreshHud() {
     try {
       // fetched server-side by US (see /hud-summary below) — a renderer fetch
-      // straight to x402-tokens.fly.dev fails as an opaque "Failed to fetch":
-      // no Access-Control-Allow-Origin on that response, so Chromium blocks
-      // reading it even though the request itself succeeds. Our own backend
-      // has no such restriction.
-      const j = await (await fetch('/hud-summary')).json();
-      const t = j.today || {};
-      const matched = Number(t.usdPaidWithCogs) || null;
-      const cogs = Number(t.usdCogs) || null;
-      const direct = Number(t.usdDirect) || null;
-      const margin = (cogs !== null && matched) ? Math.round((matched - cogs) / matched * 100) + '%' : '—';
-      const saved = (direct !== null && matched) ? (direct / matched).toFixed(1) + 'x' : '—';
-      document.getElementById('hPaid').textContent = usd(matched);
-      document.getElementById('hCogs').textContent = usd(cogs);
-      document.getElementById('hMargin').textContent = margin;
-      document.getElementById('hDirect').textContent = usd(direct);
-      document.getElementById('hSaved').textContent = saved;
-      document.getElementById('hFoot').textContent =
-        (t.calls || 0) + ' calls · ' + (t.paid || 0) + ' paid · ' + (t.distinctPayers || 0) + ' payers';
-      const you = j.you;
-      document.getElementById('hYouSpent').textContent = you ? usd(you.spentUsd) : '— (local proxy not reachable)';
-      document.getElementById('hYouCalls').textContent = you ? String(you.paidCalls) : '—';
+      // straight to localhost:8402 would work fine, but routing it through
+      // our own backend keeps one fetch path if that ever needs to change.
+      const you = await (await fetch('/hud-summary')).json();
+      const spent = Number(you.spentUsd) || 0;
+      const cogs = Number(you.cogsUsd) || 0;
+      const direct = Number(you.directUsd) || 0;
+      const margin = spent > 0 ? Math.round((spent - cogs) / spent * 100) + '%' : '—';
+      document.getElementById('hYouSpent').textContent = usd(spent);
+      document.getElementById('hYouCogs').textContent = usd(cogs);
+      document.getElementById('hYouMargin').textContent = margin;
+      document.getElementById('hYouDirect').textContent = usd(direct);
+      document.getElementById('hFoot').textContent = (you.paidCalls || 0) + ' paid calls this session';
     } catch (e) {
       document.getElementById('hFoot').textContent = 'error: ' + e.message;
     }
@@ -1001,14 +988,11 @@ const APP_HTML = `<!doctype html>
 const server = http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/hud-summary') {
     (async () => {
-      let today = {};
-      try { today = (await (await fetch('https://x402-tokens.fly.dev/v1/usage/summary')).json()).today || {}; }
-      catch { /* gateway unreachable — HUD shows — for the global rows */ }
-      let you = null;
+      let you = { spentUsd: 0, cogsUsd: 0, directUsd: 0, paidCalls: 0 };
       try { you = await (await fetch('http://127.0.0.1:8402/v1/session')).json(); }
-      catch { /* local proxy not running — HUD says so instead of guessing */ }
+      catch { /* local proxy not running — HUD shows zeros rather than guessing */ }
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ today, you }));
+      res.end(JSON.stringify(you));
     })();
     return;
   }
