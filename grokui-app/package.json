@@ -18,10 +18,11 @@
   "build": {
     "appId": "fun.openzoo.grokui",
     "productName": "openzoo",
+    "asar": false,
     "files": [
       "main.js",
-      "../lib/grokui.mjs",
-      "../lib/podagent.mjs",
+      "preload.js",
+      "lib/**/*",
       "!**/node_modules/**/{test,__tests__}/**"
     ],
     "directories": {
