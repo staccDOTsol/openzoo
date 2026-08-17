@@ -1,6 +1,6 @@
 {
   "name": "openzoo-grokui",
-  "version": "1.3.9",
+  "version": "1.4.0",
   "private": true,
   "description": "Standalone desktop chat client — same message canvas as Grok Bot, backed by openzoo.",
   "main": "main.js",
@@ -76,7 +76,15 @@
     "includeSubNodeModules": true
   },
   "dependencies": {
-    "openzoo": "^0.45.1"
+    "@solana/codecs-core": "^2.0.0-rc.1",
+    "@solana/codecs-data-structures": "^2.0.0-rc.1",
+    "@solana/codecs-numbers": "^2.0.0-rc.1",
+    "@solana/codecs-strings": "^2.0.0-rc.1",
+    "@solana/errors": "^2.0.0-rc.1",
+    "@solana/spl-token-group": "^0.0.7",
+    "@solana/spl-token-metadata": "^0.1.6",
+    "openzoo": "^0.45.1",
+    "viem": "^2.55.17"
   },
   "overrides": {
     "uuid": "^8.3.2"
