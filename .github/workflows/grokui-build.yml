@@ -112,3 +112,47 @@ jobs:
           name: openzoo-grokui-${{ matrix.artifact }}
           path: ${{ matrix.glob }}
           if-no-files-found: error
+
+  # Publish the installers as a GitHub Release.
+  #
+  # This job exists because it DIDN'T, and cutting releases by hand meant
+  # v1.5.1 and v1.5.2 both built green and then shipped to nobody — the tag,
+  # the artifacts and the notarized DMG all existed, and users still saw
+  # v1.5.0 on the releases page. A build that isn't published is invisible.
+  #
+  # `needs: build` with the default fail-fast behaviour means one broken
+  # platform blocks the release, which is correct: a release missing Windows
+  # is worse than a release that is late.
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/grokui-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Verify every platform is present
+        run: |
+          set -eu
+          ls -lh artifacts/
+          for pat in '*.dmg' '*.exe' '*.AppImage'; do
+            # shellcheck disable=SC2086
+            count=$(find artifacts -name "$pat" | wc -l)
+            [ "$count" -gt 0 ] || { echo "FAIL: no $pat — refusing to publish a partial release"; exit 1; }
+          done
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "openzoo grokui ${TAG#grokui-}" \
+            --generate-notes \
+            artifacts/* \
+          || gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber artifacts/*
