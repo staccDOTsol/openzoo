@@ -27,9 +27,27 @@ const fs = require('node:fs');
 // it, and an explicit node_modules glob double-copied and broke the build
 // (EEXIST on linux hard links, ENOENT on the mac framework symlink).
 //
-// A verbatim copy is boring and correct. It costs disk we already spend.
+// A verbatim copy is boring and correct — but it must be of a PRODUCTION-only
+// tree. Copying the dev tree drags in electron and electron-builder
+// themselves, and codesign then walks so many files it dies with
+//   EMFILE: too many open files, open '.../viem/_types/chains/.../bobaSepolia.d.ts'
+// So build the production tree once into a staging dir and copy that.
+function prodModules(projectDir) {
+  const staging = path.join(projectDir, '.prod-modules');
+  const stagedNM = path.join(staging, 'node_modules');
+  if (fs.existsSync(stagedNM)) return stagedNM;
+  fs.mkdirSync(staging, { recursive: true });
+  for (const f of ['package.json', 'package-lock.json']) {
+    const from = path.join(projectDir, f);
+    if (fs.existsSync(from)) fs.copyFileSync(from, path.join(staging, f));
+  }
+  execFileSync('npm', ['install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'],
+    { cwd: staging, stdio: 'inherit' });
+  return stagedNM;
+}
+
 function copyNodeModules(context) {
-  const src = path.join(context.packager.projectDir, 'node_modules');
+  const src = prodModules(context.packager.projectDir);
   if (!fs.existsSync(src)) return;
   const appDir = context.electronPlatformName === 'darwin'
     ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources', 'app')
@@ -38,7 +56,7 @@ function copyNodeModules(context) {
   fs.rmSync(dest, { recursive: true, force: true });
   fs.cpSync(src, dest, { recursive: true, dereference: true });
   const n = fs.readdirSync(path.join(dest, '@solana')).length;
-  console.log(`[afterPack] copied node_modules verbatim -> ${dest} (@solana: ${n})`);
+  console.log(`[afterPack] copied production node_modules -> ${dest} (@solana: ${n})`);
 }
 
 exports.default = async function afterPack(context) {
