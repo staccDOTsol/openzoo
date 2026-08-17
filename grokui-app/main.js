@@ -49,18 +49,22 @@ function waitFor(url, retries, intervalMs) {
 // it's not already cached.
 async function ensureProxy() {
   if (await pingUrl('http://127.0.0.1:8402/v1/session')) return; // already running
-  // Windows has neither /bin/zsh nor `-ilc`, so the POSIX form threw
-  // `Error: spawn /bin/zsh ENOENT` out of the main process and killed the app
-  // on launch with "A JavaScript error occurred in the main process" — every
-  // Windows build was dead on arrival. cmd.exe needs no login-shell trick
-  // because Windows GUI apps DO inherit the user PATH.
-  if (process.platform === 'win32') {
-    proxyProc = spawn(process.env.COMSPEC || 'cmd.exe', ['/c', 'npx -y openzoo@latest'],
-      { stdio: 'inherit', windowsHide: true });
-  } else {
-    const shell = process.env.SHELL || '/bin/zsh';
-    proxyProc = spawn(shell, ['-ilc', 'npx -y openzoo@latest'], { stdio: 'inherit' });
-  }
+  // Run the BUNDLED openzoo with Electron's OWN node, rather than shelling out
+  // to npx. Going through npx assumed the machine had Node installed and on
+  // PATH, which is a bad assumption for a desktop app: a clean Windows 11 box
+  // has no Node, so `npx` did not exist, the proxy never started, and every
+  // message came back "error: fetch failed" while the app itself ran fine
+  // (Electron ships its own Node, which is exactly what we use here). It also
+  // dodges the macOS problem that a GUI app launched from Finder/Dock does not
+  // inherit ~/.zshrc's PATH, and it pins the proxy to a version we actually
+  // tested instead of whatever @latest resolves to at runtime.
+  const bin = path.join(__dirname, 'node_modules', 'openzoo', 'bin', 'openzoo.js');
+  proxyProc = spawn(process.execPath, [bin], {
+    stdio: 'inherit',
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    windowsHide: true,
+  });
+  proxyProc.on('error', (e) => console.error('[openzoo] proxy failed to start:', e.message));
   await waitFor('http://127.0.0.1:8402/v1/session', 60, 500); // up to ~30s (first-run npx fetch)
 }
 
