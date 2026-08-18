@@ -79,8 +79,20 @@ cp /opt/openzoo/.oz-tag /workspace/.oz-tag 2>/dev/null || true
 if [ -n "${OZ_UI_B64:-}" ]; then
   printf '%s' "$OZ_UI_B64" | base64 -d > /opt/box-server.mjs 2>/dev/null || \
     printf '%s' "$OZ_UI_B64" | base64 --decode > /opt/box-server.mjs
-  node /opt/box-server.mjs &
-  log "box-server :8080"
+  # SUPERVISED, like everything else. This was a bare `node … &`, and it is the
+  # ONE process that must never stay dead: :8080 is the only way into the box —
+  # health, files, uploads, and the proxy that fronts grokui all live here — AND
+  # box-server is the orchestrator that restarts openzoo and grokui. When it
+  # dies the box does not degrade, it disappears. RunPod's edge starts serving
+  # its own 404 page and every URL for that pod is dead forever.
+  #
+  # MEASURED: a sustained parallel upload (6 workers, ~9MB/s, 494MB in) killed
+  # it outright, and nothing restarted it. openzoo and grokui had supervise()
+  # loops from the start; the process holding the front door did not.
+  #
+  # supervise() is defined further down, so this runs after it — see step 5.
+  OZ_SUPERVISE_BOX_SERVER=1
+  log "box-server :8080 (supervised)"
 fi
 
 # ---- 4. RUN FROM /opt. Do not stage the app onto the volume. ----------------
@@ -155,6 +167,13 @@ supervise() {
 # So: when OZ_UI_B64 is present, box-server is the orchestrator and owns both
 # services. Without it (a bare `docker run`), nothing else would start them and
 # this script must.
+# box-server is started HERE, not at step 3, because supervise() is defined
+# just above and a shell function cannot be called before it is defined.
+if [ "${OZ_SUPERVISE_BOX_SERVER:-0}" = "1" ]; then
+  supervise "box-server" 8080 node /opt/box-server.mjs &
+  log "box-server supervised on :8080"
+fi
+
 if [ -z "${OZ_UI_B64:-}" ]; then
   supervise "openzoo proxy" 8402 node "$OZ_ENTRY" &
   log "openzoo proxy :8402"
