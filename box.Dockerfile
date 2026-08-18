@@ -25,7 +25,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # and the agent has no hands.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      ca-certificates curl wget git tar gzip bzip2 xz-utils zip unzip rsync \
+      ca-certificates curl wget git tar gzip bzip2 xz-utils zip unzip rsync openssl \
       openssh-server \
       build-essential pkg-config make cmake \
       python3 python3-dev python3-pip python3-venv \
@@ -62,6 +62,33 @@ RUN set -eu; \
     cp /opt/openzoo/lib/grokui.mjs /opt/openzoo/lib/podagent.mjs /opt/grokui/; \
     echo "${TAG}" >/opt/openzoo/.oz-tag; \
     head -c 80 /opt/grokui/grokui.mjs | grep -qE '^(//|import )'
+
+# ---- ProofFront, baked and ENCRYPTED ---------------------------------------
+# 803MB of engine + demo scenes. Uploading it per box costs 4 minutes and has
+# killed two boxes; baking it costs image size once and is then free forever.
+#
+# It ships as CIPHERTEXT. Be clear-eyed about what that does and does not buy:
+# this image is public, so anyone can pull the blob and attack it offline at
+# their leisure. The passphrase is the ENTIRE boundary — it is never in this
+# repo, never in the image, and never in a build arg (build args are visible in
+# `docker history`). It arrives at RUNTIME as OZ_PROOFFRONT_PASS, set at spawn.
+#
+# PROOFFRONT_URL is a build arg pointing at the encrypted blob (a GitHub release
+# asset works — 2GB limit). Omit it and the image builds exactly as before, so
+# a fork with no blob is unaffected.
+ARG PROOFFRONT_URL=""
+RUN set -eu; \
+    if [ -n "${PROOFFRONT_URL}" ]; then \
+      echo "baking encrypted prooffront"; \
+      curl -fsSL "${PROOFFRONT_URL}" -o /opt/prooffront.enc; \
+      # A 404 or a rate-limit page is a small file that would otherwise sit
+      # there looking like a payload until someone tried to decrypt it.
+      sz=$(stat -c%s /opt/prooffront.enc); \
+      [ "$sz" -gt 100000000 ] || { echo "prooffront.enc is only ${sz} bytes — refusing"; exit 1; }; \
+      echo "prooffront.enc ${sz} bytes"; \
+    else \
+      echo "no PROOFFRONT_URL — building without it"; \
+    fi
 
 WORKDIR /workspace
 EXPOSE 8080 4173 8402
