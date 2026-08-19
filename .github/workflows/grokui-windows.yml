@@ -19,6 +19,17 @@ jobs:
         with:
           node-version: "20"
 
+      # THE TAG IS THE VERSION. Without this the app's package.json drifts from
+      # the tag and the release ships binaries named after an older build:
+      # grokui-v1.5.48 published openzoo-1.5.45.dmg / openzoo.Setup.1.5.45.exe,
+      # so anyone installing "1.5.48" got something reporting 1.5.45. Derive it
+      # instead of remembering to bump it.
+      - name: Sync app version to tag
+        if: startsWith(github.ref, 'refs/tags/grokui-v')
+        run: |
+          V="${GITHUB_REF#refs/tags/grokui-v}"
+          node -e "const f='grokui-app/package.json';const p=require('./'+f);p.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')" "$V"
+          echo "app version set to $V"
       - name: Install deps
         working-directory: grokui-app
         run: npm install
