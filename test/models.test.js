@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveModel } from '../lib/models.js';
+import { resolveModel, isTinyClassify, pickClassifierModel, raiseReasoningMaxTokens, rewriteChatModel, REASONING_MODEL_RE } from '../lib/models.js';
 
 // Hermetic: resolveModel honours OPENZOO_DEFAULT_MODEL, so an ambient value
 // (a dev shell, a project .env) would otherwise flip every family-hint case.
 delete process.env.OPENZOO_DEFAULT_MODEL;
+delete process.env.OPENZOO_CLASSIFIER_MODEL;
 
 const CATALOG = [
   'google/gemini-3.7-flash',
@@ -110,4 +111,95 @@ test('an openzoo-* twin resolves EXACTLY to the model it was minted from', async
     // a FOREIGN id still honours the override
     assert.equal(resolveModel('gpt-4o', C), 'deepseek/deepseek-v4-pro-0813');
   } finally { delete process.env.OPENZOO_DEFAULT_MODEL; }
+});
+
+// Claude Code auto-mode classifier: 16-token yes/no must never hit the
+// reasoning floor or OPENZOO_DEFAULT_MODEL (that pair turned a classify
+// into a 4000-token Grok/DeepSeek think and timed out).
+
+const CLASSIFY = {
+  model: 'claude-sonnet-5',
+  max_tokens: 16,
+  messages: [{ role: 'user', content: 'Is this command safe? Reply yes or no.' }],
+};
+
+test('isTinyClassify matches the 16-token auto-mode shape', () => {
+  assert.equal(isTinyClassify(CLASSIFY), true);
+  assert.equal(isTinyClassify(Buffer.from(JSON.stringify(CLASSIFY))), true);
+  assert.equal(isTinyClassify({ ...CLASSIFY, max_tokens: 64 }), true);
+  assert.equal(isTinyClassify({ ...CLASSIFY, max_tokens: 65 }), false);
+  assert.equal(isTinyClassify({ ...CLASSIFY, max_tokens: 0 }), false);
+  assert.equal(isTinyClassify({ model: 'x-ai/grok-4.6', max_tokens: 2000, messages: CLASSIFY.messages }), false);
+  // A body over BIND_MIN is a real turn even at 16 tokens.
+  const big = { ...CLASSIFY, messages: [{ role: 'user', content: 'x'.repeat(20000) }] };
+  assert.equal(isTinyClassify(big), false);
+});
+
+test('raiseReasoningMaxTokens itself still floors a 16-token grok ask', () => {
+  // The floor is correct for a real reasoning turn. The classify skip is
+  // in rewriteChatModel, which must not call this for a tiny body.
+  const bump = raiseReasoningMaxTokens({ model: 'x-ai/grok-4.6', max_tokens: 16 });
+  assert.equal(bump.raised, true);
+  assert.ok(bump.to >= 4000);
+});
+
+test('tiny max_tokens=16 + grok model does NOT raise', () => {
+  const grok = { model: 'x-ai/grok-4.6', max_tokens: 16, messages: CLASSIFY.messages };
+  const out = rewriteChatModel(grok, CATALOG);
+  assert.equal(out.tiny, true);
+  assert.equal(out.raised, false);
+  assert.equal(out.parsed.max_tokens, 16);
+  assert.equal(REASONING_MODEL_RE.test(out.parsed.model), false);
+});
+
+test('tiny claude-sonnet-5 routes to flash when the catalog has it', () => {
+  const out = rewriteChatModel(CLASSIFY, CATALOG);
+  assert.equal(out.tiny, true);
+  assert.equal(out.parsed.model, 'google/gemini-3.7-flash');
+  assert.equal(out.parsed.max_tokens, 16);
+  assert.equal(out.to, 'google/gemini-3.7-flash');
+});
+
+test('real grok max_tokens=2000 still raises to >=4000', () => {
+  const grok = { model: 'x-ai/grok-4.6', max_tokens: 2000, messages: [{ role: 'user', content: 'write the function' }] };
+  const bump = raiseReasoningMaxTokens(grok);
+  assert.equal(bump.raised, true);
+  assert.ok(bump.to >= 4000, `expected floor >=4000, got ${bump.to}`);
+  const out = rewriteChatModel(grok, CATALOG);
+  assert.equal(out.tiny, false);
+  assert.equal(out.raised, true);
+  assert.ok(out.parsed.max_tokens >= 4000);
+  assert.equal(out.parsed.model, 'x-ai/grok-4.6');
+});
+
+test('OPENZOO_DEFAULT_MODEL does not capture a tiny classify', () => {
+  process.env.OPENZOO_DEFAULT_MODEL = 'x-ai/grok-4.6';
+  try {
+    const out = rewriteChatModel(CLASSIFY, CATALOG);
+    assert.equal(out.tiny, true);
+    assert.notEqual(out.parsed.model, 'x-ai/grok-4.6');
+    assert.equal(out.parsed.model, 'google/gemini-3.7-flash');
+    assert.equal(out.parsed.max_tokens, 16);
+    // A real rewrite still honours the override.
+    const chat = rewriteChatModel({ model: 'gpt-4o', max_tokens: 2000, messages: CLASSIFY.messages }, CATALOG);
+    assert.equal(chat.tiny, false);
+    assert.equal(chat.parsed.model, 'x-ai/grok-4.6');
+    assert.ok(chat.parsed.max_tokens >= 4000);
+  } finally {
+    delete process.env.OPENZOO_DEFAULT_MODEL;
+  }
+});
+
+test('pickClassifierModel prefers env, then flash, then haiku, then first non-reasoner', () => {
+  assert.equal(pickClassifierModel(CATALOG), 'google/gemini-3.7-flash');
+  assert.equal(pickClassifierModel(['x-ai/grok-4.6', 'anthropic/claude-haiku-4.5']), 'anthropic/claude-haiku-4.5');
+  assert.equal(pickClassifierModel(['x-ai/grok-4.6', 'deepseek/deepseek-v4-pro-0813', 'qwen/qwen3.8-2.4t-a95b']), 'qwen/qwen3.8-2.4t-a95b');
+  assert.equal(pickClassifierModel(['x-ai/grok-4.6', 'deepseek/deepseek-v4-pro-0813']), null);
+  assert.equal(pickClassifierModel(CATALOG, 'nvidia/nemotron-3.5-lightning'), 'nvidia/nemotron-3.5-lightning');
+  process.env.OPENZOO_CLASSIFIER_MODEL = 'bytedance-seed/seed-2-1-turbo';
+  try {
+    assert.equal(pickClassifierModel(CATALOG), 'bytedance-seed/seed-2-1-turbo');
+  } finally {
+    delete process.env.OPENZOO_CLASSIFIER_MODEL;
+  }
 });
