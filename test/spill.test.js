@@ -9,8 +9,10 @@ import {
   persistBoundChars,
   loadBoundChars,
   extractFilePaths,
+  extractBashPaths,
   filesForCorpus,
   resolveReadablePath,
+  corpusCharsForSend,
   createSpillStats,
 } from '../lib/spill.js';
 import { anthropicToOpenAI } from '../lib/anthropic.js';
@@ -23,24 +25,39 @@ function tmpFile() {
 test('ledger accumulates on first bind and each append, without files', () => {
   const file = tmpFile();
   const map = new Map();
-  const first = noteCorpusLedger(map, { contextId: 'ctx-a', reused: false, corpusChars: 20_000, file });
+  const first = noteCorpusLedger(map, { contextId: 'ctx-a', corpusChars: 20_000, file });
   assert.equal(first, 20_000);
-  const second = noteCorpusLedger(map, { contextId: 'ctx-a', reused: true, deltaChars: 4_500, file });
+  const second = noteCorpusLedger(map, { contextId: 'ctx-a', corpusChars: 24_500, file });
   assert.equal(second, 24_500);
-  const third = noteCorpusLedger(map, { contextId: 'ctx-a', reused: true, deltaChars: 1_200, file });
+  const third = noteCorpusLedger(map, { contextId: 'ctx-a', corpusChars: 25_700, file });
   assert.equal(third, 25_700);
-  // The accumulated basis is larger than a live tail / this-turn body.
   assert.ok(map.get('ctx-a') > 6_000);
   assert.ok(fs.existsSync(file), 'conversation-only session writes bound-chars.json');
+});
+
+test('Math.max keeps a larger ledger when this-turn prefix shrinks', () => {
+  const file = tmpFile();
+  const map = new Map([['ctx-stale', 34_056]]);
+  noteCorpusLedger(map, { contextId: 'ctx-stale', corpusChars: 100_000, file });
+  assert.equal(map.get('ctx-stale'), 100_000);
+  noteCorpusLedger(map, { contextId: 'ctx-stale', corpusChars: 20_000, file });
+  assert.equal(map.get('ctx-stale'), 100_000);
+});
+
+test('send() uses Math.max so a stale 34056 cannot cap a bigger prefix', () => {
+  const map = new Map([['ctx', 34_056]]);
+  assert.equal(corpusCharsForSend(map, 'ctx', 100_000), 100_000);
+  assert.equal(corpusCharsForSend(map, 'ctx', 20_000), 34_056);
+  assert.equal(corpusCharsForSend(new Map(), 'missing', 45_000), 45_000);
 });
 
 test('file bytes add on top of the conversation ledger', () => {
   const file = tmpFile();
   const map = new Map();
-  noteCorpusLedger(map, { contextId: 'ctx-b', reused: false, corpusChars: 10_000, fileChars: 40_000, file });
+  noteCorpusLedger(map, { contextId: 'ctx-b', corpusChars: 10_000, fileChars: 40_000, file });
   assert.equal(map.get('ctx-b'), 50_000);
-  noteCorpusLedger(map, { contextId: 'ctx-b', reused: true, deltaChars: 2_000, fileChars: 8_000, file });
-  assert.equal(map.get('ctx-b'), 60_000);
+  noteCorpusLedger(map, { contextId: 'ctx-b', corpusChars: 12_000, fileChars: 8_000, file });
+  assert.equal(map.get('ctx-b'), 58_000);
 });
 
 test('persist/restore survives a sidecar-style restart', () => {
@@ -151,7 +168,7 @@ test('filesForCorpus binds absolute AND relative Read paths from Anthropic tool_
   assert.match(got.text, /ABS_BODY_UNIQUE/);
   assert.match(got.text, /REL_BODY_UNIQUE/);
   assert.equal(got.files, 2);
-  assert.match(logs.join('\n'), /file-bind 2 files \/ \d+ bytes/);
+  assert.match(logs.join('\n'), /file-bind kept=2 bytes=\d+ skip enoent=0 cap=0 dir=0 rel=1 bash=0/);
 
   // Same files after the live Claude Code translation (tool_use → tool_calls).
   const translated = anthropicToOpenAI({ messages: anthropic }).messages;
@@ -174,7 +191,50 @@ test('filesForCorpus logs an explicit zero reason and does not throw', () => {
   });
   assert.equal(got.text, '');
   assert.equal(got.files, 0);
-  assert.match(logs.join('\n'), /file-bind 0 because no file paths/);
+  assert.match(logs.join('\n'), /file-bind kept=0 bytes=0 skip enoent=0 cap=0 dir=0 rel=0 bash=0/);
+});
+
+test('filesForCorpus binds a Bash relative path and a directory\'s children', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oz-bash-'));
+  const sub = path.join(dir, 'programs');
+  fs.mkdirSync(sub);
+  fs.writeFileSync(path.join(dir, 'notes.md'), 'BASH_REL_BODY');
+  fs.writeFileSync(path.join(sub, 'a.rs'), 'CHILD_A');
+  fs.writeFileSync(path.join(sub, 'b.rs'), 'CHILD_B');
+  const logs = [];
+  const msgs = [
+    { role: 'tool', content: `The current working directory is ${dir}` },
+    {
+      role: 'assistant',
+      tool_calls: [{
+        type: 'function',
+        function: { name: 'Bash', arguments: JSON.stringify({ command: 'head -80 notes.md' }) },
+      }],
+    },
+    {
+      role: 'assistant',
+      tool_calls: [{
+        type: 'function',
+        function: { name: 'Read', arguments: JSON.stringify({ file_path: sub }) },
+      }],
+    },
+  ];
+  const got = filesForCorpus(msgs, {
+    boundFiles: new Set(),
+    cwd: '/tmp',
+    log: (m) => logs.push(m),
+  });
+  assert.match(got.text, /BASH_REL_BODY/);
+  assert.match(got.text, /CHILD_A/);
+  assert.match(got.text, /CHILD_B/);
+  assert.equal(got.files, 3);
+  assert.match(logs.join('\n'), /file-bind kept=3 bytes=\d+ skip enoent=\d+ cap=0 dir=1 rel=\d+ bash=1/);
+});
+
+test('extractBashPaths finds head/cat targets and honours cd', () => {
+  const { paths, cwd } = extractBashPaths('cd /workspace && head -80 lib/spill.js', '/tmp');
+  assert.equal(cwd, '/workspace');
+  assert.ok(paths.some((p) => p.raw === 'lib/spill.js' && p.cwd === '/workspace'));
 });
 
 test('resolveReadablePath expands ~ and relative cwd', () => {
