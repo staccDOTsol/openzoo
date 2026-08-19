@@ -11,6 +11,7 @@ import {
   extractFilePaths,
   extractBashPaths,
   filesForCorpus,
+  readFilesForCorpus,
   resolveReadablePath,
   corpusCharsForSend,
   createSpillStats,
@@ -20,6 +21,11 @@ import { anthropicToOpenAI } from '../lib/anthropic.js';
 function tmpFile() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oz-spill-'));
   return path.join(dir, 'bound-chars.json');
+}
+
+/** Background path: collect then read. Request-path tests call filesForCorpus alone. */
+function bindFilesForTest(msgs, opts) {
+  return readFilesForCorpus(filesForCorpus(msgs, opts), opts);
 }
 
 test('ledger accumulates on first bind and each append, without files', () => {
@@ -142,6 +148,69 @@ test('extractFilePaths does not harvest import paths from tool_result bodies', (
   assert.deepEqual(extractFilePaths(msgs), []);
 });
 
+test('filesForCorpus request path does not readFileSync or readdirSync', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oz-nread-'));
+  const fat = path.join(dir, 'fat.txt');
+  const sub = path.join(dir, 'tree');
+  fs.writeFileSync(fat, 'X'.repeat(2_000_000));
+  fs.mkdirSync(sub);
+  fs.writeFileSync(path.join(sub, 'child.txt'), 'CHILD_SHOULD_WAIT');
+  const bound = new Set();
+  let reads = 0;
+  let dirReads = 0;
+  const origRead = fs.readFileSync;
+  const origDir = fs.readdirSync;
+  fs.readFileSync = (...args) => { reads += 1; return origRead(...args); };
+  fs.readdirSync = (...args) => { dirReads += 1; return origDir(...args); };
+  let collected;
+  try {
+    collected = filesForCorpus([
+      {
+        role: 'assistant',
+        tool_calls: [{
+          function: { name: 'Read', arguments: JSON.stringify({ file_path: fat }) },
+        }],
+      },
+      {
+        role: 'assistant',
+        tool_calls: [{
+          function: { name: 'Read', arguments: JSON.stringify({ file_path: sub }) },
+        }],
+      },
+    ], {
+      boundFiles: bound,
+      cwd: dir,
+      cap: 3_000_000,
+      readFileSync: () => { reads += 1; return 'LEAK'; },
+      readdirSync: () => { dirReads += 1; return ['child.txt']; },
+    });
+  } finally {
+    fs.readFileSync = origRead;
+    fs.readdirSync = origDir;
+  }
+  assert.equal(reads, 0, 'request path must not read file bytes');
+  assert.equal(dirReads, 0, 'request path must not expand directory children');
+  assert.equal(collected.text, '');
+  assert.equal(collected.bytes, 0);
+  assert.ok(collected.pending.some((p) => p.abs === fat && p.kind === 'file'));
+  assert.ok(collected.pending.some((p) => p.abs === sub && p.kind === 'dir'));
+
+  const again = filesForCorpus([
+    {
+      role: 'assistant',
+      tool_calls: [{
+        function: { name: 'Read', arguments: JSON.stringify({ file_path: fat }) },
+      }],
+    },
+  ], { boundFiles: bound, cwd: dir, cap: 3_000_000 });
+  assert.equal(again.pending.length, 0, 'path+mtime dedupe reserves the file on collect');
+
+  const got = readFilesForCorpus(collected, { boundFiles: bound, cap: 3_000_000 });
+  assert.match(got.text, /X{100,}/);
+  assert.match(got.text, /CHILD_SHOULD_WAIT/);
+  assert.equal(got.files, 2);
+});
+
 test('filesForCorpus binds absolute AND relative Read paths from Anthropic tool_use', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oz-files-'));
   const absPath = path.join(dir, 'abs.txt');
@@ -160,7 +229,7 @@ test('filesForCorpus binds absolute AND relative Read paths from Anthropic tool_
       content: [{ type: 'tool_use', id: 'u2', name: 'Read', input: { file_path: relName } }],
     },
   ];
-  const got = filesForCorpus(anthropic, {
+  const got = bindFilesForTest(anthropic, {
     boundFiles: bound,
     cwd: dir,
     log: (m) => logs.push(m),
@@ -173,7 +242,7 @@ test('filesForCorpus binds absolute AND relative Read paths from Anthropic tool_
   // Same files after the live Claude Code translation (tool_use → tool_calls).
   const translated = anthropicToOpenAI({ messages: anthropic }).messages;
   const logs2 = [];
-  const got2 = filesForCorpus(translated, {
+  const got2 = bindFilesForTest(translated, {
     boundFiles: new Set(),
     cwd: dir,
     log: (m) => logs2.push(m),
@@ -201,6 +270,8 @@ test('filesForCorpus binds a Bash relative path and a directory\'s children', ()
   fs.writeFileSync(path.join(dir, 'notes.md'), 'BASH_REL_BODY');
   fs.writeFileSync(path.join(sub, 'a.rs'), 'CHILD_A');
   fs.writeFileSync(path.join(sub, 'b.rs'), 'CHILD_B');
+  fs.mkdirSync(path.join(sub, 'node_modules'));
+  fs.writeFileSync(path.join(sub, 'node_modules', 'skip.js'), 'SHOULD_NOT_BIND');
   const logs = [];
   const msgs = [
     { role: 'tool', content: `The current working directory is ${dir}` },
@@ -219,7 +290,7 @@ test('filesForCorpus binds a Bash relative path and a directory\'s children', ()
       }],
     },
   ];
-  const got = filesForCorpus(msgs, {
+  const got = bindFilesForTest(msgs, {
     boundFiles: new Set(),
     cwd: '/tmp',
     log: (m) => logs.push(m),
@@ -227,8 +298,30 @@ test('filesForCorpus binds a Bash relative path and a directory\'s children', ()
   assert.match(got.text, /BASH_REL_BODY/);
   assert.match(got.text, /CHILD_A/);
   assert.match(got.text, /CHILD_B/);
+  assert.doesNotMatch(got.text, /SHOULD_NOT_BIND/);
   assert.equal(got.files, 3);
   assert.match(logs.join('\n'), /file-bind kept=3 bytes=\d+ skip enoent=\d+ cap=0 dir=1 rel=\d+ bash=1/);
+});
+
+test('filesForCorpus skips an over-cap file via stat, not read', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oz-cap-'));
+  const fat = path.join(dir, 'fat.txt');
+  fs.writeFileSync(fat, 'Y'.repeat(500_000));
+  let reads = 0;
+  const got = filesForCorpus([{
+    role: 'assistant',
+    tool_calls: [{
+      function: { name: 'Read', arguments: JSON.stringify({ file_path: fat }) },
+    }],
+  }], {
+    boundFiles: new Set(),
+    cap: 400_000,
+    readFileSync: () => { reads += 1; return 'LEAK'; },
+  });
+  assert.equal(reads, 0);
+  assert.equal(got.pending.length, 0);
+  assert.equal(got.cap, 1);
+  assert.equal(got.text, '');
 });
 
 test('extractBashPaths finds head/cat targets and honours cd', () => {
