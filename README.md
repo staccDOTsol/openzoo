@@ -93,7 +93,7 @@ Builds a ~965k-token document with one planted fact, shows that buying direct re
 
 ```
 bound once in 14.8s: 3.7MB → context ctx_01KZZY8YQE…
-quote for the ask: $0.000480 · pricing=markup (3× a tiny body — the 3.7MB corpus is not re-priced)
+quote for the ask: $0.000480 · pricing=markup (a tiny body — the 3.7MB corpus is not re-priced)
 ```
 
 If the wallet is funded with USDC or TOKEN it pays (capped at `OPENZOO_DEMO_MAX_USD`, default $0.01) and prints the answer, the tokens the model actually read, and the receipt. If not, it prints exactly what to fund. Long waits (the one-time upload, pricing, payment, the answer) show a live progress line with stage + elapsed seconds.
@@ -111,7 +111,7 @@ If the wallet is funded with USDC or TOKEN it pays (capped at `OPENZOO_DEMO_MAX_
 The zoo keeps your corpus in leCore holographic memory; the shim keeps a manifest at `~/.openzoo/contexts.json` (chmod 600) mapping `sha256(corpus)` → the zoo's `context_id`, scoped per API base. When a request carries a corpus the manifest already knows:
 
 - **nothing big is uploaded** — the ask ships alone with an `X-HRR-Context` header,
-- **the 402 prices the tiny ask** (markup basis, honestly labeled `pricing=markup`), typically a few hundredths of a cent instead of re-pricing megabytes,
+- **the 402 prices the tiny ask** (honestly labeled `pricing=markup`), typically a few hundredths of a cent instead of re-pricing megabytes,
 - **the answer still comes from your corpus** — the zoo recalls the relevant slices server-side.
 
 This works in all three fronts: the **proxy** (a big pasted body in the last message is split at its last blank line, bound once, and reused on every later call — even with a different question), the **MCP** `zoo_ask` `corpus` parameter, and the **demo**. If the zoo ever forgets a context (sidecar wipe), the gateway answers 404 *before* any payment and the shim transparently re-binds once and retries — a stale manifest never fails a call.
@@ -175,9 +175,9 @@ Pin the key with `OPENZOO_TUNNEL_TOKEN` if your IDE stores it. Keys never leave 
 ## Honest pricing note
 
 Two bases, reported per call in the 402 (`extra.pricing`):
-- **Short prompts price at a markup** (3× provider cost) — there's nothing to spill, you're paying for passthrough.
+- **Short prompts price at cost.** There's nothing to spill, so there's no saving to share — you pay what the call cost us, reconciled against the provider's own metered figure after it completes.
 - **Big bodies price at a counterfactual discount** (~10× cheaper than buying the same call direct) — the zoo's leCore memory means it never forwards your whole body upstream, and passes the savings on. Measured numbers at [benches.openzoo.fun](https://benches.openzoo.fun).
-- **Asks against a bound corpus price on the markup basis** (3× a tiny body — the receipt says `pricing=markup`). That is not a discount trick: 3× of a few hundred tokens is normally far below even the counterfactual price of shipping the corpus, which is the whole point of binding once.
+- **Asks against a bound corpus price on the small forwarded body** (the receipt says `pricing=markup`). That is not a discount trick: a few hundred tokens at cost is far below the counterfactual price of shipping the corpus, which is the whole point of binding once.
 
 The receipt names which base you got; `extra.directUsd` / `extra.savesVsDirect` let you check the math.
 
