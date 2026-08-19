@@ -77,7 +77,9 @@ jobs:
         with:
           context: .
           file: box.Dockerfile
-          build-args: OZ_TAG=${{ steps.oz.outputs.tag }}
+          build-args: |
+            OZ_TAG=${{ steps.oz.outputs.tag }}
+            PROOFFRONT_URL=${{ vars.PROOFFRONT_URL }}
           platforms: linux/amd64
           load: true
           tags: openzoo-box:smoke
@@ -139,7 +141,9 @@ jobs:
         with:
           context: .
           file: box.Dockerfile
-          build-args: OZ_TAG=${{ steps.oz.outputs.tag }}
+          build-args: |
+            OZ_TAG=${{ steps.oz.outputs.tag }}
+            PROOFFRONT_URL=${{ vars.PROOFFRONT_URL }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

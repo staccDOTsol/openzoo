@@ -16,7 +16,6 @@ import { forgetContext } from './contexts.js';
 import { injectBrief } from './brief.js';
 import { withNamespace } from './namespace.js';
 import { anthropicToOpenAI, openAIToAnthropic, writeAnthropicSse } from './anthropic.js';
-import { responsesToChat, chatToResponses, writeResponsesSse } from './responses.js';
 
 const HOP_BY_HOP = new Set([
   'host', 'connection', 'keep-alive', 'transfer-encoding', 'upgrade',
@@ -42,7 +41,7 @@ const HOP_BY_HOP = new Set([
 function normalizePath(url) {
   const [path, query] = (url || '/').split(/(?=\?)/);
   let p = path.replace(/^(?:\/v1)+(?=\/v1\/)/, '');       // /v1/v1/x -> /v1/x
-  if (!/^\/v1(\/|$)/.test(p) && /^\/(hrr|chat|models|completions|embeddings|usage|responses)/.test(p)) p = `/v1${p}`;
+  if (!/^\/v1(\/|$)/.test(p) && /^\/(hrr|chat|models|completions|embeddings|usage)/.test(p)) p = `/v1${p}`;
   return p === path ? url : `${p}${query || ''}`;
 }
 
@@ -548,51 +547,7 @@ export async function startProxy({ silent = false, requireToken = null, sessionM
     // answer back on the way out. See lib/anthropic.js.
     let anthropicMode = false;
     let anthropicModel = null;
-    let responsesMode = false;
-    let responsesModel = null;
-    let responsesCustom = null;   // names of freeform tools needing custom_tool_call on the way back
     const rawPath = (req.url || '').split('?')[0];
-
-    // RESPONSES API. Some harnesses speak only this wire format — OpenAI's
-    // Codex Security CLI pins `wire_api: "responses"` in its provider table, so
-    // a bare 404 here made it fall back to wss://api.openai.com and bypass the
-    // proxy entirely while reporting the failure as an auth error. Translate
-    // in, translate out; everything between stays on the chat path.
-    if (req.method === 'POST' && (rawPath === '/v1/responses' || rawPath === '/responses')) {
-      try {
-        const inbound = JSON.parse(bodyBuf.toString('utf8'));
-        // TEMP CAPTURE: dump the first few Responses requests so the agent's
-        // actual wire usage (store / previous_response_id / tool shapes) can be
-        // read rather than inferred. Guarded by an env var so it is off unless
-        // asked for.
-        if (process.env.OZ_CAPTURE_RESPONSES) {
-          try {
-            const fs = await import('node:fs');
-            const dir = process.env.OZ_CAPTURE_RESPONSES;
-            fs.mkdirSync(dir, { recursive: true });
-            const n = fs.readdirSync(dir).length;
-            // Capture the LATER turns too. Turn 1 is already understood; the
-            // unknown is what codex sends back after running a tool, so bias
-            // the capture toward requests that carry a tool result.
-            const hasResult = Array.isArray(inbound.input)
-              && inbound.input.some((i) => i && String(i.type || '').endsWith('_call_output'));
-            const tag = hasResult ? 'result' : 'plain';
-            if (n < 24) fs.writeFileSync(`${dir}/${tag}-${n}.json`, JSON.stringify(inbound, null, 2));
-          } catch { /* capture must never break a paid call */ }
-        }
-        responsesModel = inbound.model;
-        const meta = {};
-        bodyBuf = Buffer.from(JSON.stringify(responsesToChat(inbound, meta)));
-        responsesCustom = meta.custom;
-        responsesMode = true;
-        req.url = '/v1/chat/completions';
-        url = `${config.apiBase}${req.url}`;
-      } catch {
-        jsonErr(res, 400, 'invalid responses body');
-        return;
-      }
-    }
-
     if (req.method === 'POST' && (rawPath === '/v1/messages' || rawPath === '/messages')) {
       try {
         const inbound = JSON.parse(bodyBuf.toString('utf8'));
@@ -649,18 +604,6 @@ export async function startProxy({ silent = false, requireToken = null, sessionM
       const hit = replayGet(rKey);
       if (hit) {
         log('identical request within 30s — served the cached completion, NOT re-paid');
-        // The cache stores the CHAT shape. A Responses caller must get its own
-        // wire format back, or the replay path silently answers in a format the
-        // client cannot parse — a bug that only appears on the SECOND identical
-        // request, which is exactly when nobody is watching.
-        if (responsesMode) {
-          if (wantsStream) { writeResponsesSse(res, hit.data, responsesModel, null, responsesCustom); return; }
-          const rh = { 'content-type': 'application/json' };
-          if (hit.settle) rh['x-payment-response'] = hit.settle;
-          res.writeHead(200, rh);
-          res.end(JSON.stringify(chatToResponses(hit.data, responsesModel, responsesCustom)));
-          return;
-        }
         if (wantsStream) { serveAsSse(res, hit.data, null); return; }
         const h = { 'content-type': 'application/json' };
         if (hit.settle) h['x-payment-response'] = hit.settle;
@@ -809,20 +752,6 @@ export async function startProxy({ silent = false, requireToken = null, sessionM
             res.end(JSON.stringify(msg));
             return;
           }
-          if (responsesMode) {
-            // A Responses client that asked to stream is WAITING for
-            // `response.completed`; handing it a JSON body closes the socket
-            // mid-stream and it reports "stream disconnected before
-            // completion". Honour the streaming contract when it asked for it.
-            if (wantsStream) { writeResponsesSse(res, data, responsesModel, response, responsesCustom); return; }
-            const out = chatToResponses(data, responsesModel, responsesCustom);
-            const h = { 'content-type': 'application/json' };
-            const settleHdr = response.headers.get('x-payment-response');
-            if (settleHdr) h['x-payment-response'] = settleHdr;
-            res.writeHead(200, h);
-            res.end(JSON.stringify(out));
-            return;
-          }
           if (wantsStream) { serveAsSse(res, data, response); return; }
           const h = { 'content-type': 'application/json' };
           const settleHdr = response.headers.get('x-payment-response');
@@ -861,40 +790,10 @@ export async function startProxy({ silent = false, requireToken = null, sessionM
   // AND a tunnel token, so the RunPod-fronted port stays gated exactly like the
   // public tunnel path.
   const bindHost = process.env.OPENZOO_BIND || '127.0.0.1';
-  // SELF-HEAL A TAKEN PORT. A killed-but-not-reaped run, a second terminal, or
-  // anything else already on 8402 made listen() reject and took the whole start
-  // down — and because `openzoo claude` starts us with silent:true, the user saw
-  // only "starting the proxy in the background..." and no reason. Walk up to the
-  // next free port instead of dying; the caller reads config.port back out, so
-  // every URL printed afterwards is the one we actually bound.
-  //
-  // EXCEPTION: if the thing already on the port is a HEALTHY openzoo proxy,
-  // reuse it rather than starting a rival that splits spend across two wallets.
-  const wanted = config.port;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await new Promise((resolve, reject) => {
-        const onErr = (e) => { server.removeListener('error', onErr); reject(e); };
-        server.on('error', onErr);
-        server.listen(config.port, bindHost, () => { server.removeListener('error', onErr); resolve(); });
-      });
-      break;
-    } catch (e) {
-      if (e?.code !== 'EADDRINUSE' || attempt >= 12) throw e;
-      if (attempt === 0) {
-        try {
-          const probe = await fetch(`http://127.0.0.1:${config.port}/v1/models`, { signal: AbortSignal.timeout(2500) });
-          if (probe.ok) {
-            say(`openzoo: a healthy proxy is already on :${config.port} — reusing it`);
-            return { server: null, client, reused: true, port: config.port, spent: () => 0, publicUrl: null, tunnelToken: null, tunnelError: null };
-          }
-        } catch { /* not ours, or wedged — take the next port */ }
-      }
-      config.port += 1;
-      say(`openzoo: :${config.port - 1} busy — trying :${config.port}`);
-    }
-  }
-  if (config.port !== wanted) say(`openzoo: listening on :${config.port} (:${wanted} was busy)`);
+  await new Promise((resolve, reject) => {
+    server.on('error', reject);
+    server.listen(config.port, bindHost, resolve);
+  });
 
   // AUTO-PREPAY. Paying on-chain per call is where the latency lives: the
   // gateway answers its 402 challenge in ~0.12s while a full settled call

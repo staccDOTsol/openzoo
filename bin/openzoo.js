@@ -1,4 +1,58 @@
 #!/usr/bin/env node
+// NODE >=18 OR NOTHING — AND HEAL IT IF WE CAN.
+//
+// package.json says engines >=18 but npm only WARNS, so an old node walked
+// straight in and died somewhere useless: there is no global `fetch` before 18,
+// so the very first probe threw, a bare `catch` swallowed it, and the user was
+// left staring at "starting the proxy in the background..." forever with no
+// error to report. Reported from the wild on macOS.
+//
+// Detect-and-exit is not enough when the machine usually HAS a good node sitting
+// in nvm/homebrew and merely isn't using it. Find one and re-exec through it;
+// only give up (with the exact fix) when there is genuinely nothing to run on.
+// NOTE: plain 'fs'/'path' specifiers, not 'node:fs'. The node: prefix only
+// resolves from 14.13.1, and this block's whole job is to run on the old
+// runtime we are rejecting — an import error here would defeat the message.
+import { existsSync, readdirSync } from 'fs';
+import { execFileSync, spawnSync } from 'child_process';
+import { homedir } from 'os';
+import { join } from 'path';
+import { fileURLToPath } from 'url';
+
+const MIN_NODE = 18;
+if (Number(process.versions.node.split('.')[0]) < MIN_NODE && !process.env.OPENZOO_NODE_REEXEC) {
+  const candidates = ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node'].filter(existsSync);
+  // nvm keeps every install under ~/.nvm/versions/node/vNN.../bin/node —
+  // newest first, so we land on the best available rather than the oldest.
+  try {
+    const nvm = join(process.env.NVM_DIR || join(homedir(), '.nvm'), 'versions', 'node');
+    for (const v of readdirSync(nvm)
+      .filter((d) => /^v\d+/.test(d))
+      .sort((a, b) => parseInt(b.slice(1), 10) - parseInt(a.slice(1), 10))) {
+      const p = join(nvm, v, 'bin', 'node');
+      if (existsSync(p)) candidates.push(p);
+    }
+  } catch { /* no nvm, fine */ }
+
+  for (const node of candidates) {
+    let v = 0;
+    try { v = Number(execFileSync(node, ['-v'], { encoding: 'utf8' }).trim().slice(1).split('.')[0]); } catch { continue; }
+    if (v < MIN_NODE) continue;
+    console.error(`openzoo: node ${process.versions.node} is too old (need >=${MIN_NODE}) — re-running under ${node} (v${v})`);
+    const r = spawnSync(node, [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
+      stdio: 'inherit',
+      env: { ...process.env, OPENZOO_NODE_REEXEC: '1' },
+    });
+    process.exit(r.status === null ? 1 : r.status);
+  }
+
+  console.error(`openzoo: needs Node >=${MIN_NODE}, you are on ${process.versions.node}.`);
+  console.error('  no newer node found on this machine. install one, then re-run:');
+  console.error('    brew install node            # macOS');
+  console.error('    nvm install 20 && nvm use 20 # if you use nvm');
+  process.exit(1);
+}
+
 const cmd = process.argv[2] || 'proxy';
 
 const HELP = `openzoo — local x402-paying proxy + MCP server for openzoo.fun
