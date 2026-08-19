@@ -53,6 +53,35 @@ if (Number(process.versions.node.split('.')[0]) < MIN_NODE && !process.env.OPENZ
   process.exit(1);
 }
 
+// A DEAD IPv6 ROUTE MUST NOT EAT THE CONNECT BUDGET.
+//
+// x402-tokens.fly.dev publishes both AAAA (2a09:8280:1::16a:5795) and A
+// (66.241.124.74). Node resolves `verbatim` by default, so on a network whose
+// IPv6 is advertised but blackholed it opens the v6 socket first and waits —
+// and the aggregate error names BOTH addresses, which reads as "the whole host
+// is down" when v4 was never given a fair chance:
+//
+//   Connect Timeout Error (attempted addresses: 2a09:8280:1::16a:5795:443,
+//                          66.241.124.74:443, timeout: 10000ms)
+//
+// Reported from the wild on macOS: the proxy binds, every upstream call times
+// out, the health poll never passes, and it exits after ~1 minute looking like
+// a startup bug. Same shape as the cloudflared IPv6+QUIC note in the wiki.
+//
+// Happy Eyeballs (RFC 8305) races the families instead of guessing, with a
+// short per-attempt timeout so a dead route costs 500ms rather than ten
+// seconds. Both calls are version-gated and best-effort — an older Node just
+// keeps its default behaviour, and the ipv4first fallback covers it.
+try {
+  const net = await import('node:net');
+  net.setDefaultAutoSelectFamily?.(true);
+  net.setDefaultAutoSelectFamilyAttemptTimeout?.(500);
+} catch { /* older node: fall through to the DNS order below */ }
+try {
+  const dns = await import('node:dns');
+  if (!process.env.OPENZOO_DNS_VERBATIM) dns.setDefaultResultOrder?.('ipv4first');
+} catch { /* nothing to do */ }
+
 const cmd = process.argv[2] || 'proxy';
 
 const HELP = `openzoo — local x402-paying proxy + MCP server for openzoo.fun
