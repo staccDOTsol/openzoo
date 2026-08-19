@@ -12,6 +12,9 @@ import {
   extractBashPaths,
   filesForCorpus,
   readFilesForCorpus,
+  boundAbsFromKeys,
+  stubBoundFileResults,
+  looksLikeFileView,
   resolveReadablePath,
   corpusCharsForSend,
   createSpillStats,
@@ -367,4 +370,150 @@ test('spill counters increment on spill and not on a pass-through', () => {
   assert.equal(snap.fileBinds, 2);
   assert.equal(snap.tokensApprox, Math.round(23_000 / 4));
   assert.equal(snap.reusedBinds, 1);
+});
+
+test('looksLikeFileView accepts head/cat and rejects mixed commands', () => {
+  assert.equal(looksLikeFileView('head -80 notes.md'), true);
+  assert.equal(looksLikeFileView('cd /workspace && cat lib/spill.js'), true);
+  assert.equal(looksLikeFileView('npm test'), false);
+  assert.equal(looksLikeFileView('cat notes.md | rg foo'), false);
+  assert.equal(looksLikeFileView('cat notes.md && npm test'), false);
+});
+
+test('boundAbsFromKeys strips the mtime suffix', () => {
+  const abs = boundAbsFromKeys(new Set(['/tmp/foo.js:1734.25', 'C:\\x:9']));
+  assert.ok(abs.has('/tmp/foo.js'));
+  assert.ok(abs.has('C:\\x'));
+});
+
+test('stubBoundFileResults drops a bound Read body so the tail is much smaller than the corpus', () => {
+  const abs = '/tmp/huge.rs';
+  const body = 'Z'.repeat(5_000_000);
+  const boundFiles = new Set([`${abs}:1`]);
+  const msgs = [
+    {
+      role: 'assistant',
+      tool_calls: [{
+        id: 'c1',
+        type: 'function',
+        function: { name: 'Read', arguments: JSON.stringify({ file_path: abs }) },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'c1', content: body },
+    { role: 'user', content: 'what does huge.rs export?' },
+  ];
+  let reads = 0;
+  const origRead = fs.readFileSync;
+  fs.readFileSync = (...args) => { reads += 1; return origRead(...args); };
+  let got;
+  try {
+    got = stubBoundFileResults(msgs, { boundFiles });
+  } finally {
+    fs.readFileSync = origRead;
+  }
+  assert.equal(reads, 0, 'stub is a string rewrite, not another disk read');
+  assert.equal(got.stubbed, 1);
+  assert.ok(got.dropped >= 5_000_000);
+  assert.match(got.messages[1].content, /\/tmp\/huge\.rs/);
+  assert.match(got.messages[1].content, /\[bound\]/);
+  assert.doesNotMatch(got.messages[1].content, /Z{20}/);
+  assert.equal(got.messages[2].content, 'what does huge.rs export?');
+  const sent = got.messages.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0);
+  assert.ok(sent < 2_000, `forwarded tail should be tiny, got ${sent}`);
+  assert.ok(sent * 100 < body.length);
+});
+
+test('stubBoundFileResults leaves a first-read tool_result and non-file bash verbatim', () => {
+  const abs = '/tmp/new.rs';
+  const msgs = [
+    {
+      role: 'assistant',
+      tool_calls: [{
+        id: 'c1',
+        function: { name: 'Read', arguments: JSON.stringify({ file_path: abs }) },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'c1', content: 'NEW_BODY_UNIQUE' },
+    {
+      role: 'assistant',
+      tool_calls: [{
+        id: 'c2',
+        function: { name: 'Bash', arguments: JSON.stringify({ command: 'npm test' }) },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'c2', content: 'FAIL lots of test output '.repeat(50) },
+  ];
+  const got = stubBoundFileResults(msgs, { boundFiles: new Set() });
+  assert.equal(got.stubbed, 0);
+  assert.equal(got.messages[1].content, 'NEW_BODY_UNIQUE');
+  assert.match(got.messages[3].content, /FAIL lots of test output/);
+
+  const still = stubBoundFileResults(msgs, { boundFiles: new Set(['/tmp/other.js:1']) });
+  assert.equal(still.messages[1].content, 'NEW_BODY_UNIQUE');
+  assert.match(still.messages[3].content, /FAIL lots of test output/);
+});
+
+test('stubBoundFileResults stubs Bash head/cat of a bound relative path', () => {
+  const dir = '/workspace';
+  const rel = 'notes.md';
+  const abs = path.join(dir, rel);
+  const msgs = [
+    { role: 'tool', content: `The current working directory is ${dir}` },
+    {
+      role: 'assistant',
+      tool_calls: [{
+        id: 'b1',
+        function: { name: 'Bash', arguments: JSON.stringify({ command: 'head -80 notes.md' }) },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'b1', content: '# Notes\n' + 'line\n'.repeat(400) },
+  ];
+  const got = stubBoundFileResults(msgs, { boundFiles: new Set([`${abs}:9`]) });
+  assert.equal(got.stubbed, 1);
+  assert.match(got.messages[2].content, /notes\.md|\/workspace\/notes\.md/);
+  assert.doesNotMatch(got.messages[2].content, /line\nline/);
+});
+
+test('stubBoundFileResults works on the live Claude Code translation', () => {
+  const abs = '/tmp/a.rs';
+  const anthropic = {
+    messages: [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'u1', name: 'Read', input: { file_path: abs } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'u1', content: 'BODY'.repeat(1_000) }] },
+      { role: 'user', content: 'summarize' },
+    ],
+  };
+  const translated = anthropicToOpenAI(anthropic).messages;
+  const got = stubBoundFileResults(translated, { boundFiles: new Set([`${abs}:1`]) });
+  assert.equal(got.stubbed, 1);
+  const tool = got.messages.find((m) => m.role === 'tool');
+  assert.match(tool.content, /\[bound\]/);
+  assert.doesNotMatch(tool.content, /BODYBODY/);
+  assert.equal(got.messages.at(-1).content, 'summarize');
+});
+
+test('stubBoundFileResults fromIndex leaves the spilled prefix intact', () => {
+  const abs = '/tmp/kept.rs';
+  const msgs = [
+    {
+      role: 'assistant',
+      tool_calls: [{
+        id: 'old',
+        function: { name: 'Read', arguments: JSON.stringify({ file_path: abs }) },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'old', content: 'PREFIX_BODY' },
+    {
+      role: 'assistant',
+      tool_calls: [{
+        id: 'new',
+        function: { name: 'Read', arguments: JSON.stringify({ file_path: abs }) },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'new', content: 'TAIL_BODY' },
+  ];
+  const got = stubBoundFileResults(msgs, { boundFiles: new Set([`${abs}:1`]), fromIndex: 2 });
+  assert.equal(got.messages[1].content, 'PREFIX_BODY');
+  assert.match(got.messages[3].content, /\[bound\]/);
+  assert.doesNotMatch(got.messages[3].content, /TAIL_BODY/);
 });
