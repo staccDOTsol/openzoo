@@ -422,7 +422,7 @@ test('stubBoundFileResults drops a bound Read body so the tail is much smaller t
   assert.equal(got.stubbed, 1);
   assert.ok(got.dropped >= 5_000_000);
   assert.match(got.messages[1].content, /\/tmp\/huge\.rs/);
-  assert.match(got.messages[1].content, /\[bound\]/);
+  assert.match(got.messages[1].content, /\[bound, \d+ chars\]/);
   assert.doesNotMatch(got.messages[1].content, /Z{20}/);
   assert.equal(got.messages[2].content, 'what does huge.rs export?');
   const sent = got.messages.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0);
@@ -494,7 +494,7 @@ test('stubBoundFileResults works on the live Claude Code translation', () => {
   const got = stubBoundFileResults(translated, { boundFiles: new Set([`${abs}:1`]) });
   assert.equal(got.stubbed, 1);
   const tool = got.messages.find((m) => m.role === 'tool');
-  assert.match(tool.content, /\[bound\]/);
+  assert.match(tool.content, /\[bound, \d+ chars\]/);
   assert.doesNotMatch(tool.content, /BODYBODY/);
   assert.equal(got.messages.at(-1).content, 'summarize');
 });
@@ -521,7 +521,7 @@ test('stubBoundFileResults fromIndex leaves the spilled prefix intact', () => {
   ];
   const got = stubBoundFileResults(msgs, { boundFiles: new Set([`${abs}:1`]), fromIndex: 2 });
   assert.equal(got.messages[1].content, 'PREFIX_BODY');
-  assert.match(got.messages[3].content, /\[bound\]/);
+  assert.match(got.messages[3].content, /\[bound, \d+ chars\]/);
   assert.doesNotMatch(got.messages[3].content, /TAIL_BODY/);
 });
 
@@ -712,4 +712,156 @@ test('tightenKnobs / loosenKnobs stay on the notch ladder', () => {
   assert.ok(up.keepTail >= mid.keepTail);
   assert.ok(up.budget >= mid.budget);
   assert.equal(up.stubMore, false);
+});
+
+/**
+ * Live ultracode failure: ONE assistant turn with ~13 fat tool_results
+ * (Read AND WebSearch/Fetch) + last user ask. Nothing in that tail is
+ * severable, so the 800-byte walk used to be a no-op and lastSend stayed
+ * ~16 full bodies.
+ */
+function toolStormFixture({
+  tools = 13,
+  bodyChars = 20_000,
+  ask = 'LAST_USER_ASK please continue from here',
+} = {}) {
+  const abs = '/tmp/openzoo-live-corpus.rs';
+  const calls = [];
+  const results = [];
+  for (let i = 0; i < tools; i++) {
+    const id = `t${i}`;
+    if (i % 3 === 0) {
+      calls.push({
+        id,
+        type: 'function',
+        function: { name: 'Read', arguments: JSON.stringify({ file_path: abs }) },
+      });
+      results.push({ role: 'tool', tool_call_id: id, content: 'R'.repeat(bodyChars) });
+    } else if (i % 3 === 1) {
+      calls.push({
+        id,
+        type: 'function',
+        function: { name: 'WebSearch', arguments: JSON.stringify({ query: `topic ${i}` }) },
+      });
+      results.push({ role: 'tool', tool_call_id: id, content: 'W'.repeat(bodyChars) });
+    } else {
+      calls.push({
+        id,
+        type: 'function',
+        function: { name: 'WebFetch', arguments: JSON.stringify({ url: `https://example.com/${i}` }) },
+      });
+      results.push({ role: 'tool', tool_call_id: id, content: 'F'.repeat(bodyChars) });
+    }
+  }
+  const msgs = [
+    { role: 'system', content: 'You are a coding agent.' },
+    { role: 'user', content: 'work through the repo' },
+    { role: 'assistant', content: 'I will look around.' },
+    { role: 'assistant', content: '', tool_calls: calls },
+    ...results,
+    { role: 'user', content: ask },
+  ];
+  return { msgs, ask, abs, boundFiles: new Set([`${abs}:1`]) };
+}
+
+function tailOf(got) {
+  const msgs = got.stubbed?.messages || [];
+  return got.cut > got.firstSpillable ? msgs.slice(got.cut) : msgs;
+}
+
+function pairingValid(msgs) {
+  const ids = new Set();
+  for (const m of msgs) {
+    for (const tc of m.tool_calls || []) {
+      if (tc?.id) ids.add(tc.id);
+    }
+    if (m.function_call?.id) ids.add(m.function_call.id);
+  }
+  for (const m of msgs) {
+    if (m.role === 'tool' && m.tool_call_id && !ids.has(m.tool_call_id)) return false;
+  }
+  return true;
+}
+
+function fullToolBodies(msgs) {
+  return msgs.filter((m) => {
+    if (m.role !== 'tool' || typeof m.content !== 'string') return false;
+    if (/\[bound/.test(m.content)) return false;
+    return m.content.length > 1000;
+  });
+}
+
+const FLOOR_KNOBS = { keepTail: 2, minTurns: 2, budget: 800, stubMore: true };
+
+test('tool-result storm: cut+stub+adapt keeps corpus/sent >= 10 and the ask', () => {
+  resetAdaptState();
+  const { msgs, ask, boundFiles } = toolStormFixture();
+  const logs = [];
+  const got = applySpillCut(msgs, {
+    knobs: START_KNOBS,
+    corpusChars: 250_000,
+    boundFiles,
+    adapt: true,
+    persist: false,
+    log: (m) => logs.push(m),
+  });
+  assert.ok(got.ratio >= 10, `corpus/sent ${got.ratio} should be >= 10`);
+  assert.ok(forwardedHasAsk(got, ask), 'last user ask must stay in the forwarded tail');
+  assert.equal(fullToolBodies(tailOf(got)).length, 0, 'no full 20k bodies in the tail');
+  assert.ok(pairingValid(tailOf(got)), 'no orphan tool result without its tool_call');
+  assert.match(logs.join('\n'), /adapt /);
+});
+
+test('floor knobs do not forward 15 full tool bodies inside a tool chain', () => {
+  resetAdaptState();
+  const { msgs, ask, boundFiles } = toolStormFixture({ tools: 15 });
+  const got = applySpillCut(msgs, {
+    knobs: FLOOR_KNOBS,
+    corpusChars: 250_000,
+    boundFiles,
+    adapt: true,
+    persist: false,
+  });
+  const tail = tailOf(got);
+  assert.equal(fullToolBodies(tail).length, 0, 'budget 800 must stub the storm, not ship 15×20k');
+  assert.ok(got.sentChars < 15 * 20_000 * 0.1, `sent ${got.sentChars} still looks like full bodies`);
+  assert.ok(got.ratio >= 10, `corpus/sent ${got.ratio} should be >= 10`);
+  assert.ok(forwardedHasAsk(got, ask), 'last user ask must survive');
+  assert.ok(pairingValid(tail), 'pairing must stay valid');
+  assert.ok(tail.some((m) => Array.isArray(m.tool_calls) && m.tool_calls.length >= 15),
+    'assistant tool_calls must stay so remaining tool results are not orphans');
+  assert.equal(tail.filter((m) => m.role === 'tool').length, 15);
+});
+
+test('stubMore stubs fat WebSearch/Bash, not just bound files', () => {
+  const msgs = [
+    {
+      role: 'assistant',
+      tool_calls: [
+        { id: 'w1', function: { name: 'WebSearch', arguments: '{"query":"x"}' } },
+        { id: 'b1', function: { name: 'Bash', arguments: '{"command":"npm test"}' } },
+      ],
+    },
+    { role: 'tool', tool_call_id: 'w1', content: 'W'.repeat(8000) },
+    { role: 'tool', tool_call_id: 'b1', content: 'B'.repeat(8000) },
+    { role: 'user', content: 'ok continue' },
+  ];
+  const got = stubBoundFileResults(msgs, { boundFiles: new Set(), aggressive: true });
+  assert.ok(got.stubbed >= 2);
+  assert.match(got.messages[1].content, /\[bound, 8000 chars\]/);
+  assert.match(got.messages[2].content, /\[bound, 8000 chars\]/);
+  assert.doesNotMatch(got.messages[1].content, /W{20}/);
+  assert.equal(got.messages[3].content, 'ok continue');
+});
+
+test('budget 800 stubs old tool_result bodies when nothing is severable', () => {
+  const { msgs, ask } = toolStormFixture({ tools: 13 });
+  const assistantAt = msgs.findIndex((m) => Array.isArray(m.tool_calls) && m.tool_calls.length >= 13);
+  const got = stubBoundFileResults(msgs, { boundFiles: new Set(), budget: 800, fromIndex: assistantAt });
+  const tail = got.messages.slice(assistantAt);
+  assert.equal(fullToolBodies(tail).length, 0);
+  assert.ok(got.stubbed >= 13);
+  assert.equal(tail.at(-1).content, ask);
+  assert.ok(pairingValid(tail));
+  assert.ok(Array.isArray(tail[0].tool_calls) && tail[0].tool_calls.length >= 13);
 });
