@@ -26,6 +26,9 @@ jobs:
       # instead of remembering to bump it.
       - name: Sync app version to tag
         if: startsWith(github.ref, 'refs/tags/grokui-v')
+        # bash explicitly: the Windows runner defaults to PowerShell, where
+        # ${VAR#prefix} is not parameter expansion and the step dies on syntax.
+        shell: bash
         run: |
           V="${GITHUB_REF#refs/tags/grokui-v}"
           node -e "const f='grokui-app/package.json';const p=require('./'+f);p.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')" "$V"
