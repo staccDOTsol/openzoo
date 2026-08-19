@@ -18,8 +18,12 @@ import {
   resolveReadablePath,
   corpusCharsForSend,
   createSpillStats,
+  SPILL_DEFAULTS,
 } from '../lib/spill.js';
 import { anthropicToOpenAI } from '../lib/anthropic.js';
+import {
+  agentShapedFixture, measureFixture, sweepAgentFixture, ASK, LEDGER_CHARS,
+} from './spill-agent-fixture.js';
 
 function tmpFile() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oz-spill-'));
@@ -516,4 +520,95 @@ test('stubBoundFileResults fromIndex leaves the spilled prefix intact', () => {
   assert.equal(got.messages[1].content, 'PREFIX_BODY');
   assert.match(got.messages[3].content, /\[bound\]/);
   assert.doesNotMatch(got.messages[3].content, /TAIL_BODY/);
+});
+
+/*
+ * Agent-shaped corpus/sent — MEASURED, not invented.
+ *
+ * The toy 7x story binds 200–300k and sends a one-line ask. Live Claude Code
+ * is the opposite: 5.4MB bound (almost all files), lastSend 13–15 / 107–110,
+ * spilled savingX 1.2–1.5x. Offload climbed; the ratio did not.
+ *
+ * Fixture: 250k ledger, ~105 msgs, last 15 = Read/Bash of those same files
+ * (40k bodies) + rg + npm test + last user ask. ratio = ledger / forwarded
+ * chars (the lever the 7x test was actually measuring). Run the sweep with:
+ *   node test/spill-agent-fixture.js
+ *
+ *   stub  maxCh  minT  sentChars  tok~   ratio   ask  nonFile  fileBody
+ *   no     6000     6     154401  38600    1.62  yes  yes      yes
+ *   yes    2000     2        182     46  1373.63  yes  no       no
+ *   yes    2000     4      30299   7575    8.25  yes  yes      no
+ *   yes    2000     6      34451   8613    7.26  yes  yes      no
+ *   yes    6000     2        182     46  1373.63  yes  no       no
+ *   yes    6000     4      30299   7575    8.25  yes  yes      no
+ *   yes    6000     6      34451   8613    7.26  yes  yes      no   ← defaults
+ *   yes   12000     2        182     46  1373.63  yes  no       no
+ *   yes   12000     4      30299   7575    8.25  yes  yes      no
+ *   yes   12000     6      34451   8613    7.26  yes  yes      no
+ *
+ * TAIL_MAX_CHARS does not move the cut once a 40k tool_result blows 2k/6k/12k.
+ * MIN_TURNS 2 starves npm test. Stub + minTurns 6 is the sweet spot: 7.26x
+ * in the 5–10x band, ask verbatim, recent non-file kept. Do not also starve
+ * the tail. Defaults stay keepTail 8 / tailMaxChars 6000 / minTurns 6.
+ */
+test('agent-shaped tail without stub is the live ~1.x world, not the toy 7x', () => {
+  const fx = agentShapedFixture();
+  assert.ok(fx.totalMessages >= 100, `live lastSend 13/107 shape, got ${fx.totalMessages} msgs`);
+  assert.ok(fx.recentMessages >= 13 && fx.recentMessages <= 16);
+  const raw = measureFixture(fx, { stub: false, ...SPILL_DEFAULTS });
+  assert.equal(raw.lastAskKept, true, 'never spill the question');
+  assert.ok(raw.fileBodyKept, 'unstubbed tail still carries Read/Bash file bytes');
+  assert.ok(raw.ratio < 3, `toy-only 7x would hide this; unstubbed agent ratio is ${raw.ratio}`);
+  assert.ok(raw.ratio > 1, `sent should rival the 250k ledger, got ${raw.ratio}`);
+  assert.equal(raw.corpusChars, LEDGER_CHARS);
+});
+
+test('agent-shaped tail stubbed at the sweet spot is 5–10x and keeps the ask', () => {
+  const fx = agentShapedFixture();
+  const sweet = measureFixture(fx, { stub: true, ...SPILL_DEFAULTS });
+  assert.equal(SPILL_DEFAULTS.tailMaxChars, 6000);
+  assert.equal(SPILL_DEFAULTS.tailMinTurns, 6);
+  assert.equal(sweet.lastAskKept, true);
+  assert.ok(sweet.forwardedMsgs && fx.msgs.some((m) => m.content === ASK));
+  assert.ok(
+    sweet.nonFileKept,
+    'npm test / grep must stay — that is why MIN_TURNS exists',
+  );
+  assert.equal(sweet.fileBodyKept, false, 'bound file bytes must be dropped');
+  assert.ok(sweet.stubbed >= 2, `expected several stubbed file results, got ${sweet.stubbed}`);
+  assert.ok(
+    sweet.ratio >= 5 && sweet.ratio <= 10,
+    `sweet spot should be 5–10x corpus/sent, measured ${sweet.ratio} (sent=${sweet.sentChars})`,
+  );
+  assert.ok(sweet.sentChars < 50_000);
+  assert.ok(sweet.dropped > 80_000);
+});
+
+test('MIN_TURNS 2 starves non-file actions — not the default', () => {
+  const fx = agentShapedFixture();
+  const starved = measureFixture(fx, {
+    stub: true,
+    keepTailMsgs: 8,
+    tailMaxChars: 6000,
+    tailMinTurns: 2,
+  });
+  assert.equal(starved.lastAskKept, true);
+  assert.equal(starved.nonFileKept, false);
+  assert.ok(starved.ratio > 50, `starved tail inflates ratio to ${starved.ratio}`);
+  assert.notEqual(SPILL_DEFAULTS.tailMinTurns, 2);
+});
+
+test('sweep table: stubbing is the lever, TAIL_MAX_CHARS is not', () => {
+  const { rows } = sweepAgentFixture();
+  const noStub = rows.find((r) => !r.stub);
+  assert.ok(noStub.ratio < 3);
+  const stub6 = rows.filter((r) => r.stub && r.tailMinTurns === 6);
+  assert.ok(stub6.length >= 3);
+  const ratios = [...new Set(stub6.map((r) => r.ratio))];
+  assert.equal(ratios.length, 1, `TAIL_MAX_CHARS must not move minTurns=6 ratio: ${ratios}`);
+  for (const r of stub6) {
+    assert.ok(r.ratio >= 5 && r.ratio <= 10, `minTurns=6 row ${r.tailMaxChars} ratio ${r.ratio}`);
+    assert.equal(r.lastAskKept, true);
+    assert.equal(r.nonFileKept, true);
+  }
 });
