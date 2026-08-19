@@ -18,6 +18,13 @@ import {
   resolveReadablePath,
   corpusCharsForSend,
   createSpillStats,
+  applySpillCut,
+  resetAdaptState,
+  rememberKnobs,
+  loadKnobs,
+  adaptTail,
+  tightenKnobs,
+  loosenKnobs,
 } from '../lib/spill.js';
 import { anthropicToOpenAI } from '../lib/anthropic.js';
 
@@ -516,4 +523,193 @@ test('stubBoundFileResults fromIndex leaves the spilled prefix intact', () => {
   assert.equal(got.messages[1].content, 'PREFIX_BODY');
   assert.match(got.messages[3].content, /\[bound\]/);
   assert.doesNotMatch(got.messages[3].content, /TAIL_BODY/);
+});
+
+/** Live Claude Code shape: 250k already bound + 13 × ~20k Read tool_results + ask. */
+function agentShapedFixture({
+  reads = 13,
+  readChars = 20_000,
+  ask = 'LAST_USER_ASK please continue from here',
+  bound = true,
+} = {}) {
+  const abs = '/tmp/openzoo-live-corpus.rs';
+  const msgs = [
+    { role: 'system', content: 'You are a coding agent.' },
+    { role: 'user', content: 'work through the repo' },
+    { role: 'assistant', content: 'I will read the files.' },
+  ];
+  for (let i = 0; i < reads; i++) {
+    msgs.push({
+      role: 'assistant',
+      tool_calls: [{
+        id: `r${i}`,
+        type: 'function',
+        function: { name: 'Read', arguments: JSON.stringify({ file_path: abs }) },
+      }],
+    });
+    msgs.push({ role: 'tool', tool_call_id: `r${i}`, content: 'R'.repeat(readChars) });
+  }
+  msgs.push({ role: 'user', content: ask });
+  return {
+    msgs,
+    abs,
+    ask,
+    boundFiles: bound ? new Set([`${abs}:1`]) : new Set(),
+  };
+}
+
+function forwardedHasAsk(got, ask) {
+  const msgs = got.stubbed?.messages || [];
+  const tail = got.cut > got.firstSpillable ? msgs.slice(got.cut) : msgs;
+  return tail.some((m) => typeof m.content === 'string' && m.content.includes(ask));
+}
+
+const START_KNOBS = { keepTail: 8, minTurns: 6, budget: 6000, stubMore: false };
+
+test('adapt reaches >=10x on the agent-shaped fixture without deleting the ask', () => {
+  resetAdaptState();
+  // Unbound Reads — 0.48.72 stub does not fire; the tuner must shrink / stub more.
+  const { msgs, ask, boundFiles } = agentShapedFixture({ bound: false });
+  const logs = [];
+  const got = applySpillCut(msgs, {
+    knobs: START_KNOBS,
+    corpusChars: 250_000,
+    boundFiles,
+    adapt: true,
+    persist: false,
+    log: (m) => logs.push(m),
+  });
+  assert.ok(got.ratio >= 10, `corpus/sent ${got.ratio} should be >= 10`);
+  assert.ok(forwardedHasAsk(got, ask), 'last user ask must stay in the forwarded tail');
+  assert.match(logs.join('\n'), /adapt /);
+  assert.doesNotMatch(logs.join('\n'), /restart the proxy|kill|74122/i);
+});
+
+test('adapt on the bound live fixture (stub + 13 Reads) stays >=10x with the ask', () => {
+  resetAdaptState();
+  const { msgs, ask, boundFiles } = agentShapedFixture({ bound: true });
+  const got = applySpillCut(msgs, {
+    knobs: START_KNOBS,
+    corpusChars: 250_000,
+    boundFiles,
+    adapt: true,
+    persist: false,
+  });
+  assert.ok(got.ratio >= 10, `corpus/sent ${got.ratio} should be >= 10`);
+  assert.ok(forwardedHasAsk(got, ask), 'last user ask must stay in the forwarded tail');
+});
+
+test('one-line ask against a 250k pile stays well above 10', () => {
+  resetAdaptState();
+  const ask = 'what does the pile export?';
+  const msgs = [
+    { role: 'system', content: 'You are a coding agent.' },
+    { role: 'user', content: 'here is the bound pile' },
+    { role: 'assistant', content: 'ok' },
+    { role: 'user', content: ask },
+  ];
+  const got = applySpillCut(msgs, {
+    knobs: START_KNOBS,
+    corpusChars: 250_000,
+    adapt: true,
+    persist: false,
+  });
+  assert.ok(got.ratio >= 10, `corpus/sent ${got.ratio} should be >= 10`);
+  assert.ok(got.ratio >= 20, `one-liner should be well above 10, got ${got.ratio}`);
+  assert.ok(forwardedHasAsk(got, ask), 'one-line ask must stay forwarded');
+});
+
+test('two back-to-back adapt calls do not flip-flop knobs', () => {
+  resetAdaptState();
+  const { msgs, ask, boundFiles } = agentShapedFixture({ bound: false });
+  const a = applySpillCut(msgs, {
+    knobs: START_KNOBS,
+    corpusChars: 250_000,
+    boundFiles,
+    adapt: true,
+    persist: false,
+  });
+  assert.ok(a.ratio >= 10, `first adapt ratio ${a.ratio}`);
+  const knobsA = { ...a.knobs };
+  const b = applySpillCut(msgs, {
+    knobs: a.knobs,
+    corpusChars: 250_000,
+    boundFiles,
+    adapt: true,
+    persist: false,
+  });
+  assert.ok(b.ratio >= 10, `second adapt ratio ${b.ratio}`);
+  assert.equal(b.knobs.keepTail, knobsA.keepTail);
+  assert.equal(b.knobs.minTurns, knobsA.minTurns);
+  assert.equal(b.knobs.budget, knobsA.budget);
+  assert.equal(Boolean(b.knobs.stubMore), Boolean(knobsA.stubMore));
+  assert.ok(forwardedHasAsk(b, ask));
+});
+
+test('OPENZOO_ADAPT=0 freezes env knobs', () => {
+  resetAdaptState();
+  const prev = process.env.OPENZOO_ADAPT;
+  process.env.OPENZOO_ADAPT = '0';
+  try {
+    const { msgs, boundFiles } = agentShapedFixture({ bound: false });
+    const logs = [];
+    const got = applySpillCut(msgs, {
+      knobs: START_KNOBS,
+      corpusChars: 250_000,
+      boundFiles,
+      persist: false,
+      log: (m) => logs.push(m),
+    });
+    assert.equal(got.action, 'hold');
+    assert.equal(got.knobs.keepTail, 8);
+    assert.equal(got.knobs.minTurns, 6);
+    assert.equal(got.knobs.budget, 6000);
+    assert.equal(got.knobs.stubMore, false);
+    assert.equal(logs.join('\n').includes('adapt '), false);
+  } finally {
+    if (prev === undefined) delete process.env.OPENZOO_ADAPT;
+    else process.env.OPENZOO_ADAPT = prev;
+    resetAdaptState();
+  }
+});
+
+test('adapted knobs persist to knobs.json and resume', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'oz-knobs-')), 'knobs.json');
+  resetAdaptState();
+  rememberKnobs({ keepTail: 4, minTurns: 2, budget: 2500, stubMore: true }, { file });
+  assert.ok(fs.existsSync(file));
+  const loaded = loadKnobs({ file });
+  assert.equal(loaded.ok, true);
+  assert.equal(loaded.knobs.keepTail, 4);
+  assert.equal(loaded.knobs.minTurns, 2);
+  assert.equal(loaded.knobs.budget, 2500);
+  assert.equal(loaded.knobs.stubMore, true);
+});
+
+test('adaptTail hysteresis: tighten then a 25x overshoot holds, does not loosen', () => {
+  resetAdaptState();
+  const start = { ...START_KNOBS };
+  const down = adaptTail({ ratio: 4, knobs: start, lastAction: 'hold', corpusChars: 250_000 });
+  assert.equal(down.action, 'tighten');
+  assert.ok(down.recut);
+  const hold = adaptTail({ ratio: 25, knobs: down.knobs, lastAction: 'tighten', corpusChars: 250_000 });
+  assert.equal(hold.action, 'hold');
+  assert.equal(hold.knobs.keepTail, down.knobs.keepTail);
+  assert.equal(hold.knobs.budget, down.knobs.budget);
+  const loose = adaptTail({ ratio: 25, knobs: start, lastAction: 'hold', corpusChars: 250_000 });
+  assert.equal(loose.action, 'loosen');
+  assert.equal(loose.recut, false);
+  assert.ok(loose.knobs.keepTail > start.keepTail || loose.knobs.budget > start.budget);
+});
+
+test('tightenKnobs / loosenKnobs stay on the notch ladder', () => {
+  const mid = tightenKnobs({ keepTail: 8, minTurns: 6, budget: 6000 }, { ratio: 8, corpusChars: 250_000 });
+  assert.ok(mid.keepTail <= 8);
+  assert.ok(mid.minTurns <= 6);
+  assert.ok(mid.budget <= 6000);
+  assert.equal(mid.stubMore, true);
+  const up = loosenKnobs(mid);
+  assert.ok(up.keepTail >= mid.keepTail);
+  assert.ok(up.budget >= mid.budget);
+  assert.equal(up.stubMore, false);
 });
