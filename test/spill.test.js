@@ -422,7 +422,7 @@ test('stubBoundFileResults drops a bound Read body so the tail is much smaller t
   assert.equal(got.stubbed, 1);
   assert.ok(got.dropped >= 5_000_000);
   assert.match(got.messages[1].content, /\/tmp\/huge\.rs/);
-  assert.match(got.messages[1].content, /\[bound\]/);
+  assert.match(got.messages[1].content, /\[bound, \d+ chars\]/);
   assert.doesNotMatch(got.messages[1].content, /Z{20}/);
   assert.equal(got.messages[2].content, 'what does huge.rs export?');
   const sent = got.messages.reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0);
@@ -494,7 +494,7 @@ test('stubBoundFileResults works on the live Claude Code translation', () => {
   const got = stubBoundFileResults(translated, { boundFiles: new Set([`${abs}:1`]) });
   assert.equal(got.stubbed, 1);
   const tool = got.messages.find((m) => m.role === 'tool');
-  assert.match(tool.content, /\[bound\]/);
+  assert.match(tool.content, /\[bound, \d+ chars\]/);
   assert.doesNotMatch(tool.content, /BODYBODY/);
   assert.equal(got.messages.at(-1).content, 'summarize');
 });
@@ -521,7 +521,7 @@ test('stubBoundFileResults fromIndex leaves the spilled prefix intact', () => {
   ];
   const got = stubBoundFileResults(msgs, { boundFiles: new Set([`${abs}:1`]), fromIndex: 2 });
   assert.equal(got.messages[1].content, 'PREFIX_BODY');
-  assert.match(got.messages[3].content, /\[bound\]/);
+  assert.match(got.messages[3].content, /\[bound, \d+ chars\]/);
   assert.doesNotMatch(got.messages[3].content, /TAIL_BODY/);
 });
 
