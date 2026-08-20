@@ -1,6 +1,12 @@
-## Install
+Silicon Mac: arm64.dmg
+Windows: exe
+Linux: AppImage
 
-**Apple Silicon Mac (M1 / M2 / M3 / M4): download `openzoo-*-arm64.dmg`. That is the one you want.**
+9-account wrap. Old 5-account x402 wrap is rejected 0x6a.
+
+## Arch
+
+**Apple Silicon Mac (M1 / M2 / M3 / M4): download `openzoo-*-arm64.dmg`.**
 
 **Intel Mac: download `openzoo-*.dmg` (no `arm64` in the name).**
 

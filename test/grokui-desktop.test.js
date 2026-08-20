@@ -121,8 +121,8 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.49.3');
-  assert.equal(appPkg.version, '1.5.81');
+  assert.equal(ozPkg.version, '0.49.4');
+  assert.equal(appPkg.version, '1.5.82');
 });
 
 test('desktop grokui ships dugite so Finder has git without PATH', () => {
@@ -320,6 +320,13 @@ test('harness strips think tags, refuses MCP-as-bash, and does not join absolute
   assert.match(grokui, /get_skill, proofnetwork-\*, publish-update/);
   assert.match(grokui, /MCP: <url> \| <tool> \| \{"arg": "value"\}/);
   assert.doesNotMatch(grokui, /id="assetsBtn"/);
+});
+
+test('grokui chat does not dump raw 0x6a wrap simulation logs', () => {
+  const brain = readFileSync(path.join(root, 'lib', 'podagent.mjs'), 'utf8');
+  assert.match(brain, /function sanitizeProxiedError/);
+  assert.match(brain, /wrap ix has too few accounts \(need 9\)/);
+  assert.match(brain, /sanitizeProxiedError\(j\?\.error\?\.message\)/);
 });
 
 test('ensureProxy reuses a healthy :8402 and does not spawn over it', () => {

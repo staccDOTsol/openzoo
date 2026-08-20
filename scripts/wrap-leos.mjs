@@ -16,9 +16,10 @@
  *   - NINE decimals, not six. Amounts here are converted with the mint's own
  *     decimals, read on chain, never a constant.
  *   - LEGACY SPL, not Token-2022. The escrow ATA lives under TokenkegQ..., so
- *     the transfer leg must use that program. An ATA derived under the wrong
- *     program is a DIFFERENT ADDRESS — funds sent there are not recoverable by
- *     this script.
+ *     Wrap account 8 is TokenkegQ and account 4 is Token-2022. They are not
+ *     interchangeable. An ATA derived under the wrong program is a DIFFERENT
+ *     ADDRESS — funds sent there are not recoverable by this script. The
+ *     program CPIs the deposit; do not append a separate TransferChecked.
  *
  * Dry run by default on purpose: this moves real value, so sending requires
  * saying so explicitly.
