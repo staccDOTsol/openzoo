@@ -139,10 +139,28 @@ test('HTTP 402 session does not spawn or displace', async () => {
   healer.stop();
 });
 
-test('occupied-but-dead port is wedged and does not spawn', async () => {
+test('occupied + null session displaces then spawns (wedged leftover)', async () => {
+  let occupied = true;
+  let displaced = 0;
+  const { healer, spawned } = makeHealer({
+    fetchSession: async () => null,
+    portOccupied: async () => occupied,
+    displaceStale: async () => { displaced += 1; occupied = false; return true; },
+  });
+  const result = await healer.ensure();
+  assert.equal(displaced, 1);
+  assert.equal(result.spawned, true);
+  assert.equal(result.wedged, false);
+  assert.equal(result.healthy, true);
+  assert.equal(spawned.length, 1);
+  healer.stop();
+});
+
+test('occupied + null session stays wedged when displace fails', async () => {
   const { healer, spawned } = makeHealer({
     fetchSession: async () => null,
     portOccupied: async () => true,
+    displaceStale: async () => false,
   });
   const result = await healer.ensure();
   assert.equal(result.wedged, true);

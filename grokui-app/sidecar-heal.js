@@ -1,8 +1,9 @@
 'use strict';
 
 // Keep the packed :8402 sidecar alive after launch.
-// Occupied TCP is not health — /v1/session must answer. Empty-wallet HTTP 402
-// still means the sidecar is up (Pay opens; that is not "sidecar dead").
+// Occupied TCP is not health — /v1/session must answer. Occupied + null
+// session is wedged: displace then spawn (same as a stale version). Do not
+// attach. Empty-wallet HTTP 402 still means the sidecar is up (Pay opens).
 // Do not pkill/relaunch the Electron window to heal — only this child.
 //
 // Prefer host Node running the packed bin so the sidecar is NOT the .app
@@ -361,10 +362,17 @@ function createSidecarHealer({
         schedule(healthMs);
         return { reused: false, healthy: false, wedged: false, child: owned };
       }
+      // Occupied + null session is a leftover / TIME_WAIT / half-killed
+      // Electron-as-node child — not a live sidecar. Same as stale-version:
+      // displace, then spawn. Do not attach. 402 already returned above.
       if (await portOccupied()) {
-        log('[openzoo] :8402 is listening but /v1/session did not answer — not reusing a wedged proxy');
-        schedule(bumpBackoff());
-        return { reused: false, healthy: false, wedged: true, child: null };
+        log('[openzoo] :8402 is listening but /v1/session did not answer — not reusing a wedged proxy; displacing then spawning');
+        const displaced = await displaceStale(8402);
+        if (!displaced) {
+          log('[openzoo] failed to displace wedged :8402 — refusing to attach');
+          schedule(bumpBackoff());
+          return { reused: false, healthy: false, wedged: true, child: null };
+        }
       }
       spawnSidecar();
       const up = waitForSession

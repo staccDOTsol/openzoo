@@ -449,7 +449,8 @@ app.whenReady().then(() => {
   checkForUpdates();
   app.on('activate', () => {
     if (quitting) return;
-    // Sidecar may have died while windows were closed.
+    // Always heal, even when a window already exists — :8402 may have
+    // died or wedged while the GUI stayed up.
     void ensureProxy();
     if (!serverProc) startServer();
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
