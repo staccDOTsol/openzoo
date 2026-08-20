@@ -63,6 +63,15 @@ function buildAppMenu() {
         { role: 'pasteAndMatchStyle' },
         { role: 'delete' },
         { role: 'selectAll' },
+        { type: 'separator' },
+        {
+          label: 'Find',
+          accelerator: 'CmdOrCtrl+F',
+          click: (_item, focusedWindow) => {
+            const win = focusedWindow || BrowserWindow.getFocusedWindow();
+            if (win && !win.isDestroyed()) win.webContents.send('find-in-thread');
+          },
+        },
       ],
     },
     {
