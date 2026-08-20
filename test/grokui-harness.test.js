@@ -316,6 +316,7 @@ test('AUTO is Claude Code once; ask still parks pendingRun; ping wakes', async (
     const errBot = newThread('err-400', null);
     errBot.runMode = 'auto';
     const errPainted = [];
+    setBrainAskForTest(() => 'recovered via chat');
     setClaudeRunnerForTest(async ({ onEvent }) => {
       onEvent?.({ kind: 'init', sessionId: 'sess-400', model: 'openzoo-claude' });
       onEvent?.({ kind: 'think', text: '' });
@@ -329,11 +330,14 @@ test('AUTO is Claude Code once; ask still parks pendingRun; ping wakes', async (
       };
     });
     await runTurn(errBot.id, 'do work', (ev) => errPainted.push(ev));
-    assert.equal(errBot.history[errBot.history.length - 1].text, 'upstream HTTP 400');
-    assert.doesNotMatch(errBot.history.map((h) => h.text).join('\\n'), /gzip-body|API Error|\\uFFFD/);
+    const errUsers = errBot.history.filter((h) => h.who === 'user');
+    assert.equal(errUsers.length, 1);
+    assert.equal(errUsers[0].text, 'do work');
+    assert.equal(errBot.history[errBot.history.length - 1].who, 'bot');
+    assert.equal(errBot.history[errBot.history.length - 1].text, 'recovered via chat');
+    assert.doesNotMatch(errBot.history.map((h) => h.text).join('\\n'), /gzip-body|API Error|\\uFFFD|upstream HTTP|\\(no response\\)/);
     assert.ok(errPainted.some((e) => e.type === 'think'));
     assert.ok(errPainted.some((e) => e.type === 'tool' && /Read secret\\.bin/.test(e.detail)));
-    assert.match(errBot.history[errBot.history.length - 1].thinking || '', /Read secret\\.bin/);
     assert.equal(errBot.status, 'idle');
 
     const askBot = newThread('ask-keep', null);
@@ -449,6 +453,7 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
     const {
       newThread, runTurn, persistUserTurn, visibleHistory, isHarnessUserText,
       AUTO_RACE_RETRY, AUTO_CONTINUE, setBrainAskForTest, setClaudeRunnerForTest,
+      isClaudeFallbackReply,
     } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
 
     const store = path.join(${JSON.stringify(dir)}, '.openzoo', 'grokui-threads.json');
@@ -493,6 +498,7 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
     releaseHang('ok from model');
     await turnP;
 
+    setBrainAskForTest(() => 'ok from chat after empty pty');
     setClaudeRunnerForTest(async () => {
       return { text: '', error: 'upstream HTTP 500', paymentFailed: '', sessionId: '' };
     });
@@ -507,6 +513,10 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
     assert.equal(vis.some((h) => h.who === 'user' && h.text === 'do the job even if 500'), true);
     assert.equal(vis.some((h) => isHarnessUserText(h.text)), false);
     assert.ok((auto.messages || []).some((m) => m.role === 'user' && m.content === 'do the job even if 500'));
+    assert.equal(auto.history[auto.history.length - 1].who, 'bot');
+    assert.equal(auto.history[auto.history.length - 1].text, 'ok from chat after empty pty');
+    assert.doesNotMatch(auto.history.map((h) => h.text).join('\\n'), /\\(no response\\)|upstream HTTP/);
+    assert.equal(auto.status, 'idle');
 
     let autoEntered = false;
     let releaseAuto;
@@ -585,6 +595,60 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
     assert.equal(hopUsers[0].text, 'original ask');
     const hopGet = await (await fetch('http://127.0.0.1:' + uiPort + '/threads/' + hop.id)).json();
     assert.equal(hopGet.history.some((h) => h.text === AUTO_RACE_RETRY), false);
+
+    assert.equal(isClaudeFallbackReply(''), true);
+    assert.equal(isClaudeFallbackReply('(no response)'), true);
+    assert.equal(isClaudeFallbackReply('upstream HTTP 400'), true);
+    assert.equal(isClaudeFallbackReply('upstream HTTP 502'), true);
+    assert.equal(isClaudeFallbackReply('error: upstream HTTP 500'), true);
+    assert.equal(isClaudeFallbackReply('Wrote hello.txt'), false);
+    assert.equal(isClaudeFallbackReply('(payment required — HTTP 402, the wallet is empty.)'), false);
+
+    const emptyCases = [
+      { text: '', error: false },
+      { text: '(no response)', error: false },
+      { text: 'upstream HTTP 400', error: true },
+      { text: 'API Error: 400 ' + '\\uFFFD'.repeat(12), error: true },
+    ];
+    for (const [i, ret] of emptyCases.entries()) {
+      const asks = [];
+      setBrainAskForTest(({ userText }) => {
+        asks.push(String(userText || ''));
+        return 'hi from ask/auto';
+      });
+      setClaudeRunnerForTest(async () => ({
+        text: ret.text, error: ret.error, paymentFailed: '', sessionId: 'sess-empty-' + i,
+      }));
+      const quiet = newThread('pty-quiet-' + i, null);
+      quiet.runMode = 'auto';
+      quiet.model = 'openzoo/auto';
+      await runTurn(quiet.id, 'hi');
+      assert.equal(asks.length, 1, 'empty Claude must fall through to chat-completions: ' + JSON.stringify(ret));
+      assert.equal(asks[0], 'hi');
+      const users = quiet.history.filter((h) => h.who === 'user');
+      assert.equal(users.length, 1, 'must not idle with two user his');
+      assert.equal(users[0].text, 'hi');
+      const bots = quiet.history.filter((h) => h.who === 'bot');
+      assert.equal(bots.length, 1);
+      assert.equal(bots[0].text, 'hi from ask/auto');
+      assert.doesNotMatch(quiet.history.map((h) => h.text).join('\\n'), /\\(no response\\)|upstream HTTP/);
+      assert.equal(quiet.status, 'idle');
+    }
+
+    let askClaude = 0;
+    setClaudeRunnerForTest(async () => {
+      askClaude += 1;
+      throw new Error('Ask/Auto must not spawn Claude');
+    });
+    setBrainAskForTest(() => 'ask stays on chat');
+    const askStay = newThread('ask-untouched', null);
+    askStay.runMode = 'ask';
+    askStay.model = 'openzoo/auto';
+    await runTurn(askStay.id, 'hi from ask');
+    assert.equal(askClaude, 0);
+    assert.equal(askStay.history.filter((h) => h.who === 'user').length, 1);
+    assert.equal(askStay.history[askStay.history.length - 1].text, 'ask stays on chat');
+    assert.equal(askStay.status, 'idle');
 
     console.log(JSON.stringify({ ok: true }));
     process.exit(0);

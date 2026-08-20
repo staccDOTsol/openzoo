@@ -426,6 +426,8 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.match(grokui, /CLAUDE_SLASH_IN_AUTO/);
   assert.match(grokui, /closeClaudeSession/);
   assert.match(autoFn, /sessionKey: t\.id/);
+  assert.match(autoFn, /isClaudeFallbackReply\(finalText\)/);
+  assert.match(autoFn, /return finalText;/);
 });
 
 test('install docs ship Mac nvm+openzoo claude and Windows nvm-windows, not extra steps', () => {
@@ -1192,6 +1194,13 @@ test('user turns persist to the thread store before the model call', () => {
   const beforeClaude = autoSlice.slice(0, claudeAt);
   assert.match(beforeClaude, /persistUserTurn\(t, userText, images\)/);
   assert.match(beforeClaude, /saveThreads\(\)/);
+  assert.match(grokui, /function isClaudeFallbackReply/);
+  assert.match(fnBody(grokui, 'isClaudeFallbackReply'), /\(no response\)/);
+  assert.match(fnBody(grokui, 'isClaudeFallbackReply'), /upstream HTTP \\d\+/);
+  assert.match(run, /isClaudeFallbackReply\(lastReply\)/);
+  assert.match(run, /popClaudeFallbackBot\(t\)/);
+  assert.match(run, /claudeFallback = true/);
+  assert.match(run, /!claudeFallback && shouldKeepAuto/);
   const driveStart = grokui.indexOf("req.url === '/drive'");
   const driveEnd = grokui.indexOf('res.writeHead(200, { \'content-type\': \'text/html\' })', driveStart);
   const drive = grokui.slice(driveStart, driveEnd);
@@ -1212,9 +1221,12 @@ test('compose box keeps the draft until persist; AUTO continue is never a user b
   const submitEnd = appHtml.indexOf("inp.addEventListener('input'", submitStart);
   const submitFn = appHtml.slice(submitStart, submitEnd);
   const afterSitrep = submitFn.slice(submitFn.indexOf('openSitrep()'));
+  const addRowAt = afterSitrep.indexOf("addRow('user'");
   const fetchAt = afterSitrep.indexOf("await fetch(API + '/drive'");
   const clearAt = afterSitrep.indexOf("inp.value = ''");
+  assert.ok(addRowAt >= 0 && addRowAt < fetchAt, 'optimistic user bubble before /drive');
   assert.ok(fetchAt >= 0 && clearAt > fetchAt, 'do not clear the composer until persist ACK');
+  assert.match(afterSitrep.slice(0, fetchAt), /pendingTurns\.push/);
   assert.match(submitFn, /persisted = r\.ok && body\.persisted !== false/);
   assert.match(submitFn, /inp\.value = draft/);
   assert.match(appHtml, /if \(h\.who === 'user' && isHarnessUserText\(h\.text\)\) continue/);
