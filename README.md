@@ -72,7 +72,7 @@ export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
 curl -s "$ANTHROPIC_BASE_URL/models" | jq '[.data[].id] | map(select(test(":batch") or startswith("openzoo-")))'
 # -> []   (no :batch, no openzoo-* clones)
 curl -s -H 'anthropic-version: 2023-06-01' "$ANTHROPIC_BASE_URL/models" | jq '[.data[].id]'
-# -> short picker (opus/sonnet/haiku + a few gateway ids + openzoo/auto)
+# -> quoteable catalog in Anthropic shape (openzoo/auto first, then grok/gemini/gpt/…)
 ```
 
 **Any OpenAI-env tool:**
