@@ -9,6 +9,11 @@ const DEFAULT_BACKOFF_MS = 250;
 const MAX_BACKOFF_MS = 8000;
 const HEALTH_MS = 2000;
 
+function looksLikeModuleNotFound(text) {
+  const s = String(text || '');
+  return /ERR_MODULE_NOT_FOUND|Cannot find module|MODULE_NOT_FOUND/.test(s);
+}
+
 function packedSidecarEnv(env = process.env) {
   return {
     ...env,
@@ -22,7 +27,7 @@ function packedSidecarEnv(env = process.env) {
 
 function packedSidecarSpawnOpts(env = process.env) {
   return {
-    stdio: 'ignore',
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: packedSidecarEnv(env),
     windowsHide: true,
   };
@@ -67,6 +72,7 @@ function createSidecarHealer({
   let owned = null;
   let ensuring = false;
   let stopped = false;
+  let fatal = false;
   let timer = null;
   let nextAt = 0;
   let backoff = backoffMs;
@@ -74,7 +80,7 @@ function createSidecarHealer({
   function child() { return owned; }
 
   function schedule(ms) {
-    if (stopped) return;
+    if (stopped || fatal) return;
     const when = Date.now() + ms;
     if (timer && nextAt && nextAt <= when) return;
     if (timer) clearTimeoutFn(timer);
@@ -97,11 +103,32 @@ function createSidecarHealer({
     // Same spawn as today: Electron execPath + node_modules/openzoo/bin/openzoo.js
     const childProc = spawn(execPath, [binPath], packedSidecarSpawnOpts(env));
     owned = childProc;
-    childProc.on('error', (e) => log('[openzoo] proxy failed to start:', e && e.message));
+    let bootLog = '';
+    const take = (buf) => {
+      bootLog += String(buf);
+      if (bootLog.length > 8000) bootLog = bootLog.slice(-8000);
+    };
+    if (childProc.stdout) childProc.stdout.on('data', take);
+    if (childProc.stderr) childProc.stderr.on('data', take);
+    childProc.on('error', (e) => {
+      const msg = e && e.message;
+      log('[openzoo] proxy failed to start:', msg);
+      if (looksLikeModuleNotFound(msg) || looksLikeModuleNotFound(e && e.code)) {
+        bootLog += `\n${msg || e.code}`;
+        fatal = true;
+        if (timer) { clearTimeoutFn(timer); timer = null; nextAt = 0; }
+      }
+    });
     childProc.on('exit', (code, signal) => {
       if (owned !== childProc) return;
       owned = null;
       if (stopped) return;
+      if (looksLikeModuleNotFound(bootLog)) {
+        fatal = true;
+        if (timer) { clearTimeoutFn(timer); timer = null; nextAt = 0; }
+        log(`[openzoo] sidecar MODULE_NOT_FOUND — not respawning:\n${bootLog.slice(-800)}`);
+        return;
+      }
       log(`[openzoo] sidecar exited (${code ?? signal}) — respawning`);
       schedule(backoff);
     });
@@ -109,7 +136,7 @@ function createSidecarHealer({
   }
 
   async function ensure() {
-    if (stopped || ensuring) return { skipped: true };
+    if (stopped || ensuring || fatal) return { skipped: true };
     ensuring = true;
     try {
       const session = await fetchSession();
@@ -167,6 +194,7 @@ function createSidecarHealer({
 
   function stop() {
     stopped = true;
+    fatal = true;
     if (timer) { clearTimeoutFn(timer); timer = null; }
     nextAt = 0;
     const proc = owned;
@@ -184,6 +212,7 @@ module.exports = {
   packedSidecarEnv,
   packedSidecarSpawnOpts,
   shouldAttach,
+  looksLikeModuleNotFound,
   DEFAULT_BACKOFF_MS,
   MAX_BACKOFF_MS,
   HEALTH_MS,

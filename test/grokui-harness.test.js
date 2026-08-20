@@ -269,8 +269,19 @@ test('AUTO is Claude Code once; ask still parks pendingRun; ping wakes', async (
     assert.equal(shouldKeepAuto({ runMode: 'auto' }, '(payment required — HTTP 402, the wallet is empty.)'), false);
     assert.equal(isEmptyToolResult('(command output)\\n(no output)'), true);
 
+    const skipPty = newThread('skip-pty-first', null);
+    skipPty.runMode = 'auto';
+    let skipClaude = 0;
+    setClaudeRunnerForTest(async () => { skipClaude += 1; return { text: 'pty should skip' }; });
+    setBrainAskForTest(() => 'visible from chat');
+    await runTurn(skipPty.id, 'hi first');
+    assert.equal(skipClaude, 0, 'first Auto send skips PTY until a visible reply exists');
+    assert.equal(skipPty.history.filter((h) => h.who === 'bot').pop().text, 'visible from chat');
+    assert.equal(skipPty.status, 'idle');
+
     const auto = newThread('auto-keep', null);
     auto.runMode = 'auto';
+    auto.history.push({ who: 'bot', text: 'prior visible reply' });
     const claudeCalls = [];
     const painted = [];
     setBrainAskForTest(() => { throw new Error('Auto must not call chat/completions'); });
@@ -303,6 +314,7 @@ test('AUTO is Claude Code once; ask still parks pendingRun; ping wakes', async (
 
     const payBot = newThread('pay-keep', null);
     payBot.runMode = 'auto';
+    payBot.history.push({ who: 'bot', text: 'prior visible reply' });
     setClaudeRunnerForTest(async () => ({
       text: 'API Error',
       sessionId: 'sess-pay',
@@ -315,6 +327,7 @@ test('AUTO is Claude Code once; ask still parks pendingRun; ping wakes', async (
 
     const errBot = newThread('err-400', null);
     errBot.runMode = 'auto';
+    errBot.history.push({ who: 'bot', text: 'prior visible reply' });
     const errPainted = [];
     setBrainAskForTest(() => 'recovered via chat');
     setClaudeRunnerForTest(async ({ onEvent }) => {
@@ -407,6 +420,7 @@ test('AUTO does not mkdir-and-Done or curl chat/completions', async () => {
 
     const bot = newThread('auto-write', null);
     bot.runMode = 'auto';
+    bot.history.push({ who: 'bot', text: 'prior visible reply' });
     let brainCalls = 0;
     setBrainAskForTest(() => { brainCalls += 1; return 'RUN: mkdir -p oz-auto-empty\\nDONE:'; });
     const calls = [];
@@ -504,6 +518,7 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
     });
     const auto = newThread('persist-auto', null);
     auto.runMode = 'auto';
+    auto.history.push({ who: 'bot', text: 'prior visible reply' });
     await runTurn(auto.id, 'do the job even if 500');
     const userTurns = auto.history.filter((h) => h.who === 'user');
     assert.equal(userTurns.length, 1);
@@ -524,20 +539,21 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
     setClaudeRunnerForTest(() => {
       autoEntered = true;
       const live = JSON.parse(readFileSync(store, 'utf8')).find((x) => x.id === autoHangThread.id);
-      assert.equal(live.history[0].who, 'user');
-      assert.equal(live.history[0].text, 'keep me through pty spawn');
+      const liveUsers = (live.history || []).filter((h) => h.who === 'user');
+      assert.equal(liveUsers[0].text, 'keep me through pty spawn');
       assert.ok((live.messages || []).some((m) => m.role === 'user' && String(m.content).includes('keep me through pty spawn')));
       assert.equal(live.history.some((h) => h.text === AUTO_RACE_RETRY || h.text === AUTO_CONTINUE), false);
       return autoHang.then(() => ({ text: 'claude later', sessionId: 'sess-auto' }));
     });
     const autoHangThread = newThread('auto-hang', null);
     autoHangThread.runMode = 'auto';
+    autoHangThread.history.push({ who: 'bot', text: 'prior visible reply' });
     const autoP = runTurn(autoHangThread.id, 'keep me through pty spawn');
     await Promise.resolve();
     assert.equal(autoEntered, true);
-    assert.equal(autoHangThread.history[0].text, 'keep me through pty spawn');
+    assert.ok(autoHangThread.history.some((h) => h.who === 'user' && h.text === 'keep me through pty spawn'));
     const diskAuto = JSON.parse(readFileSync(store, 'utf8')).find((x) => x.id === autoHangThread.id);
-    assert.equal(diskAuto.history[0].text, 'keep me through pty spawn');
+    assert.ok(diskAuto.history.some((h) => h.who === 'user' && h.text === 'keep me through pty spawn'));
     releaseAuto();
     await autoP;
     const afterHop = autoHangThread.history.filter((h) => h.who === 'user');
@@ -552,13 +568,14 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
     const autoPin = newThread('auto-pin', null);
     autoPin.runMode = 'auto';
     autoPin.model = 'openzoo/auto';
+    autoPin.history.push({ who: 'bot', text: 'prior visible reply' });
     let seenModel = 'UNSET';
     setClaudeRunnerForTest(async ({ model }) => {
       seenModel = model;
-      assert.equal(autoPin.history[0].text, 'hello auto picker');
+      assert.ok(autoPin.history.some((h) => h.who === 'user' && h.text === 'hello auto picker'));
       assert.ok((autoPin.messages || []).some((m) => m.role === 'user' && m.content === 'hello auto picker'));
       const diskPin = JSON.parse(readFileSync(store, 'utf8')).find((x) => x.id === autoPin.id);
-      assert.equal(diskPin.history[0].text, 'hello auto picker');
+      assert.ok(diskPin.history.some((h) => h.who === 'user' && h.text === 'hello auto picker'));
       return { text: 'ok', sessionId: 'sess-pin' };
     });
     await runTurn(autoPin.id, 'hello auto picker');
@@ -622,6 +639,7 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
       const quiet = newThread('pty-quiet-' + i, null);
       quiet.runMode = 'auto';
       quiet.model = 'openzoo/auto';
+      quiet.history.push({ who: 'bot', text: 'prior visible reply' });
       await runTurn(quiet.id, 'hi');
       assert.equal(asks.length, 1, 'empty Claude must fall through to chat-completions: ' + JSON.stringify(ret));
       assert.equal(asks[0], 'hi');
@@ -629,11 +647,21 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
       assert.equal(users.length, 1, 'must not idle with two user his');
       assert.equal(users[0].text, 'hi');
       const bots = quiet.history.filter((h) => h.who === 'bot');
-      assert.equal(bots.length, 1);
-      assert.equal(bots[0].text, 'hi from ask/auto');
+      assert.equal(bots[bots.length - 1].text, 'hi from ask/auto');
       assert.doesNotMatch(quiet.history.map((h) => h.text).join('\\n'), /\\(no response\\)|upstream HTTP/);
       assert.equal(quiet.status, 'idle');
     }
+
+    let skipClaude = 0;
+    setClaudeRunnerForTest(async () => { skipClaude += 1; return { text: 'pty skipped' }; });
+    setBrainAskForTest(() => 'skip pty until visible reply');
+    const freshAuto = newThread('skip-pty-persist', null);
+    freshAuto.runMode = 'auto';
+    await runTurn(freshAuto.id, 'hi');
+    assert.equal(skipClaude, 0, 'empty-history Auto skips PTY');
+    assert.equal(freshAuto.history.filter((h) => h.who === 'user').length, 1);
+    assert.equal(freshAuto.history.filter((h) => h.who === 'bot').pop().text, 'skip pty until visible reply');
+    assert.equal(freshAuto.status, 'idle');
 
     let askClaude = 0;
     setClaudeRunnerForTest(async () => {

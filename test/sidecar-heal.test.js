@@ -11,6 +11,7 @@ const {
   packedSidecarEnv,
   packedSidecarSpawnOpts,
   shouldAttach,
+  looksLikeModuleNotFound,
 } = require(
   path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'grokui-app', 'sidecar-heal.js'),
 );
@@ -21,6 +22,8 @@ const { sidecarIsAttachable } = require(
 function fakeChild() {
   const c = new EventEmitter();
   c.killed = false;
+  c.stdout = new EventEmitter();
+  c.stderr = new EventEmitter();
   c.kill = () => {
     c.killed = true;
     c.emit('exit', 1, null);
@@ -77,7 +80,7 @@ test('packed sidecar spawn uses Electron execPath, silent env, ignore stdio', ()
   assert.equal(env.OPENZOO_SILENT, '1');
   assert.equal(env.OPENZOO_NO_OPEN, '1');
   const opts = packedSidecarSpawnOpts({});
-  assert.equal(opts.stdio, 'ignore');
+  assert.deepEqual(opts.stdio, ['ignore', 'pipe', 'pipe']);
   assert.equal(opts.windowsHide, true);
 });
 
@@ -131,7 +134,7 @@ test('free port spawns Electron execPath + packed openzoo.js', async () => {
   assert.equal(result.spawned, true);
   assert.equal(spawned.length, 1);
   assert.deepEqual(spawned[0].args, ['/fake/node_modules/openzoo/bin/openzoo.js']);
-  assert.equal(spawned[0].opts.stdio, 'ignore');
+  assert.deepEqual(spawned[0].opts.stdio, ['ignore', 'pipe', 'pipe']);
   assert.equal(spawned[0].opts.env.ELECTRON_RUN_AS_NODE, '1');
   assert.equal(spawned[0].opts.env.OPENZOO_SILENT, '1');
   healer.stop();
@@ -166,5 +169,22 @@ test('stale listener is displaced then packed sidecar is spawned', async () => {
   await healer.ensure();
   assert.equal(displaced, 1);
   assert.equal(spawned.length, 1);
+  healer.stop();
+});
+
+test('MODULE_NOT_FOUND does not loop-heal the sidecar', async () => {
+  assert.equal(looksLikeModuleNotFound("Error: Cannot find module './think.js'"), true);
+  assert.equal(looksLikeModuleNotFound('Error [ERR_MODULE_NOT_FOUND]: Cannot find module'), true);
+  assert.equal(looksLikeModuleNotFound('sidecar exited (1)'), false);
+  const { healer, spawned, timers } = makeHealer();
+  await healer.ensure();
+  assert.equal(spawned.length, 1);
+  spawned[0].child.stderr.emit('data', Buffer.from("Error [ERR_MODULE_NOT_FOUND]: Cannot find module './think.js'\n"));
+  spawned[0].child.emit('exit', 1, null);
+  assert.equal(healer.child(), null);
+  await timers.flush();
+  assert.equal(spawned.length, 1, 'must not respawn on MODULE_NOT_FOUND');
+  await timers.flush();
+  assert.equal(spawned.length, 1, 'health timer must not spawn after MODULE_NOT_FOUND');
   healer.stop();
 });
