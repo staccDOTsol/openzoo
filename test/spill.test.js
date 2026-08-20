@@ -27,6 +27,7 @@ import {
   loosenKnobs,
   cutTranscript,
   sliceChars,
+  KEEP_TOOL_CHARS,
 } from '../lib/spill.js';
 import { anthropicToOpenAI } from '../lib/anthropic.js';
 
@@ -475,7 +476,8 @@ test('stubBoundFileResults stubs Bash head/cat of a bound relative path', () => 
         function: { name: 'Bash', arguments: JSON.stringify({ command: 'head -80 notes.md' }) },
       }],
     },
-    { role: 'tool', tool_call_id: 'b1', content: '# Notes\n' + 'line\n'.repeat(400) },
+    { role: 'tool', tool_call_id: 'b1', content: '# Notes\n' + 'line\n'.repeat(1200) },
+    { role: 'user', content: 'what is in the notes?' },
   ];
   const got = stubBoundFileResults(msgs, { boundFiles: new Set([`${abs}:9`]) });
   assert.equal(got.stubbed, 1);
@@ -488,7 +490,7 @@ test('stubBoundFileResults works on the live Claude Code translation', () => {
   const anthropic = {
     messages: [
       { role: 'assistant', content: [{ type: 'tool_use', id: 'u1', name: 'Read', input: { file_path: abs } }] },
-      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'u1', content: 'BODY'.repeat(1_000) }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'u1', content: 'BODY'.repeat(2_000) }] },
       { role: 'user', content: 'summarize' },
     ],
   };
@@ -519,7 +521,8 @@ test('stubBoundFileResults fromIndex leaves the spilled prefix intact', () => {
         function: { name: 'Read', arguments: JSON.stringify({ file_path: abs }) },
       }],
     },
-    { role: 'tool', tool_call_id: 'new', content: 'TAIL_BODY' },
+    { role: 'tool', tool_call_id: 'new', content: 'TAIL_BODY' + 'Z'.repeat(KEEP_TOOL_CHARS) },
+    { role: 'user', content: 'summarize the tail' },
   ];
   const got = stubBoundFileResults(msgs, { boundFiles: new Set([`${abs}:1`]), fromIndex: 2 });
   assert.equal(got.messages[1].content, 'PREFIX_BODY');
@@ -1015,4 +1018,145 @@ test('300-tool-result un-severable tail under floor knobs is not still ~728k', (
   assert.ok(got.ratio >= 10, `corpus/sent ${got.ratio} should be >= 10`);
   assert.ok(forwardedHasAsk(got, ask));
   assert.ok(pairingValid(tailOf(got)));
+});
+
+/** Live 0.48.76 bug: current 461-byte Read stubbed because it was already bound. */
+function currentRound461Fixture() {
+  const fatAbs = '/tmp/openzoo-live-corpus.rs';
+  const smallAbs = '/tmp/small.rs';
+  const ask = 'LAST_USER_ASK please continue from here';
+  const smallBody = 'fn small_export() { /* 461_BYTE_MARKER */ }\n'.padEnd(461, 'x');
+  assert.equal(smallBody.length, 461);
+  assert.ok(smallBody.length < KEEP_TOOL_CHARS);
+  const fatBody = 'R'.repeat(20_000);
+  const msgs = [
+    { role: 'system', content: 'You are a coding agent.' },
+    { role: 'user', content: 'work through the repo' },
+    { role: 'assistant', content: 'I will read the files.' },
+    {
+      role: 'assistant',
+      tool_calls: [{
+        id: 'old1',
+        type: 'function',
+        function: { name: 'Read', arguments: JSON.stringify({ file_path: fatAbs }) },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'old1', content: fatBody },
+    {
+      role: 'assistant',
+      tool_calls: [{
+        id: 'old2',
+        type: 'function',
+        function: { name: 'Read', arguments: JSON.stringify({ file_path: fatAbs }) },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'old2', content: fatBody },
+    {
+      role: 'assistant',
+      tool_calls: [{
+        id: 'cur',
+        type: 'function',
+        function: { name: 'Read', arguments: JSON.stringify({ file_path: smallAbs }) },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'cur', content: smallBody },
+    { role: 'user', content: ask },
+  ];
+  return {
+    msgs,
+    ask,
+    smallBody,
+    fatAbs,
+    boundFiles: new Set([`${fatAbs}:1`, `${smallAbs}:1`]),
+  };
+}
+
+test('cut+stub keeps a 461-byte current Read visible; older fat bound Reads may stub', () => {
+  resetAdaptState();
+  const { msgs, ask, smallBody, boundFiles } = currentRound461Fixture();
+  const stubbed = stubBoundFileResults(msgs, { boundFiles, budget: 800 });
+  assert.equal(stubbed.messages.find((m) => m.tool_call_id === 'cur')?.content, smallBody);
+  assert.match(stubbed.messages.find((m) => m.tool_call_id === 'old1')?.content, /\[bound/);
+  assert.match(stubbed.messages.find((m) => m.tool_call_id === 'old2')?.content, /\[bound/);
+  assert.doesNotMatch(smallBody, /\[bound/);
+  assert.ok(pairingValid(stubbed.messages));
+
+  const got = applySpillCut(msgs, {
+    knobs: FLOOR_KNOBS,
+    corpusChars: 250_000,
+    boundFiles,
+    adapt: false,
+    persist: false,
+  });
+  const tail = tailOf(got);
+  assert.ok(forwardedHasAsk(got, ask), 'last user ask must stay');
+  assert.ok(pairingValid(tail), 'pairing must stay valid');
+  const current = tail.find((m) => m.role === 'tool' && m.tool_call_id === 'cur');
+  assert.ok(current, 'current Read tool_result must stay in the forwarded tail');
+  assert.equal(current.content, smallBody);
+  assert.doesNotMatch(current.content, /\[bound/);
+  const tools = tail.filter((m) => m.role === 'tool');
+  const older = tools.filter((m) => m.tool_call_id !== 'cur');
+  assert.ok(older.length === 0 || older.every((m) => /\[bound/.test(m.content)),
+    'older fat Reads in the tail may be stubbed');
+});
+
+test('in-flight WebSearch/Bash survive even if large; older ones may stub', () => {
+  const older = 'W'.repeat(8000);
+  const search = `CURRENT_SEARCH_EYES ${'S'.repeat(8000)}`;
+  const bash = `CURRENT_BASH_EYES ${'B'.repeat(8000)}`;
+  const msgs = [
+    { role: 'system', content: 'You are a coding agent.' },
+    { role: 'user', content: 'look around' },
+    { role: 'assistant', content: 'searching' },
+    {
+      role: 'assistant',
+      tool_calls: [{ id: 'oldw', function: { name: 'WebSearch', arguments: '{"query":"old"}' } }],
+    },
+    { role: 'tool', tool_call_id: 'oldw', content: older },
+    { role: 'user', content: 'search again and run the tests' },
+    {
+      role: 'assistant',
+      tool_calls: [
+        { id: 'w1', function: { name: 'WebSearch', arguments: '{"query":"now"}' } },
+        { id: 'b1', function: { name: 'Bash', arguments: '{"command":"npm test"}' } },
+      ],
+    },
+    { role: 'tool', tool_call_id: 'w1', content: search },
+    { role: 'tool', tool_call_id: 'b1', content: bash },
+  ];
+  const got = stubBoundFileResults(msgs, {
+    boundFiles: new Set(),
+    aggressive: true,
+    budget: 800,
+    fromIndex: 0,
+  });
+  assert.ok(pairingValid(got.messages));
+  assert.equal(got.messages[4].content.includes('CURRENT_SEARCH_EYES'), false);
+  assert.match(got.messages[4].content, /\[bound/);
+  assert.equal(got.messages[7].content, search);
+  assert.equal(got.messages[8].content, bash);
+  assert.doesNotMatch(got.messages[7].content, /\[bound/);
+  assert.doesNotMatch(got.messages[8].content, /\[bound/);
+});
+
+test('in-flight Anthropic tool_result after the ask is not stubbed', () => {
+  const abs = '/tmp/small.rs';
+  const body = 'fn live() { /* 461_BYTE_ANTHROPIC */ }\n'.padEnd(461, 'y');
+  const anthropic = {
+    messages: [
+      { role: 'user', content: 'read small.rs please' },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'u1', name: 'Read', input: { file_path: abs } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'u1', content: body }] },
+    ],
+  };
+  const translated = anthropicToOpenAI(anthropic).messages;
+  const got = stubBoundFileResults(translated, {
+    boundFiles: new Set([`${abs}:1`]),
+    budget: 800,
+  });
+  const tool = got.messages.find((m) => m.role === 'tool');
+  assert.ok(tool, 'translated tool_result must exist');
+  assert.equal(tool.content, body);
+  assert.doesNotMatch(tool.content, /\[bound/);
 });
