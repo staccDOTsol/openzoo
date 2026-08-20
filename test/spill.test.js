@@ -29,6 +29,9 @@ import {
   sliceChars,
   currentToolRound,
   KEEP_TOOL_CHARS,
+  hudDollarX,
+  isLiveFileTool,
+  LAST_SEND_TIGHTEN,
 } from '../lib/spill.js';
 import { anthropicToOpenAI } from '../lib/anthropic.js';
 
@@ -720,6 +723,104 @@ test('tightenKnobs / loosenKnobs stay on the notch ladder', () => {
   assert.equal(up.stubMore, false);
 });
 
+test('hudDollarX prefers spill direct/billed, then session, else null', () => {
+  assert.equal(hudDollarX({ spillDirect: 5.84, spillSpend: 1.6 }), 5.84 / 1.6);
+  // Live HUD: $21.27 direct vs $5.84 billed → ~3.64x
+  assert.ok(Math.abs(hudDollarX({ spillDirect: 21.27, spillSpend: 5.84 }) - 3.64) < 0.02);
+  assert.equal(hudDollarX({ sessionDirect: 10, sessionSpent: 2 }), 5);
+  assert.equal(hudDollarX({ spillDirect: 5.84, spillSpend: 0, sessionDirect: 10, sessionSpent: 2 }), 5);
+  assert.equal(hudDollarX({}), null);
+});
+
+test('isLiveFileTool is Read/Edit/Write and file-view Bash, not search', () => {
+  assert.equal(isLiveFileTool('Read', { file_path: '/tmp/a.rs' }), true);
+  assert.equal(isLiveFileTool('Edit', { file_path: '/tmp/a.rs' }), true);
+  assert.equal(isLiveFileTool('Write', { file_path: '/tmp/a.rs' }), true);
+  assert.equal(isLiveFileTool('Bash', { command: 'head -80 notes.md' }), true);
+  assert.equal(isLiveFileTool('Bash', { command: 'npm test' }), false);
+  assert.equal(isLiveFileTool('WebSearch', { query: 'x' }), false);
+  assert.equal(isLiveFileTool('WebFetch', { url: 'https://example.com' }), false);
+});
+
+test('char ratio 80x + dollar x 3.6x → tighten, stubMore true, recut', () => {
+  resetAdaptState();
+  const start = { keepTail: 16, minTurns: 12, budget: 24000, stubMore: false };
+  const got = adaptTail({
+    ratio: 80,
+    dollarX: 3.6,
+    knobs: start,
+    lastAction: 'hold',
+    corpusChars: 250_000,
+  });
+  assert.equal(got.action, 'tighten');
+  assert.equal(got.knobs.stubMore, true);
+  assert.ok(got.recut);
+  assert.ok(got.knobs.keepTail < start.keepTail);
+  assert.match(got.log, /dollar=3\.6/);
+  assert.doesNotMatch(got.log, /adapt hold/);
+});
+
+test('dollar x 12x + char 200x → hold, not loosen', () => {
+  resetAdaptState();
+  const start = { keepTail: 16, minTurns: 12, budget: 24000, stubMore: false };
+  const got = adaptTail({
+    ratio: 200,
+    dollarX: 12,
+    knobs: start,
+    lastAction: 'hold',
+    corpusChars: 250_000,
+  });
+  assert.equal(got.action, 'hold');
+  assert.equal(got.recut, false);
+  assert.equal(got.knobs.keepTail, 16);
+  assert.equal(got.knobs.stubMore, false);
+});
+
+test('dollar x 25x + lastAction hold → loosen', () => {
+  resetAdaptState();
+  const start = { keepTail: 8, minTurns: 6, budget: 6000, stubMore: false };
+  const got = adaptTail({
+    ratio: 8,
+    dollarX: 25,
+    knobs: start,
+    lastAction: 'hold',
+    corpusChars: 250_000,
+  });
+  assert.equal(got.action, 'loosen');
+  assert.equal(got.recut, false);
+  assert.ok(got.knobs.keepTail > start.keepTail || got.knobs.budget > start.budget);
+  assert.equal(got.knobs.stubMore, false);
+});
+
+test('missing dollar x falls back to char ratio (old hysteresis)', () => {
+  resetAdaptState();
+  const start = { ...START_KNOBS };
+  const down = adaptTail({ ratio: 4, knobs: start, lastAction: 'hold', corpusChars: 250_000 });
+  assert.equal(down.action, 'tighten');
+  assert.ok(down.recut);
+  assert.equal(down.dollarX, null);
+  const hold = adaptTail({ ratio: 25, knobs: down.knobs, lastAction: 'tighten', corpusChars: 250_000 });
+  assert.equal(hold.action, 'hold');
+  const loose = adaptTail({ ratio: 25, knobs: start, lastAction: 'hold', corpusChars: 250_000 });
+  assert.equal(loose.action, 'loosen');
+});
+
+test('lastSend growing while dollar x < target is a tighten signal', () => {
+  resetAdaptState();
+  const start = { keepTail: 16, minTurns: 12, budget: 24000, stubMore: false };
+  const got = adaptTail({
+    ratio: 80,
+    dollarX: 3.6,
+    lastSend: LAST_SEND_TIGHTEN + 11,
+    knobs: start,
+    lastAction: 'hold',
+    corpusChars: 250_000,
+  });
+  assert.equal(got.action, 'tighten');
+  assert.ok(got.recut);
+  assert.equal(got.knobs.stubMore, true);
+});
+
 /**
  * Live ultracode failure: ONE assistant turn with ~13 fat tool_results
  * (Read AND WebSearch/Fetch) + last user ask. Nothing in that tail is
@@ -1210,7 +1311,26 @@ function continueTurnAfterAskFixture({
   };
 }
 
-test('continue turn: latest 461-byte Read stays; older fat Read after the ask is stubbed', () => {
+function postAskFileBodiesStayReal(msgs, ask) {
+  const lastUser = msgs.findIndex((m) => typeof m.content === 'string' && m.content === ask);
+  if (lastUser < 0) return true;
+  const callName = new Map();
+  for (const m of msgs) {
+    for (const tc of m.tool_calls || []) {
+      if (tc?.id) callName.set(tc.id, tc.function?.name || '');
+    }
+  }
+  for (let i = lastUser + 1; i < msgs.length; i++) {
+    const m = msgs[i];
+    if (m?.role !== 'tool' || typeof m.content !== 'string') continue;
+    const name = callName.get(m.tool_call_id) || '';
+    if (!isLiveFileTool(name, {})) continue;
+    if (/\[bound/.test(m.content)) return false;
+  }
+  return true;
+}
+
+test('continue turn: latest 461-byte Read stays; older post-ask Read is dropped or stays real', () => {
   resetAdaptState();
   const { msgs, ask, smallBody, boundFiles } = continueTurnAfterAskFixture();
   const lastUser = msgs.findIndex((m) => m.content === ask);
@@ -1221,10 +1341,12 @@ test('continue turn: latest 461-byte Read stays; older fat Read after the ask is
 
   const stubbed = stubBoundFileResults(msgs, { boundFiles, budget: 6000, keepTail: 8 });
   assert.equal(stubbed.messages.find((m) => m.tool_call_id === 'B')?.content, smallBody);
-  assert.match(stubbed.messages.find((m) => m.tool_call_id === 'A0')?.content, /\[bound/);
+  const olderStub = stubbed.messages.find((m) => m.tool_call_id === 'A0');
+  if (olderStub) assert.doesNotMatch(olderStub.content, /\[bound/);
   assert.doesNotMatch(smallBody, /\[bound/);
   assert.ok(pairingValid(stubbed.messages));
   assert.equal(stubbed.messages.find((m) => m.content === ask)?.content, ask);
+  assert.ok(postAskFileBodiesStayReal(stubbed.messages, ask));
 
   const got = applySpillCut(msgs, {
     knobs: START_KNOBS,
@@ -1240,13 +1362,11 @@ test('continue turn: latest 461-byte Read stays; older fat Read after the ask is
   assert.ok(current, 'latest 461-byte Read must stay in the forwarded tail');
   assert.equal(current.content, smallBody);
   assert.doesNotMatch(current.content, /\[bound/);
-  const older = tail.filter((m) => m.role === 'tool' && m.tool_call_id !== 'B');
-  assert.ok(older.length === 1, 'older post-ask round stays so its body can be stubbed');
-  assert.match(older[0].content, /\[bound/);
-  assert.doesNotMatch(older[0].content, /R{20}/);
+  assert.ok(postAskFileBodiesStayReal(tail, ask),
+    'remaining post-ask Reads must stay real or be dropped, never [bound]');
 });
 
-test('continue turn: latest fat WebSearch stays; older fat Read after the ask is stubbed', () => {
+test('continue turn: latest fat WebSearch stays; older post-ask Read is dropped or stays real', () => {
   resetAdaptState();
   const { msgs, ask, searchBody, boundFiles } = continueTurnAfterAskFixture({ latest: 'websearch' });
   const stubbed = stubBoundFileResults(msgs, {
@@ -1256,9 +1376,11 @@ test('continue turn: latest fat WebSearch stays; older fat Read after the ask is
     keepTail: 8,
   });
   assert.equal(stubbed.messages.find((m) => m.tool_call_id === 'B')?.content, searchBody);
-  assert.match(stubbed.messages.find((m) => m.tool_call_id === 'A0')?.content, /\[bound/);
+  const olderStub = stubbed.messages.find((m) => m.tool_call_id === 'A0');
+  if (olderStub) assert.doesNotMatch(olderStub.content, /\[bound/);
   assert.doesNotMatch(stubbed.messages.find((m) => m.tool_call_id === 'B')?.content, /\[bound/);
   assert.ok(pairingValid(stubbed.messages));
+  assert.ok(postAskFileBodiesStayReal(stubbed.messages, ask));
 
   const got = applySpillCut(msgs, {
     knobs: { keepTail: 16, minTurns: 2, budget: 24000, stubMore: false },
@@ -1273,9 +1395,8 @@ test('continue turn: latest fat WebSearch stays; older fat Read after the ask is
   const current = tail.find((m) => m.role === 'tool' && m.tool_call_id === 'B');
   assert.ok(current, 'latest WebSearch must stay in the forwarded tail');
   assert.equal(current.content, searchBody);
-  const older = tail.filter((m) => m.role === 'tool' && m.tool_call_id !== 'B');
-  assert.ok(older.length >= 1 && older.every((m) => /\[bound/.test(m.content)),
-    'older fat Read after the ask must be stubbed');
+  assert.ok(postAskFileBodiesStayReal(tail, ask),
+    'older post-ask Read must be dropped or stay real, never [bound]');
 });
 
 test('continue turn: keepTail trims older post-ask rounds so lastSend cannot grow to 259', () => {
@@ -1297,10 +1418,88 @@ test('continue turn: keepTail trims older post-ask rounds so lastSend cannot gro
   const current = tools.find((m) => m.tool_call_id === 'B');
   assert.ok(current, 'latest 461-byte Read must stay');
   assert.equal(current.content, smallBody);
-  const older = tools.filter((m) => m.tool_call_id !== 'B');
-  assert.ok(older.every((m) => /\[bound/.test(m.content)), 'kept older post-ask bodies must be stubbed');
-  assert.ok(got.sentChars < 80 * 20_000 * 0.1, `sent ${got.sentChars} still looks like the growing pile`);
-  assert.ok(got.ratio >= 10, `corpus/sent ${got.ratio} should rise or hold, not decay`);
+  assert.ok(postAskFileBodiesStayReal(tail, ask),
+    'kept older post-ask file bodies stay real; drop the rest');
+  assert.ok(got.sentChars < 80 * 20_000, `sent ${got.sentChars} still looks like the full 80-round pile`);
+});
+
+test('dollar 3.6x recuts this request; remaining post-ask Reads stay real', () => {
+  resetAdaptState();
+  const { msgs, ask, smallBody, boundFiles } = continueTurnAfterAskFixture({ olderRounds: 20 });
+  const logs = [];
+  const got = applySpillCut(msgs, {
+    knobs: { keepTail: 16, minTurns: 12, budget: 24000, stubMore: false },
+    corpusChars: 1_000_000,
+    boundFiles,
+    adapt: true,
+    persist: false,
+    dollarX: 3.6,
+    lastSend: 35,
+    log: (m) => logs.push(m),
+  });
+  assert.equal(got.action, 'tighten');
+  assert.equal(got.knobs.stubMore, true);
+  assert.ok(got.knobs.keepTail < 16);
+  assert.match(logs.join('\n'), /adapt /);
+  assert.match(logs.join('\n'), /dollar=3\.6/);
+  assert.doesNotMatch(logs.join('\n'), /adapt hold/);
+  const tail = tailOf(got);
+  assert.ok(forwardedHasAsk(got, ask), 'last user ask must stay');
+  assert.ok(pairingValid(tail), 'pairing must stay valid');
+  const current = tail.find((m) => m.role === 'tool' && m.tool_call_id === 'B');
+  assert.ok(current, 'latest 461-byte Read must stay');
+  assert.equal(current.content, smallBody);
+  assert.doesNotMatch(current.content, /\[bound/);
+  assert.ok(postAskFileBodiesStayReal(tail, ask),
+    'dollar-x tighten must not rewrite remaining post-ask file bodies to [bound]');
+  const tools = tail.filter((m) => m.role === 'tool');
+  assert.ok(tools.length <= got.knobs.keepTail,
+    `tightened keepTail ${got.knobs.keepTail} should cap post-ask rounds, got ${tools.length}`);
+});
+
+test('older kept post-ask WebSearch may stub; file bodies in that tail stay real', () => {
+  const ask = 'LAST_USER_ASK please continue from here';
+  const abs = '/tmp/openzoo-live-corpus.rs';
+  const fileBody = 'FILE_EYES ' + 'R'.repeat(8000);
+  const searchOld = 'OLD_SEARCH ' + 'S'.repeat(8000);
+  const searchNow = 'CURRENT_SEARCH_EYES ' + 'W'.repeat(8000);
+  const msgs = [
+    { role: 'system', content: 'You are a coding agent.' },
+    { role: 'user', content: 'look around' },
+    { role: 'assistant', content: 'searching' },
+    { role: 'user', content: ask },
+    {
+      role: 'assistant',
+      tool_calls: [{ id: 'r0', function: { name: 'Read', arguments: JSON.stringify({ file_path: abs }) } }],
+    },
+    { role: 'tool', tool_call_id: 'r0', content: fileBody },
+    {
+      role: 'assistant',
+      tool_calls: [{ id: 'w0', function: { name: 'WebSearch', arguments: '{"query":"old"}' } }],
+    },
+    { role: 'tool', tool_call_id: 'w0', content: searchOld },
+    {
+      role: 'assistant',
+      tool_calls: [{ id: 'w1', function: { name: 'WebSearch', arguments: '{"query":"now"}' } }],
+    },
+    { role: 'tool', tool_call_id: 'w1', content: searchNow },
+  ];
+  const got = stubBoundFileResults(msgs, {
+    boundFiles: new Set([`${abs}:1`]),
+    aggressive: true,
+    budget: 800,
+    keepTail: 8,
+  });
+  assert.equal(got.messages.find((m) => m.tool_call_id === 'w1')?.content, searchNow);
+  const olderSearch = got.messages.find((m) => m.tool_call_id === 'w0');
+  if (olderSearch) assert.match(olderSearch.content, /\[bound/);
+  const file = got.messages.find((m) => m.tool_call_id === 'r0');
+  if (file) {
+    assert.equal(file.content, fileBody);
+    assert.doesNotMatch(file.content, /\[bound/);
+  }
+  assert.ok(postAskFileBodiesStayReal(got.messages, ask));
+  assert.ok(pairingValid(got.messages));
 });
 
 test('in-flight Anthropic tool_result after the ask is not stubbed', () => {
