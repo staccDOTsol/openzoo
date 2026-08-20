@@ -150,6 +150,8 @@ if [ -d "$APP" ]; then
 fi
 node "$REPO_ROOT/scripts/assert-packed-grokui-lib.mjs" dist \
   || die "packed grokui.mjs relatives missing"
+node "$REPO_ROOT/scripts/assert-overlaid-openzoo.mjs" dist \
+  || die "packed node_modules/openzoo is not the overlaid sidecar"
 for d in "${DMGS[@]}"; do printf '    %s  %s\n' "$(du -h "$d" | cut -f1)" "$d"; done
 
 # ---- publish ----------------------------------------------------------------

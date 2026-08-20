@@ -457,10 +457,73 @@ test('afterPack copies the whole repo lib and fails if a relative is missing', (
   assert.throws(() => afterPack.assertPackedGrokuiLib(dir), /info\.js|missing relative/);
 });
 
+test('afterPack overlays sidecar spill/runguard into node_modules/openzoo and bit-compares', () => {
+  // copyRepoLib → app/lib is the UI. Packed apps spawn
+  // node_modules/openzoo/bin/openzoo.js, so a missing overlay leaves npm's
+  // 16k spill in the dmg even though repo lib/spill.js binds at 2k.
+  const afterPack = require('../grokui-app/build/afterPack.js');
+  const required = ['lib/spill.js', 'lib/runguard.js', 'lib/racesettle.js', 'lib/hrr.js', 'lib/livestatus.js'];
+  for (const rel of required) {
+    assert.equal(afterPack.OPENZOO_SIDECAR_OVERLAY.includes(rel), true, rel);
+  }
+  assert.equal(afterPack.OPENZOO_SIDECAR_OVERLAY.includes('lib/proxy.js'), true);
+  assert.equal(afterPack.OPENZOO_SIDECAR_OVERLAY.includes('lib/modelroute.js'), true);
+
+  const staged = mkdtempSync(path.join(tmpdir(), 'oz-overlay-nm-'));
+  const dest = path.join(staged, 'openzoo');
+  mkdirSync(path.join(dest, 'lib'), { recursive: true });
+  writeFileSync(path.join(dest, 'package.json'), JSON.stringify({
+    name: 'openzoo', version: '0.49.8', type: 'module', files: ['bin', 'lib'],
+  }) + '\n');
+  writeFileSync(path.join(dest, 'lib', 'spill.js'), 'NPM_16K_SPILL_GATE\n');
+  afterPack.overlayRepoOpenzooSidecar(staged, path.join(root, 'grokui-app'));
+  for (const rel of afterPack.OPENZOO_SIDECAR_OVERLAY) {
+    assert.equal(
+      readFileSync(path.join(dest, rel), 'utf8'),
+      readFileSync(path.join(root, rel), 'utf8'),
+      rel,
+    );
+  }
+  assert.doesNotThrow(() => afterPack.assertOverlaidOpenzoo(dest, root));
+  writeFileSync(path.join(dest, 'lib', 'spill.js'), 'stale npm spill\n');
+  assert.throws(() => afterPack.assertOverlaidOpenzoo(dest, root), /spill\.js|differ|overlaid/);
+  rmSync(path.join(dest, 'lib', 'runguard.js'));
+  assert.throws(() => afterPack.assertOverlaidOpenzoo(dest, root), /runguard\.js/);
+});
+
+test('assert-overlaid-openzoo fails a packed tree that still has npm spill.js', () => {
+  const afterPack = require('../grokui-app/build/afterPack.js');
+  const packed = mkdtempSync(path.join(tmpdir(), 'oz-packed-overlay-'));
+  try {
+    const dest = path.join(packed, 'resources', 'app', 'node_modules', 'openzoo');
+    mkdirSync(path.join(dest, 'lib'), { recursive: true });
+    writeFileSync(path.join(dest, 'package.json'), JSON.stringify({ name: 'openzoo', version: '0.49.8' }) + '\n');
+    for (const rel of afterPack.OPENZOO_SIDECAR_OVERLAY) {
+      mkdirSync(path.join(dest, path.dirname(rel)), { recursive: true });
+      writeFileSync(path.join(dest, rel), readFileSync(path.join(root, rel)));
+    }
+    writeFileSync(path.join(dest, 'lib', 'spill.js'), 'NPM_16K_SPILL_GATE\n');
+    const bad = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-overlaid-openzoo.mjs'), packed], {
+      encoding: 'utf8',
+    });
+    assert.notEqual(bad.status, 0);
+    assert.match(bad.stderr, /spill\.js|overlaid tree|differ/);
+    writeFileSync(path.join(dest, 'lib', 'spill.js'), readFileSync(path.join(root, 'lib', 'spill.js')));
+    const ok = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-overlaid-openzoo.mjs'), packed], {
+      encoding: 'utf8',
+    });
+    assert.equal(ok.status, 0, ok.stderr || ok.stdout);
+    assert.match(ok.stdout, /ok overlaid/);
+  } finally {
+    rmSync(packed, { recursive: true, force: true });
+  }
+});
+
 test('desktop pack CI walks packed grokui.mjs relatives', () => {
   for (const name of ['grokui-macos.yml', 'grokui-linux.yml', 'grokui-windows.yml']) {
     const yml = readFileSync(path.join(root, '.github', 'workflows', name), 'utf8');
     assert.match(yml, /assert-packed-grokui-lib\.mjs/);
+    assert.match(yml, /assert-overlaid-openzoo\.mjs/);
     assert.match(yml, /assert-app-html-script\.mjs/);
   }
   const packed = readFileSync(path.join(root, 'scripts', 'assert-packed-grokui-lib.mjs'), 'utf8');
@@ -470,6 +533,7 @@ test('desktop pack CI walks packed grokui.mjs relatives', () => {
   assert.doesNotMatch(ignore, /lib\/grokui\.mjs/);
   const rel = readFileSync(path.join(root, 'scripts', 'release-mac.sh'), 'utf8');
   assert.match(rel, /assert-packed-grokui-lib/);
+  assert.match(rel, /assert-overlaid-openzoo/);
 });
 
 test('assert-packed-grokui-lib fails a 1.5.86-shaped packed tree', () => {
@@ -800,8 +864,10 @@ test('cut and release scripts keep openzoo latest or refuse', () => {
   assert.match(cut, /dependencies\.openzoo = 'latest'/);
   assert.match(cut, /refuse to cut/);
   assert.match(cut, /assert-packed-grokui-esm\.mjs/);
+  assert.match(cut, /assert-overlaid-openzoo\.mjs/);
   assert.match(cut, /bundle-grokui\.js/);
   assert.match(rel, /assert-grokui-pin/);
+  assert.match(rel, /assert-overlaid-openzoo/);
   const missing = spawnSync(process.execPath, [path.join(root, 'scripts', 'cut-grokui.mjs'), '--grokui', '1.5.84'], { encoding: 'utf8' });
   assert.notEqual(missing.status, 0);
   assert.match(missing.stderr, /refuse to cut/);

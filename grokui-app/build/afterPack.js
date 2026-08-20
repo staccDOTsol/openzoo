@@ -82,30 +82,41 @@ function prodModules(projectDir) {
   return stagedNM;
 }
 
-// Unpublished sidecar files (modelroute + the rewrite/fallback hooks) must
-// land in node_modules/openzoo even before the next npm publish. grokui's
-// dep stays "latest"; this overlays the repo tree onto that install.
+// Unpublished sidecar files must land in node_modules/openzoo even before
+// the next npm publish. Packed apps spawn
+// node_modules/openzoo/bin/openzoo.js — copyRepoLib → app/lib is the grokui
+// UI, not this sidecar. Without these, a dmg still runs npm's 16k spill
+// gate. grokui's dep stays "latest"; this overlays the repo tree onto that
+// install.
+const OPENZOO_SIDECAR_OVERLAY = [
+  'lib/spill.js',
+  'lib/runguard.js',
+  'lib/racesettle.js',
+  'lib/hrr.js',
+  'lib/livestatus.js',
+  'lib/modelroute.js',
+  'lib/models.js',
+  'lib/proxy.js',
+  'lib/modelroute/catalog.json',
+  'lib/modelroute/router.json',
+  'lib/modelroute/outcomes.json',
+  'lib/modelroute/README.md',
+  'vendor/modelroute/catalog.json',
+  'vendor/modelroute/router.json',
+  'vendor/modelroute/outcomes.json',
+  'vendor/modelroute/HANDOFF.md',
+  'vendor/modelroute/CURRENT_STATE.md',
+];
+
 function overlayRepoOpenzooSidecar(stagedNM, projectDir) {
   const repo = path.join(projectDir, '..');
   const dest = path.join(stagedNM, 'openzoo');
   if (!fs.existsSync(dest)) return;
-  const files = [
-    'lib/modelroute.js',
-    'lib/models.js',
-    'lib/proxy.js',
-    'lib/modelroute/catalog.json',
-    'lib/modelroute/router.json',
-    'lib/modelroute/outcomes.json',
-    'lib/modelroute/README.md',
-    'vendor/modelroute/catalog.json',
-    'vendor/modelroute/router.json',
-    'vendor/modelroute/outcomes.json',
-    'vendor/modelroute/HANDOFF.md',
-    'vendor/modelroute/CURRENT_STATE.md',
-  ];
-  for (const rel of files) {
+  for (const rel of OPENZOO_SIDECAR_OVERLAY) {
     const from = path.join(repo, rel);
-    if (!fs.existsSync(from)) continue;
+    if (!fs.existsSync(from)) {
+      throw new Error(`[afterPack] overlay source missing: ${from}`);
+    }
     const out = path.join(dest, rel);
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.copyFileSync(from, out);
@@ -119,6 +130,35 @@ function overlayRepoOpenzooSidecar(stagedNM, projectDir) {
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
     }
   } catch { /* keep published package.json */ }
+  assertOverlaidOpenzoo(dest, repo);
+}
+
+// Bit-compare packed node_modules/openzoo against the repo overlay list.
+// A version match on package.json is not enough — npm latest can still
+// ship the 16k spill while repo lib/spill.js binds at 2k.
+function assertOverlaidOpenzoo(openzooDir, repoRoot) {
+  if (!openzooDir || !fs.existsSync(openzooDir)) {
+    throw new Error('[afterPack] packed node_modules/openzoo missing — cannot bit-compare overlay');
+  }
+  const mismatches = [];
+  for (const rel of OPENZOO_SIDECAR_OVERLAY) {
+    const from = path.join(repoRoot, rel);
+    const got = path.join(openzooDir, rel);
+    if (!fs.existsSync(from)) {
+      mismatches.push(`${rel}: missing in repo`);
+      continue;
+    }
+    if (!fs.existsSync(got)) {
+      mismatches.push(`${rel}: missing in packed openzoo`);
+      continue;
+    }
+    const a = fs.readFileSync(from);
+    const b = fs.readFileSync(got);
+    if (!a.equals(b)) mismatches.push(`${rel}: packed bytes differ from repo`);
+  }
+  if (mismatches.length) {
+    throw new Error(`[afterPack] packed openzoo is not the overlaid tree:\n${mismatches.join('\n')}`);
+  }
 }
 
 function ensureDugiteGit(stagedNM) {
@@ -263,12 +303,15 @@ function copyNodeModules(context) {
   strip(dest);
 
   assertCopiedOpenzoo(dest);
+  assertOverlaidOpenzoo(path.join(dest, 'openzoo'), path.join(context.packager.projectDir, '..'));
 
   const n = fs.readdirSync(path.join(dest, '@solana')).length;
   console.log(`[afterPack] copied production node_modules -> ${dest} (@solana: ${n}, stripped ${stripped} escaping symlink(s)/.bin)`);
 }
 
+exports.OPENZOO_SIDECAR_OVERLAY = OPENZOO_SIDECAR_OVERLAY;
 exports.overlayRepoOpenzooSidecar = overlayRepoOpenzooSidecar;
+exports.assertOverlaidOpenzoo = assertOverlaidOpenzoo;
 exports.assertCopiedOpenzoo = assertCopiedOpenzoo;
 exports.publishedOpenzooVersion = publishedOpenzooVersion;
 exports.packedAppDir = packedAppDir;

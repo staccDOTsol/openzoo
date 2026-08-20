@@ -124,6 +124,9 @@ jobs:
       - name: Packed grokui.mjs relatives
         shell: bash
         run: node scripts/assert-packed-grokui-lib.mjs grokui-app/dist
+      - name: Packed sidecar is the overlaid tree
+        shell: bash
+        run: node scripts/assert-overlaid-openzoo.mjs grokui-app/dist
 
       - name: Verify signature
         shell: bash
