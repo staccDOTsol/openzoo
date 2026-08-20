@@ -7,7 +7,8 @@ process.env.OZ_AGENT_PORTS = '0';
 const { brainRace } = await import('../lib/podagent.mjs');
 const {
   receiptUsedCogs, meterRaceReceipt, capRaceByCredit, doorAcceptsRace,
-  resetGatewayRaceProbe, RACE_NO_CREDIT,
+  resetGatewayRaceProbe, RACE_NO_CREDIT, recutRaceByHud, sessionDollarX,
+  RACE_HUD_TARGET,
 } = await import('../lib/racesettle.js');
 
 function sleep(ms) {
@@ -59,6 +60,38 @@ test('race forwards onDelta before a winner exists', async () => {
   const text = await p;
   resolved = true;
   assert.equal(text, 'Bye');
+});
+
+test('onRace paints a Y-cell grid, abandons the rest after X, then judges', async () => {
+  const snaps = [];
+  await brainRace(
+    [{ role: 'user', content: 'q' }],
+    () => {},
+    null,
+    ['a', 'b', 'c', 'd'],
+    2,
+    undefined,
+    () => {},
+    {
+      stream: scriptedStream({
+        a: { text: 'one', at: 15 },
+        b: { text: 'two', at: 35 },
+        c: { chunks: ['late'], text: 'three', at: 200, tokenAt: 80 },
+        d: { text: 'four', at: 220 },
+      }),
+      classify: async (_m, c) => (c.model === 'b' ? 9 : 7),
+      onRace: (s) => snaps.push(s),
+    },
+  );
+  assert.ok(snaps[0].racers.length === 4);
+  assert.ok(snaps[0].racers.every((r) => r.status === 'waiting'));
+  assert.ok(snaps.some((s) => s.phase === 'judging'));
+  const judged = snaps.find((s) => s.phase === 'judging');
+  assert.equal(judged.racers.filter((r) => r.status === 'back').length, 2);
+  assert.equal(judged.racers.filter((r) => r.status === 'abandoned').length, 2);
+  const won = snaps.find((s) => s.phase === 'winner');
+  assert.equal(won.winner, 'b');
+  assert.equal(won.racers.length, 4);
 });
 
 test('status updates as racers finish: racing n/X back…', async () => {
@@ -424,6 +457,68 @@ test('race_unused is not a user refund; HUD cogs stay house cost', () => {
   const failedMeter = meterRaceReceipt(failed);
   assert.equal(failedMeter.spentUsd, 0.40);
   assert.equal(failedMeter.cogsUsd, 0.40);
+});
+
+test('sessionDollarX is the HUD green x (direct/spent)', () => {
+  assert.equal(sessionDollarX({ spentUsd: 6.57, directUsd: 13.70 }).toFixed(2), '2.09');
+  assert.equal(sessionDollarX({ dollarX: 2.09 }), 2.09);
+  assert.equal(sessionDollarX({}), null);
+});
+
+test('recutRaceByHud: 2.09x on 4 racers drops to 1 — the 4-racer tax', () => {
+  assert.equal(RACE_HUD_TARGET, 5);
+  const thin = recutRaceByHud({ y: 4, need: 2, dollarX: 2.09, tier: 'medium' });
+  assert.equal(thin.y, 1);
+  assert.equal(thin.need, 1);
+  assert.equal(thin.tier, 'medium');
+  assert.equal(thin.recut, true);
+  assert.equal(thin.reason, 'savings');
+
+  const ok = recutRaceByHud({ y: 4, need: 2, dollarX: 6.0, tier: 'medium' });
+  assert.equal(ok.recut, false);
+  assert.equal(ok.y, 4);
+  assert.equal(ok.need, 2);
+
+  const mid = recutRaceByHud({ y: 4, need: 2, dollarX: 4.0, tier: 'medium' });
+  assert.equal(mid.y, 3);
+  assert.equal(mid.need, 2);
+  assert.equal(mid.recut, true);
+
+  const worse = recutRaceByHud({ y: 4, need: 2, dollarX: 1.1, tier: 'expensive' });
+  assert.equal(worse.y, 1);
+  assert.equal(worse.tier, 'medium');
+  assert.equal(worse.recut, true);
+
+  assert.equal(recutRaceByHud({ y: 4, need: 2 }).recut, false);
+});
+
+test('thin green HUD recuts a best-2-of-4 launch so classify never sees 4 bills', async () => {
+  let launched = 0;
+  const classified = [];
+  const statuses = [];
+  const text = await brainRace(
+    [{ role: 'user', content: 'q' }],
+    () => {},
+    null,
+    ['a', 'b', 'c', 'd'],
+    2,
+    undefined,
+    (s) => statuses.push(s),
+    {
+      dollarX: 2.09,
+      tier: 'medium',
+      stream: async (_m, onDelta, _c, model) => {
+        launched += 1;
+        onDelta(model + '-only');
+        return model + '-only';
+      },
+      classify: async (_m, c) => { classified.push(c.model); return 9; },
+    },
+  );
+  assert.equal(launched, 1);
+  assert.equal(classified.length, 0);
+  assert.equal(text, 'a-only');
+  assert.ok(statuses.some((s) => /recut to 1 — savings/.test(s)));
 });
 
 test('capRaceByCredit shrinks or refuses instead of firing 4 groks on $0', () => {

@@ -52,6 +52,42 @@ test('header always ships the spend dials and wallet', () => {
   assert.doesNotMatch(grokui, /#modeToggle \{ margin-left: auto/);
 });
 
+test('sitrep is a plus-menu button that opens a wallet-style drawer, not a chat dump', () => {
+  const attach = grokui.indexOf('id="attachBtn"');
+  const sitrep = grokui.indexOf('id="sitrepBtn"');
+  assert.ok(attach >= 0 && sitrep > attach, 'Sitrep sits next to Attach files');
+  assert.match(grokui, /id="sitrepOverlay"/);
+  assert.match(grokui, /data-component="sitrep-drawer"/);
+  assert.match(grokui, /id="sitrepBox"/);
+  assert.match(grokui, /function openSitrep/);
+  assert.doesNotMatch(grokui, /function runSitrep/);
+  assert.match(grokui, /name: '\/sitrep'/);
+  assert.match(grokui, /\^\\\/sitrep\\b/);
+  assert.match(grokui, /Drawer-only\. Never dump sitrep into the transcript/);
+  assert.match(grokui, /if \(c\.name === '\/sitrep'\)/);
+  assert.match(grokui, /sitrepRow\('race'/);
+  assert.match(grokui, /sitrepRow\('paid calls'/);
+  assert.match(grokui, /sitrepRow\('prepaid', \(Number\(you\.creditUsd\) > 0\) \? 'yes' : 'no'\)/);
+  assert.doesNotMatch(grokui, /formatSitrep/);
+  assert.doesNotMatch(grokui, /task: '\/sitrep'/);
+  assert.doesNotMatch(grokui, /sitrepRow\('subscription'/);
+  assert.doesNotMatch(grokui, /sitrep.*npmrc/i);
+});
+
+test('race picker paints the savings cut on every choice, including 1-model', () => {
+  // Cut = (1 - 1/Y). X does not change it — they pay every launched racer.
+  assert.match(grokui, />1 model  0%</);
+  assert.match(grokui, />race 2  −50%</);
+  assert.match(grokui, />race 3  −67%</);
+  assert.match(grokui, />race 4  −75%</);
+  assert.match(grokui, />best 2 of 3  −67%</);
+  assert.match(grokui, />best 2 of 4  −75%</);
+  assert.match(grokui, />best 3 of 4  −75%</);
+  assert.match(grokui, />best 4 of 4  −75%</);
+  assert.doesNotMatch(grokui, /<option value="0"[^>]*>1 model</);
+  assert.doesNotMatch(grokui, /<option value="2 4">best 2 of 4</);
+});
+
 test('grokui does not ship an assets unlock button or decrypt route', () => {
   assert.doesNotMatch(grokui, /id="assetsBtn"/);
   assert.doesNotMatch(grokui, /id="assetsOverlay"/);
@@ -269,6 +305,8 @@ test('HUD embers when session cogs exceed paid; launched racers stay billed', ()
   assert.match(settle, /race_unused/);
   assert.match(settle, /receiptUsedCogs/);
   assert.match(settle, /not a user refund/);
+  assert.match(settle, /function recutRaceByHud/);
+  assert.match(settle, /RACE_HUD_TARGET/);
   const brain = readFileSync(path.join(root, 'lib', 'podagent.mjs'), 'utf8');
   assert.match(brain, /does not grant unused or failed racers back/);
 });
@@ -299,15 +337,39 @@ test('a race streams the live racer and can replace the bubble once', () => {
   assert.match(brain, /race_need/);
   assert.match(brain, /probeGatewayRace/);
   assert.match(brain, /brainGatewayRace/);
+  assert.match(brain, /hooks\.onRace/);
+  assert.match(brain, /feed\.judge\(\)/);
   assert.doesNotMatch(brain, /if \(!cands\.length\) return '';/);
   assert.doesNotMatch(brain, /Streaming is deliberately not forwarded/);
   const live = readFileSync(path.join(root, 'lib', 'livestatus.js'), 'utf8');
   assert.match(live, /racing \$\{b\}\/\$\{n\} back/);
   assert.match(live, /RACE_EVERY_FAILED/);
   assert.match(live, /fetch failed/);
+  assert.match(live, /function shortModelName/);
+  assert.match(live, /phase = 'judging'/);
   const bundle = readFileSync(path.join(root, 'grokui-app', 'scripts', 'bundle-grokui.js'), 'utf8');
   assert.match(bundle, /livestatus\.js/);
   assert.match(bundle, /racesettle\.js/);
+});
+
+test('in-flight race paints a spectator grid and a classifier beat, not mute status', () => {
+  assert.match(grokui, /type: 'race'/);
+  assert.match(grokui, /onRace:/);
+  assert.match(grokui, /liveRace/);
+  assert.match(grokui, /function raceGridHtml/);
+  assert.match(grokui, /function raceIsLive/);
+  assert.match(grokui, /r\.racers\.length >= 2/);
+  assert.match(grokui, /class="racegrid n'/);
+  assert.match(grokui, /race\.recut \? ' · recut'/);
+  assert.match(grokui, /class="racejudge/);
+  assert.match(grokui, /looking at the '/);
+  assert.match(grokui, /goes to '/);
+  assert.match(grokui, /class="racefail"/);
+  assert.match(grokui, /abandoned/);
+  assert.match(grokui, /bubble\.raceboard/);
+  assert.doesNotMatch(grokui, /id="assetsBtn"/);
+  assert.match(grokui, /function placeHud/);
+  assert.doesNotMatch(grokui, /#hud \{[^}]*top:\s*40px/);
 });
 
 test('harness strips think tags, refuses MCP-as-bash, and does not join absolute dirs', () => {
