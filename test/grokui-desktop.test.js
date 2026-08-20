@@ -1179,6 +1179,7 @@ test('v* tags publish npm; grokui-v* workflows do not', () => {
   assert.doesNotMatch(onBlock, /grokui-v\*/);
   assert.match(npmWf, /npm publish --access public/);
   assert.match(npmWf, /createGunzip|gunzipAsync/);
+  assert.match(npmWf, /test\/relay\.test\.js/);
   assert.doesNotMatch(npmWf, /electron-builder/);
   for (const name of ['grokui-linux.yml', 'grokui-macos.yml', 'grokui-windows.yml']) {
     const src = readFileSync(path.join(root, '.github', 'workflows', name), 'utf8');
