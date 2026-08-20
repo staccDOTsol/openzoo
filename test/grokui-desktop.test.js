@@ -260,6 +260,75 @@ test('copy/paste: Edit menu roles, Electron clipboard, selectable addresses', ()
   assert.match(grokui, /local burner on this machine/);
 });
 
+test('Cmd/Ctrl+F finds in the current #log, not the sidebar thread search', () => {
+  // Sidebar #search + Cmd/Ctrl+K stays GET /search. Find is a different bar.
+  assert.match(grokui, /id="findBar"/);
+  assert.match(grokui, /id="findInp"/);
+  assert.match(grokui, /id="findCount"/);
+  assert.match(grokui, /data-component="find-in-thread"/);
+  assert.match(grokui, /function openFindBar/);
+  assert.match(grokui, /function closeFindBar/);
+  assert.match(grokui, /function applyFind/);
+  assert.match(grokui, /function findStep/);
+  assert.match(grokui, /querySelectorAll\('\.bubble'\)/);
+  assert.match(grokui, /mark\.findhit/);
+  assert.match(grokui, /k === 'f'/);
+  assert.match(grokui, /k === 'g' && findBarOpen\(\)/);
+  assert.match(grokui, /k === 'k'/);
+  assert.match(grokui, /getElementById\('search'\)/);
+  assert.match(grokui, /' \/ '/);
+  assert.doesNotMatch(grokui, /findInPage/);
+  // Cmd+K must still be thread search — do not steal it for in-log find.
+  const scriptStart = grokui.indexOf('<script>');
+  const scriptEnd = grokui.indexOf('</script>', scriptStart);
+  const script = grokui.slice(scriptStart, scriptEnd);
+  assert.match(script, /withMod && k === 'k'/);
+  assert.match(script, /withMod && k === 'f'/);
+  const kHandler = script.slice(script.indexOf("k === 'k'"), script.indexOf("k === 'k'") + 220);
+  assert.match(kHandler, /getElementById\('search'\)/);
+  assert.doesNotMatch(kHandler, /openFindBar/);
+  const fHandler = script.slice(script.indexOf("k === 'f'"), script.indexOf("k === 'f'") + 160);
+  assert.match(fHandler, /openFindBar/);
+  assert.doesNotMatch(fHandler, /getElementById\('search'\)/);
+  // Edit menu Find (Electron intercepts Cmd+F once the item exists).
+  assert.match(main, /label: 'Find'/);
+  assert.match(main, /CmdOrCtrl\+F/);
+  assert.match(main, /find-in-thread/);
+  assert.match(preload, /onFindInThread/);
+  assert.match(grokui, /electronAPI\.onFindInThread/);
+});
+
+test('find-in-thread match split is case-insensitive and counts i / n', () => {
+  // Same walk as highlightTextNode inside APP_HTML — no regex, so the
+  // template literal cannot eat \\b. A query that hits twice is 1 / 2.
+  function splitHits(text, query) {
+    const hay = text.toLowerCase();
+    const needle = query.toLowerCase();
+    let from = 0;
+    const parts = [];
+    let idx = hay.indexOf(needle, from);
+    while (idx !== -1) {
+      if (idx > from) parts.push({ t: text.slice(from, idx), hit: false });
+      parts.push({ t: text.slice(idx, idx + needle.length), hit: true });
+      from = idx + needle.length;
+      idx = hay.indexOf(needle, from);
+    }
+    if (!parts.length) return [];
+    if (from < text.length) parts.push({ t: text.slice(from), hit: false });
+    return parts;
+  }
+  const parts = splitHits('Foo bar foo BAZ', 'foo');
+  const hits = parts.filter((p) => p.hit);
+  assert.equal(hits.length, 2);
+  assert.equal(hits[0].t, 'Foo');
+  assert.equal(hits[1].t, 'foo');
+  assert.equal((0 + 1) + ' / ' + hits.length, '1 / 2');
+  assert.equal(splitHits('nothing', 'foo').length, 0);
+  assert.match(grokui, /hay\.indexOf\(needle, from\)/);
+  assert.match(grokui, /querySelectorAll\('\.bubble'\)/);
+  assert.doesNotMatch(grokui, /querySelectorAll\('\.runcard'\)/);
+});
+
 test('selecting text copies it and toasts copied', () => {
   // Select → clipboard → toast. Not ⌘C, not a tiny button, not window.alert.
   assert.match(grokui, /id="copiedToast"/);
