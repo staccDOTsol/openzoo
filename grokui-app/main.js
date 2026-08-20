@@ -135,13 +135,8 @@ function waitFor(url, retries, intervalMs) {
   });
 }
 
-// The chat backend needs openzoo's local proxy on :8402 — launch it too, so
-// the app is self-contained instead of requiring `npx openzoo` run by hand
-// first. Via the user's LOGIN shell (-ilc), not a bare spawn: a GUI app
-// launched from Finder/Dock doesn't inherit ~/.zshrc's PATH (nvm etc.), so a
-// plain spawn('npx', ...) silently can't find node. `npx -y openzoo@latest`
-// doubles as install-or-update: it fetches the current published version if
-// it's not already cached.
+// The chat backend needs openzoo's local proxy on :8402. Spawn the BUNDLED
+// bin with Electron's own node — never npx, never a login-shell PATH hunt.
 async function ensureProxy() {
   // Reuse only a healthy :8402. Starting a second bundled proxy resets
   // session counters and can race the one that already paid — but a process
@@ -153,15 +148,9 @@ async function ensureProxy() {
     console.error('[openzoo] :8402 is listening but /v1/session did not answer — not reusing a wedged proxy');
     return;
   }
-  // Run the BUNDLED openzoo with Electron's OWN node, rather than shelling out
-  // to npx. Going through npx assumed the machine had Node installed and on
-  // PATH, which is a bad assumption for a desktop app: a clean Windows 11 box
-  // has no Node, so `npx` did not exist, the proxy never started, and every
-  // message came back "error: fetch failed" while the app itself ran fine
-  // (Electron ships its own Node, which is exactly what we use here). It also
-  // dodges the macOS problem that a GUI app launched from Finder/Dock does not
-  // inherit ~/.zshrc's PATH, and it pins the proxy to a version we actually
-  // tested instead of whatever @latest resolves to at runtime.
+  // Run the BUNDLED openzoo (whatever `latest` resolved to at pack time) with
+  // Electron's OWN node. Never npx: a Finder/Dock launch has no ~/.zshrc PATH,
+  // and a clean Windows box has no Node, so npx never starts the proxy.
   const bin = path.join(__dirname, 'node_modules', 'openzoo', 'bin', 'openzoo.js');
   proxyProc = spawn(process.execPath, [bin], {
     stdio: 'inherit',
@@ -169,12 +158,23 @@ async function ensureProxy() {
     windowsHide: true,
   });
   proxyProc.on('error', (e) => console.error('[openzoo] proxy failed to start:', e.message));
-  await waitFor('http://127.0.0.1:8402/v1/session', 60, 500); // up to ~30s (first-run npx fetch)
+  await waitFor('http://127.0.0.1:8402/v1/session', 60, 500);
 }
 
-async function createWindow() {
-  await ensureProxy();
-  await waitFor(`http://localhost:${PORT}/threads`, 40, 150);
+// Black "starting…" so the window paints on ready. Do not await the sidecar
+// first — a clean Mac used to sit on a black screen for the whole
+// ensureProxy / /threads wait (up to ~30s) and look hung.
+function startingPage() {
+  return 'data:text/html;charset=utf-8,' + encodeURIComponent(
+    '<!doctype html><html><head><meta charset="utf-8"><title>openzoo</title>' +
+    '<style>html,body{margin:0;height:100%;background:#000;color:#8a8a8a;' +
+    'font:15px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;' +
+    'display:flex;align-items:center;justify-content:center}</style></head>' +
+    '<body>starting…</body></html>'
+  );
+}
+
+function createWindow() {
   const win = new BrowserWindow({
     width: 980,
     height: 720,
@@ -191,7 +191,15 @@ async function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
-  win.loadURL(`http://localhost:${PORT}`);
+  win.loadURL(startingPage());
+  void loadAppWhenReady(win);
+}
+
+async function loadAppWhenReady(win) {
+  await ensureProxy();
+  const ok = await waitFor(`http://localhost:${PORT}/threads`, 80, 250);
+  if (win.isDestroyed()) return;
+  if (ok) win.loadURL(`http://localhost:${PORT}`);
 }
 
 // Unsigned builds can't use Electron's full auto-updater (it requires signed

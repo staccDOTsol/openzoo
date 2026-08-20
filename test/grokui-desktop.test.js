@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -156,9 +157,54 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
   assert.doesNotMatch(grokui, /type  \/dir <path>  if you need one/);
 });
 
-test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.49.4');
-  assert.equal(appPkg.version, '1.5.82');
+function fnBody(src, name) {
+  const re = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`);
+  const m = src.match(re);
+  assert.ok(m, name + ' exists');
+  const brace = src.indexOf('{', m.index);
+  let depth = 0;
+  for (let i = brace; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}') {
+      depth--;
+      if (depth === 0) return src.slice(brace, i + 1);
+    }
+  }
+  throw new Error('unclosed ' + name);
+}
+
+test('grokui-app depends on openzoo latest, not a 0.48 caret', () => {
+  assert.equal(appPkg.dependencies.openzoo, 'latest');
+  const lock = require('../grokui-app/package-lock.json');
+  assert.equal(lock.packages[''].dependencies.openzoo, 'latest');
+});
+
+test('createWindow constructs BrowserWindow before ensureProxy or /threads', () => {
+  const body = fnBody(main, 'createWindow');
+  const bw = body.indexOf('new BrowserWindow');
+  assert.ok(bw >= 0, 'createWindow constructs BrowserWindow');
+  const before = body.slice(0, bw);
+  assert.doesNotMatch(before, /await\s+ensureProxy/);
+  assert.doesNotMatch(before, /waitFor\s*\(/);
+  assert.doesNotMatch(before, /\/threads/);
+  assert.doesNotMatch(main, /spawn\([^)]*npx/);
+  assert.match(main, /node_modules',\s*'openzoo',\s*'bin',\s*'openzoo\.js'/);
+});
+
+test('afterPack fails the pack when copied openzoo is not npm latest', () => {
+  const afterPack = require('../grokui-app/build/afterPack.js');
+  const published = afterPack.publishedOpenzooVersion();
+  assert.match(published, /^\d+\.\d+\.\d+$/);
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-afterpack-'));
+  mkdirSync(path.join(dir, 'openzoo'));
+  writeFileSync(path.join(dir, 'openzoo', 'package.json'), JSON.stringify({ name: 'openzoo', version: '0.48.97' }));
+  assert.throws(() => afterPack.assertCopiedOpenzoo(dir, published), /0\.48\.97/);
+  writeFileSync(path.join(dir, 'openzoo', 'package.json'), JSON.stringify({ name: 'openzoo', version: published }));
+  assert.doesNotThrow(() => afterPack.assertCopiedOpenzoo(dir, published));
+  const src = readFileSync(path.join(root, 'grokui-app', 'build', 'afterPack.js'), 'utf8');
+  assert.match(src, /npm view openzoo version/);
+  assert.match(src, /npm install openzoo@latest/);
+  assert.match(src, /resources',\s*'app'/);
 });
 
 test('desktop grokui ships dugite so Finder has git without PATH', () => {
@@ -401,6 +447,18 @@ test('ensureProxy reuses a healthy :8402 and does not spawn over it', () => {
   // Occupied-port + hung session is NOT reuse — ping must time out.
   assert.match(main, /not reusing a wedged proxy/);
   assert.match(main, /Ping must time out/);
+});
+
+test('cut and release scripts keep openzoo latest or refuse', () => {
+  const cut = readFileSync(path.join(root, 'scripts', 'cut-grokui.mjs'), 'utf8');
+  const rel = readFileSync(path.join(root, 'scripts', 'release-mac.sh'), 'utf8');
+  assert.match(cut, /dependencies\.openzoo = 'latest'/);
+  assert.match(cut, /refuse to cut/);
+  assert.match(rel, /assert-grokui-pin/);
+  const { spawnSync } = require('node:child_process');
+  const missing = spawnSync(process.execPath, [path.join(root, 'scripts', 'cut-grokui.mjs'), '--grokui', '1.5.84'], { encoding: 'utf8' });
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /refuse to cut/);
 });
 
 test('the box image does not bake or decrypt encrypted ProofFront', () => {
