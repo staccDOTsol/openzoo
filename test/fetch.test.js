@@ -151,6 +151,37 @@ describe('fetchHeaders + session unwedge', { concurrency: 1 }, () => {
     const cfg = readFileSync(path.join(root, 'lib', 'config.js'), 'utf8');
     assert.match(cfg, /fetchHeaders/);
   });
+
+  test('GET /v1/models stays unpaid when the gateway 402s', async (t) => {
+    const fixture = JSON.parse(readFileSync(path.join(root, 'test', 'fixtures', 'live-402.json'), 'utf8'));
+    let paidPosts = 0;
+    const up = await listen((req, res) => {
+      if (req.method === 'POST') paidPosts += 1;
+      res.writeHead(402, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(fixture));
+    });
+    const prevPort = config.port;
+    const prevBase = config.apiBase;
+    config.apiBase = `http://127.0.0.1:${up.address().port}`;
+    config.port = 0;
+    const { startProxy } = await import('../lib/proxy.js');
+    const proxy = await startProxy({ silent: true, autoTunnel: false });
+    t.after(async () => {
+      await closeServer(proxy.server);
+      await closeServer(up);
+      config.port = prevPort;
+      config.apiBase = prevBase;
+    });
+    const port = proxy.server.address().port;
+    const t0 = Date.now();
+    const r = await fetch(`http://127.0.0.1:${port}/v1/models`);
+    assert.equal(r.status, 200);
+    const body = await r.json();
+    assert.ok(Array.isArray(body.data));
+    assert.ok(body.data.some((m) => m.id === 'gpt-4o'), 'alias catalog still served');
+    assert.equal(paidPosts, 0, 'must not POST-pay the catalog 402');
+    assert.ok(Date.now() - t0 < 1500, `GET /v1/models took ${Date.now() - t0}ms`);
+  });
 });
 
 test.after(() => {

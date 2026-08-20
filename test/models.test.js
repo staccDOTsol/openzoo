@@ -464,7 +464,7 @@ test('GET /v1/models (OpenAI + Claude-shaped) returns the mocked zoo catalog, no
   assert.match(proxySrc, /modelsListForRequest\(payload, req\.headers\)/);
   assert.match(proxySrc, /path === '\/v1\/models'/);
 
-  // Mocked upstream catalog — same body the proxy publishes after client.fetch.
+  // Mocked upstream catalog — same body the proxy publishes after unpaid fetchHeaders.
   const openai = modelsListForRequest(zooPayload(), {});
   const ids = openai.data.map((m) => m.id);
   assert.ok(ids.length >= ZOO_CATALOG.length, `got ${ids.length} models`);

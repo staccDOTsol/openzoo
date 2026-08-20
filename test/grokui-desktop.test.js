@@ -191,6 +191,50 @@ test('createWindow constructs BrowserWindow before ensureProxy or /threads', () 
   assert.match(main, /node_modules',\s*'openzoo',\s*'bin',\s*'openzoo\.js'/);
 });
 
+test('loadAppWhenReady does not await ensureProxy or a 402 before grokui', () => {
+  const body = fnBody(main, 'loadAppWhenReady');
+  assert.match(main, /function startingPage/);
+  assert.match(main, /win\.loadURL\(startingPage\(\)\)/);
+  assert.match(body, /void ensureProxy\(\)/);
+  assert.doesNotMatch(body, /await\s+ensureProxy/);
+  assert.doesNotMatch(body, /\/v1\/session/);
+  assert.doesNotMatch(body, /await waitFor\(`http:\/\/127\.0\.0\.1:8402/);
+  assert.match(body, /\/threads/);
+  assert.match(main, /Reuse only a healthy :8402/);
+});
+
+test('GET /v1/models is unpaid — never client.fetch wrap-walk', () => {
+  const proxy = readFileSync(path.join(root, 'lib', 'proxy.js'), 'utf8');
+  const start = proxy.indexOf("path === '/v1/models'");
+  const end = proxy.indexOf("const probe = req.method === 'GET'", start);
+  const block = proxy.slice(start, end);
+  assert.match(block, /fetchHeaders/);
+  assert.doesNotMatch(block, /await client\.fetch/);
+  assert.match(block, /modelsListForRequest\(payload, req\.headers\)/);
+  assert.match(block, /modelsListForRequest\(\{ object: 'list', data: \[\] \}/);
+});
+
+test('empty-wallet park opens Pay; a generic 402 handshake does not', () => {
+  assert.match(grokui, /function isEmptyWalletPayment/);
+  assert.match(grokui, /function maybeOpenPayForEmptyWallet/);
+  assert.match(grokui, /payneed-btn/);
+  assert.match(grokui, /pay\.textContent = 'payment required'/);
+  const scriptStart = grokui.indexOf('<script>');
+  const scriptEnd = grokui.indexOf('</script>', scriptStart);
+  const script = grokui.slice(scriptStart, scriptEnd);
+  const add = script.indexOf('function addRow');
+  const addFn = script.slice(add, script.indexOf('let lastRenderKey', add));
+  assert.match(addFn, /isEmptyWalletPayment\(text\)/);
+  assert.match(addFn, /maybeOpenPayForEmptyWallet\(text\)/);
+  assert.match(addFn, /openWallet\(\)/);
+  assert.doesNotMatch(script, /if \(isPaymentFailed\(text\)\) openWallet/);
+  const pod = readFileSync(path.join(root, 'lib', 'podagent.mjs'), 'utf8');
+  assert.match(pod, /isUnderfunded402Body/);
+  assert.match(pod, /if \(isUnderfunded402Body\(peek\)\) return r/);
+  assert.match(pod, /payment required — HTTP 402, the wallet is empty/);
+  assert.doesNotMatch(pod, /payment failed — HTTP 402, the wallet is empty/);
+});
+
 test('afterPack fails the pack when copied openzoo is not npm latest', () => {
   const afterPack = require('../grokui-app/build/afterPack.js');
   const published = afterPack.publishedOpenzooVersion();

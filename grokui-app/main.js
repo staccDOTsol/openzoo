@@ -287,7 +287,11 @@ function createWindow() {
 }
 
 async function loadAppWhenReady(win) {
-  await ensureProxy();
+  // First chrome is grokui itself (/threads). Do not block on the sidecar
+  // session or a paid handshake — a bad x402 used to leave the window on
+  // starting… forever. ensureProxy still runs (reuse a healthy sidecar,
+  // spawn if none) but must not gate loadURL. Chat pays later, after paint.
+  void ensureProxy();
   const ok = await waitFor(`http://localhost:${PORT}/threads`, 80, 250);
   if (win.isDestroyed()) return;
   if (ok) win.loadURL(`http://localhost:${PORT}`);

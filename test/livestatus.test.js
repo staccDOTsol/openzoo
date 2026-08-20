@@ -105,6 +105,9 @@ test('empty, HTTP/pay/timeout, fetch failed, and last.error do not count toward 
   assert.equal(isRaceCountable('   '), false);
   assert.equal(isRaceCountable('(upstream error — HTTP 502, try again)'), false);
   assert.equal(isRaceCountable('(payment failed — HTTP 402 after 3 retries. Run `npx openzoo` to check wallet balances.)'), false);
+  assert.equal(isRaceCountable('(payment required — HTTP 402, the wallet is empty. send USDC.)'), false);
+  assert.equal(raceFailKind({ text: '(payment required — HTTP 402, the wallet is empty.)' }), 'pay');
+  assert.equal(shouldRetryRaceArrival({ text: '(payment required — HTTP 402, the wallet is empty.)' }), false);
   assert.equal(isRaceCountable('(stream timed out — no tokens arrived)'), false);
   assert.equal(isRaceCountable('(stream stalled — showing what arrived before the timeout)'), false);
   assert.equal(isRaceCountable('fetch failed'), false);
@@ -295,6 +298,7 @@ test('fetch-failed / empty / 5xx are retried; pay is not', () => {
   assert.equal(shouldRetryRaceArrival({ text: '' }), true);
   assert.equal(shouldRetryRaceArrival({ text: '(upstream error — HTTP 502, try again)' }), true);
   assert.equal(shouldRetryRaceArrival({ text: '(payment failed — HTTP 402 after 3 retries)' }), false);
+  assert.equal(shouldRetryRaceArrival({ text: '(payment required — HTTP 402, the wallet is empty.)' }), false);
   assert.equal(shouldRetryRaceArrival({ text: 'DONE: ok' }), false);
   assert.equal(raceFailKind({ text: '', error: 'fetch failed' }), 'fetch failed');
   assert.deepEqual(summarizeRaceFailures([
