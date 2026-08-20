@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveModel, isTinyClassify, pickClassifierModel, raiseReasoningMaxTokens, rewriteChatModel, REASONING_MODEL_RE, displayNameFor, publishModelList, anthropicModelList, modelsListForRequest, anthropicNativeAlias, ANTHROPIC_NATIVE_ALIASES, isHarnessAliasId, isQuoteableModel, pickClaudePickerRows, quoteableRows } from '../lib/models.js';
+import { resolveModel, isTinyClassify, pickClassifierModel, raiseReasoningMaxTokens, rewriteChatModel, REASONING_MODEL_RE, displayNameFor, publishModelList, anthropicModelList, modelsListForRequest, anthropicNativeAlias, ANTHROPIC_NATIVE_ALIASES, isHarnessAliasId, isQuoteableModel, quoteableRows } from '../lib/models.js';
 import { applyClaudeCodeCatalogEnv, claudeZooEnv, resolveClaudeCli, claudeCodeBinDirs } from '../lib/launch.js';
 import { anthropicToOpenAI } from '../lib/anthropic.js';
 
@@ -522,20 +522,24 @@ test('publishModelList keeps quoteable zoo ids, not a single opus-5 and not clon
   assert.ok(ids.includes('claude-3-5-opus'));
 });
 
-test('anthropicModelList is a short honest picker (Claude Code reads id + display_name)', () => {
+test('anthropicModelList is the quoteable catalog in Anthropic shape (Claude Code reads id + display_name)', () => {
   const shaped = anthropicModelList(zooPayload());
+  const published = publishModelList(zooPayload(), { aliases: false });
   const ids = shaped.data.map((m) => m.id);
-  assert.ok(shaped.data.length > 1);
-  assert.ok(shaped.data.length <= 12, `Claude picker should be short, got ${ids.join(', ')}`);
+  assert.ok(shaped.data.length > 4, `picker must not cap at 4 Claude ids, got ${ids.join(', ')}`);
+  assert.equal(ids[0], 'openzoo/auto');
+  assert.ok(ids.includes('google/gemini-3.7-flash'), 'OpenRouter ids must be selectable');
+  assert.ok(ids.includes('x-ai/grok-4.6'));
+  assert.ok(ids.includes('openai/gpt-5.5'));
   assert.ok(ids.includes('anthropic/claude-opus-5'));
   assert.ok(ids.includes('anthropic/claude-sonnet-5'));
   assert.ok(ids.includes('anthropic/claude-haiku-4.5'));
   assert.ok(ids.includes('anthropic/claude-fable-5'));
-  assert.ok(ids.includes('x-ai/grok-4.6'));
-  assert.ok(ids.includes('google/gemini-3.7-flash'));
   assert.ok(ids.includes('deepseek/deepseek-v4-pro-0813'));
   assert.ok(ids.includes('qwen/qwen3.8-2.4t-a95b'));
-  assert.ok(ids.includes('openzoo/auto'));
+  for (const id of ZOO_CATALOG) assert.ok(ids.includes(id), `missing ${id}`);
+  assert.equal(ids.length, published.data.length);
+  assert.deepEqual(ids.slice().sort(), published.data.map((m) => m.id).sort());
   assert.ok(!ids.includes('anthropic/claude-opus-5:batch'));
   assert.ok(!ids.includes('openzoo-claude-fable-5'));
   assert.ok(!ids.includes('gpt-4o'));
@@ -545,12 +549,13 @@ test('anthropicModelList is a short honest picker (Claude Code reads id + displa
   for (const row of shaped.data) {
     assert.equal(row.type, 'model');
     assert.ok(row.display_name);
+    assert.ok(!('object' in row), 'Anthropic shape is type/id/display_name, not OpenAI object');
   }
   const grok = shaped.data.find((m) => m.id === 'x-ai/grok-4.6');
   assert.equal(grok.display_name, 'grok-4.6 (x-ai)');
   assert.ok(!/^claude-/.test(grok.id));
-  const picked = pickClaudePickerRows(publishModelList(zooPayload(), { aliases: false }).data);
-  assert.deepEqual(picked.map((m) => m.id), ids);
+  const gemini = shaped.data.find((m) => m.id === 'google/gemini-3.7-flash');
+  assert.equal(gemini.display_name, 'gemini-3.7-flash (google)');
 });
 
 test('applyClaudeCodeCatalogEnv opts Claude Code into GET /v1/models discovery', async () => {
@@ -624,11 +629,13 @@ test('GET /v1/models (OpenAI + Claude-shaped) returns the mocked zoo catalog, no
     'x-app': 'cli',
   });
   const cids = shaped.data.map((m) => m.id);
+  assert.equal(cids[0], 'openzoo/auto');
   assert.ok(cids.includes('x-ai/grok-4.6'), 'Claude-shaped list must keep grok, not filter to claude-*');
+  assert.ok(cids.includes('google/gemini-3.7-flash'));
   assert.ok(cids.includes('deepseek/deepseek-v4-pro-0813'));
-  assert.ok(cids.includes('openzoo/auto'));
-  assert.ok(cids.length > 1);
-  assert.ok(cids.length <= 12);
+  assert.ok(cids.includes('openai/gpt-5.5'));
+  assert.ok(cids.length > 4, `must be the quoteable catalog, not 4 Claude rows (${cids.join(', ')})`);
+  assert.ok(cids.length >= ZOO_CATALOG.length);
   assert.equal(fakeClaudeAliases(cids).length, 0);
   assert.equal(shaped.data.find((m) => m.id === 'x-ai/grok-4.6').type, 'model');
 });
