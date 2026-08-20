@@ -254,6 +254,37 @@ test('Cmd/Ctrl+F finds in the current #log, not the sidebar thread search', () =
   assert.match(grokui, /electronAPI\.onFindInThread/);
 });
 
+test('find-in-thread match split is case-insensitive and counts i / n', () => {
+  // Same walk as highlightTextNode inside APP_HTML — no regex, so the
+  // template literal cannot eat \\b. A query that hits twice is 1 / 2.
+  function splitHits(text, query) {
+    const hay = text.toLowerCase();
+    const needle = query.toLowerCase();
+    let from = 0;
+    const parts = [];
+    let idx = hay.indexOf(needle, from);
+    while (idx !== -1) {
+      if (idx > from) parts.push({ t: text.slice(from, idx), hit: false });
+      parts.push({ t: text.slice(idx, idx + needle.length), hit: true });
+      from = idx + needle.length;
+      idx = hay.indexOf(needle, from);
+    }
+    if (!parts.length) return [];
+    if (from < text.length) parts.push({ t: text.slice(from), hit: false });
+    return parts;
+  }
+  const parts = splitHits('Foo bar foo BAZ', 'foo');
+  const hits = parts.filter((p) => p.hit);
+  assert.equal(hits.length, 2);
+  assert.equal(hits[0].t, 'Foo');
+  assert.equal(hits[1].t, 'foo');
+  assert.equal((0 + 1) + ' / ' + hits.length, '1 / 2');
+  assert.equal(splitHits('nothing', 'foo').length, 0);
+  assert.match(grokui, /hay\.indexOf\(needle, from\)/);
+  assert.match(grokui, /querySelectorAll\('\.bubble'\)/);
+  assert.doesNotMatch(grokui, /querySelectorAll\('\.runcard'\)/);
+});
+
 test('selecting text copies it and toasts copied', () => {
   // Select → clipboard → toast. Not ⌘C, not a tiny button, not window.alert.
   assert.match(grokui, /id="copiedToast"/);
