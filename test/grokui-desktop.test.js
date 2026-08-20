@@ -398,6 +398,13 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.doesNotMatch(autoFn, /enqueueAutoHop\(/);
   assert.doesNotMatch(autoFn, /AUTO_DIRECTIVE/);
   assert.doesNotMatch(autoFn, /fetch\([^)]*chat\/completions/);
+  assert.match(grokui, /sidecar starting…/);
+  assert.match(grokui, /function waitForSidecarSession/);
+  assert.match(grokui, /isEmptyAutoPty/);
+  assert.match(grokui, /r\.status === 402/);
+  assert.match(fnBody(grokui, 'runTurn'), /saveThreads\(\)/);
+  assert.match(fnBody(grokui, 'runTurn'), /waitForSidecarSession/);
+  assert.match(fnBody(grokui, 'runTurn'), /usedClaude = false/);
   assert.match(autoFn, /type: 'tool'/);
   assert.match(autoFn, /sanitizeClaudeCanvas/);
   assert.match(autoFn, /keepFold/);
@@ -665,13 +672,18 @@ test('afterPack overlays sidecar spill/runguard into node_modules/openzoo and bi
   // node_modules/openzoo/bin/openzoo.js, so a missing overlay leaves npm's
   // 16k spill in the dmg even though repo lib/spill.js binds at 2k.
   const afterPack = require('../grokui-app/build/afterPack.js');
-  const required = ['lib/spill.js', 'lib/runguard.js', 'lib/racesettle.js', 'lib/hrr.js', 'lib/livestatus.js'];
+  const required = ['lib/spill.js', 'lib/runguard.js', 'lib/racesettle.js', 'lib/hrr.js', 'lib/livestatus.js', 'lib/think.js', 'lib/claudecode.js', 'bin/openzoo.js'];
   for (const rel of required) {
     assert.equal(afterPack.OPENZOO_SIDECAR_OVERLAY.includes(rel), true, rel);
+    assert.equal(afterPack.OPENZOO_SIDECAR_REQUIRED.includes(rel), true, rel);
   }
   assert.equal(afterPack.OPENZOO_SIDECAR_OVERLAY.includes('lib/proxy.js'), true);
   assert.equal(afterPack.OPENZOO_SIDECAR_OVERLAY.includes('lib/relay.js'), true);
   assert.equal(afterPack.OPENZOO_SIDECAR_OVERLAY.includes('lib/modelroute.js'), true);
+  const afterSrc = readFileSync(path.join(root, 'grokui-app', 'build', 'afterPack.js'), 'utf8');
+  assert.match(afterSrc, /fs\.cpSync\(srcLib, destLib/);
+  assert.match(afterSrc, /assertPackedOpenzooLib/);
+  assert.match(afterSrc, /import\('\.\/lib\/livestatus\.js'\)/);
 
   const staged = mkdtempSync(path.join(tmpdir(), 'oz-overlay-nm-'));
   const dest = path.join(staged, 'openzoo');
@@ -681,6 +693,11 @@ test('afterPack overlays sidecar spill/runguard into node_modules/openzoo and bi
   }) + '\n');
   writeFileSync(path.join(dest, 'lib', 'spill.js'), 'NPM_16K_SPILL_GATE\n');
   afterPack.overlayRepoOpenzooSidecar(staged, path.join(root, 'grokui-app'));
+  assert.equal(existsSync(path.join(dest, 'lib', 'think.js')), true);
+  assert.doesNotThrow(() => afterPack.assertPackedOpenzooLib(dest));
+  rmSync(path.join(dest, 'lib', 'think.js'));
+  assert.throws(() => afterPack.assertPackedOpenzooLib(dest), /think\.js/);
+  writeFileSync(path.join(dest, 'lib', 'think.js'), readFileSync(path.join(root, 'lib', 'think.js')));
   for (const rel of afterPack.OPENZOO_SIDECAR_OVERLAY) {
     assert.equal(
       readFileSync(path.join(dest, rel), 'utf8'),
@@ -718,6 +735,16 @@ test('assert-overlaid-openzoo fails a packed tree that still has npm spill.js', 
     });
     assert.equal(ok.status, 0, ok.stderr || ok.stdout);
     assert.match(ok.stdout, /ok overlaid/);
+    const loadOk = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-packed-openzoo-lib.mjs'), packed], {
+      encoding: 'utf8',
+    });
+    assert.equal(loadOk.status, 0, loadOk.stderr || loadOk.stdout);
+    rmSync(path.join(dest, 'lib', 'think.js'));
+    const missingThink = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-packed-openzoo-lib.mjs'), packed], {
+      encoding: 'utf8',
+    });
+    assert.notEqual(missingThink.status, 0);
+    assert.match(missingThink.stderr, /think\.js|livestatus/);
   } finally {
     rmSync(packed, { recursive: true, force: true });
   }
@@ -728,16 +755,21 @@ test('desktop pack CI walks packed grokui.mjs relatives', () => {
     const yml = readFileSync(path.join(root, '.github', 'workflows', name), 'utf8');
     assert.match(yml, /assert-packed-grokui-lib\.mjs/);
     assert.match(yml, /assert-overlaid-openzoo\.mjs/);
+    assert.match(yml, /assert-packed-openzoo-lib\.mjs/);
     assert.match(yml, /assert-app-html-script\.mjs/);
   }
   const packed = readFileSync(path.join(root, 'scripts', 'assert-packed-grokui-lib.mjs'), 'utf8');
   assert.match(packed, /assert-packed-grokui-esm\.mjs/);
+  const ozLib = readFileSync(path.join(root, 'scripts', 'assert-packed-openzoo-lib.mjs'), 'utf8');
+  assert.match(ozLib, /think\.js/);
+  assert.match(ozLib, /assertPackedOpenzooLib/);
   const ignore = readFileSync(path.join(root, 'grokui-app', '.gitignore'), 'utf8');
   assert.match(ignore, /^lib\/$/m);
   assert.doesNotMatch(ignore, /lib\/grokui\.mjs/);
   const rel = readFileSync(path.join(root, 'scripts', 'release-mac.sh'), 'utf8');
   assert.match(rel, /assert-packed-grokui-lib/);
   assert.match(rel, /assert-overlaid-openzoo/);
+  assert.match(rel, /assert-packed-openzoo-lib/);
 });
 
 test('assert-packed-grokui-lib fails a 1.5.86-shaped packed tree', () => {
@@ -1122,14 +1154,19 @@ test('ensureProxy reuses a healthy :8402 and autoheals a dead packed sidecar', (
   assert.match(src, /not attaching; grokui will spawn the matching one/);
   assert.match(src, /refusing to attach/);
   assert.match(src, /displaceStaleListener/);
-  assert.match(src, /spawn\(execPath, \[binPath\]/);
   assert.match(src, /ELECTRON_RUN_AS_NODE: '1'/);
   assert.match(src, /OPENZOO_SILENT: '1'/);
-  assert.match(src, /stdio: 'ignore'/);
+  assert.match(heal, /stdio: \['ignore', 'ignore', 'pipe'\]/);
   assert.match(src, /node_modules', 'openzoo', 'bin', 'openzoo\.js'/);
   assert.doesNotMatch(src, /npx openzoo@latest/);
   assert.match(src, /sidecar exited/);
   assert.match(src, /respawning/);
+  assert.match(heal, /falling back to host node \/ PATH openzoo/);
+  assert.match(heal, /function resolveHostNode/);
+  assert.match(heal, /nvm/);
+  assert.match(heal, /homebrew/);
+  assert.match(heal, /MODULE_NOT_FOUND/);
+  assert.match(heal, /packedUnbootable/);
   assert.doesNotMatch(heal, /reloadOpenWindows/);
   assert.doesNotMatch(heal, /app\.quit\(/);
   assert.match(main, /createSidecarHealer/);
@@ -1148,9 +1185,11 @@ test('cut and release scripts keep openzoo latest or refuse', () => {
   assert.match(cut, /refuse to cut/);
   assert.match(cut, /assert-packed-grokui-esm\.mjs/);
   assert.match(cut, /assert-overlaid-openzoo\.mjs/);
+  assert.match(cut, /assert-packed-openzoo-lib\.mjs/);
   assert.match(cut, /bundle-grokui\.js/);
   assert.match(rel, /assert-grokui-pin/);
   assert.match(rel, /assert-overlaid-openzoo/);
+  assert.match(rel, /assert-packed-openzoo-lib/);
   const missing = spawnSync(process.execPath, [path.join(root, 'scripts', 'cut-grokui.mjs'), '--grokui', '1.5.84'], { encoding: 'utf8' });
   assert.notEqual(missing.status, 0);
   assert.match(missing.stderr, /refuse to cut/);

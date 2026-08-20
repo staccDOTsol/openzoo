@@ -268,8 +268,10 @@ function waitFor(url, retries, intervalMs, died) {
 }
 
 // The chat backend needs openzoo's local proxy on :8402. Spawn the BUNDLED
-// bin with Electron's own node — never npx, never a login-shell PATH hunt.
-// If :8402 is down or the packed sidecar child exits, respawn it after a
+// bin with Electron's own node first. If that packed bin cannot load
+// (MODULE_NOT_FOUND / immediate exit), fall back to a real Node on PATH
+// (nvm Node 24, homebrew) running the same packed bin, then `openzoo` on
+// PATH. Never npx. If :8402 is down or the child exits, respawn after a
 // short backoff and keep retrying while the window is open. Do not reload
 // or pkill the grokui window to heal — only this sidecar process.
 function getHealer() {

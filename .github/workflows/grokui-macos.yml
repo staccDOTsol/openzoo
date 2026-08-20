@@ -127,6 +127,9 @@ jobs:
       - name: Packed sidecar is the overlaid tree
         shell: bash
         run: node scripts/assert-overlaid-openzoo.mjs grokui-app/dist
+      - name: Packed openzoo lib includes think.js
+        shell: bash
+        run: node scripts/assert-packed-openzoo-lib.mjs grokui-app/dist
 
       - name: Verify signature
         shell: bash

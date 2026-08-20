@@ -433,3 +433,91 @@ test('AUTO does not mkdir-and-Done or curl chat/completions', async () => {
   assert.equal(r.calls, 1);
   assert.equal(r.brainCalls, 0);
 });
+
+test('empty PTY Auto falls through to chat completions', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-empty-pty-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 25000 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.HOME = ${JSON.stringify(dir)};
+    process.env.OZ_WORKSPACE_DIR = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    const assert = (await import('node:assert/strict')).default;
+    const {
+      newThread, runTurn, setBrainAskForTest, setClaudeRunnerForTest,
+    } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+
+    const bot = newThread('empty-pty', null);
+    bot.runMode = 'auto';
+    let brainCalls = 0;
+    setBrainAskForTest(({ userText }) => {
+      brainCalls += 1;
+      return 'from completions: ' + String(userText || '');
+    });
+    setClaudeRunnerForTest(async () => ({ text: '', sessionId: '', error: false, paymentFailed: '' }));
+    await runTurn(bot.id, 'hello empty pty');
+    assert.equal(brainCalls, 1, 'empty PTY must fall through to chat completions');
+    const hist = bot.history.map((h) => h.text).join('\\n');
+    assert.match(hist, /hello empty pty/);
+    assert.match(hist, /from completions: hello empty pty/);
+    assert.doesNotMatch(hist, /\\(no response\\)/);
+    console.log(JSON.stringify({ ok: true, brainCalls }));
+    process.exit(0);
+  `);
+  const out = await runChild(script);
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result: ' + out);
+  const r = JSON.parse(line);
+  assert.equal(r.ok, true);
+  assert.equal(r.brainCalls, 1);
+});
+
+test('sidecar down persists the user turn and waits for /v1/session', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-sidecar-wait-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 25000 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.HOME = ${JSON.stringify(dir)};
+    process.env.OZ_WORKSPACE_DIR = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    process.env.OZ_SIDECAR_WAIT_MS = '4000';
+    process.env.OZ_SIDECAR_POLL_MS = '20';
+    const assert = (await import('node:assert/strict')).default;
+    const { existsSync, readFileSync } = await import('node:fs');
+    const path = await import('node:path');
+    const {
+      newThread, runTurn, setClaudeRunnerForTest, setSidecarSessionForTest, SIDECAR_STARTING,
+    } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+
+    const bot = newThread('sidecar-wait', null);
+    bot.runMode = 'auto';
+    let probes = 0;
+    setSidecarSessionForTest(async () => {
+      probes += 1;
+      return probes >= 3;
+    });
+    const painted = [];
+    setClaudeRunnerForTest(async ({ prompt }) => ({
+      text: 'after sidecar: ' + String(prompt || ''),
+      sessionId: 'sess-wait', error: false, paymentFailed: '',
+    }));
+    await runTurn(bot.id, 'do not swallow', (ev) => painted.push(ev));
+    assert.ok(probes >= 3, 'must poll /v1/session until it answers');
+    assert.ok(painted.some((e) => e.type === 'status' && e.detail === SIDECAR_STARTING));
+    assert.match(bot.history.map((h) => h.who + ':' + h.text).join('\\n'), /user:do not swallow/);
+    assert.match(bot.history[bot.history.length - 1].text, /after sidecar: do not swallow/);
+    const store = path.join(${JSON.stringify(dir)}, '.openzoo', 'grokui-threads.json');
+    assert.equal(existsSync(store), true);
+    assert.match(readFileSync(store, 'utf8'), /do not swallow/);
+    console.log(JSON.stringify({ ok: true, probes }));
+    process.exit(0);
+  `);
+  const out = await runChild(script);
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result: ' + out);
+  const r = JSON.parse(line);
+  assert.equal(r.ok, true);
+  assert.ok(r.probes >= 3);
+});

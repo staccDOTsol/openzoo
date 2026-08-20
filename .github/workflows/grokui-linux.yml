@@ -58,6 +58,8 @@ jobs:
         run: node scripts/assert-packed-grokui-lib.mjs grokui-app/dist
       - name: Packed sidecar is the overlaid tree
         run: node scripts/assert-overlaid-openzoo.mjs grokui-app/dist
+      - name: Packed openzoo lib includes think.js
+        run: node scripts/assert-packed-openzoo-lib.mjs grokui-app/dist
 
       - name: Verify output
         run: |

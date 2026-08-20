@@ -88,20 +88,11 @@ function prodModules(projectDir) {
 // UI, not this sidecar. Without these, a dmg still runs npm's 16k spill
 // gate. grokui's dep stays "latest"; this overlays the repo tree onto that
 // install.
-const OPENZOO_SIDECAR_OVERLAY = [
-  'lib/spill.js',
-  'lib/runguard.js',
-  'lib/racesettle.js',
-  'lib/hrr.js',
-  'lib/livestatus.js',
-  'lib/modelroute.js',
-  'lib/models.js',
-  'lib/proxy.js',
-  'lib/relay.js',
-  'lib/modelroute/catalog.json',
-  'lib/modelroute/router.json',
-  'lib/modelroute/outcomes.json',
-  'lib/modelroute/README.md',
+//
+// A filename whitelist that ships livestatus.js without think.js is a
+// failed pack (1.5.99: MODULE_NOT_FOUND think.js imported from livestatus.js).
+// Overlay the ENTIRE repo lib/ (and bin/), then the vendor extras.
+const OPENZOO_SIDECAR_EXTRAS = [
   'vendor/modelroute/catalog.json',
   'vendor/modelroute/router.json',
   'vendor/modelroute/outcomes.json',
@@ -109,11 +100,68 @@ const OPENZOO_SIDECAR_OVERLAY = [
   'vendor/modelroute/CURRENT_STATE.md',
 ];
 
+const OPENZOO_SIDECAR_REQUIRED = [
+  'lib/think.js',
+  'lib/livestatus.js',
+  'lib/relay.js',
+  'lib/claudecode.js',
+  'lib/launch.js',
+  'lib/spill.js',
+  'lib/runguard.js',
+  'lib/racesettle.js',
+  'lib/hrr.js',
+  'lib/proxy.js',
+  'bin/openzoo.js',
+];
+
+function walkRelFiles(dir, prefix) {
+  const out = [];
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  for (const e of entries) {
+    const rel = prefix ? `${prefix}/${e.name}` : e.name;
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...walkRelFiles(full, rel));
+    else out.push(rel);
+  }
+  return out;
+}
+
+function listRepoOpenzooOverlay(repoRoot) {
+  const lib = walkRelFiles(path.join(repoRoot, 'lib'), 'lib');
+  const bin = walkRelFiles(path.join(repoRoot, 'bin'), 'bin');
+  return [...new Set([...lib, ...bin, ...OPENZOO_SIDECAR_EXTRAS])];
+}
+
+// Compat export: tests / cut scripts still read OPENZOO_SIDECAR_OVERLAY.
+// It is the whole sidecar overlay, not a livestatus-without-think whitelist.
+function getOpenzooSidecarOverlay(repoRoot) {
+  const repo = repoRoot || path.join(__dirname, '..', '..');
+  const listed = listRepoOpenzooOverlay(repo);
+  for (const rel of OPENZOO_SIDECAR_REQUIRED) {
+    if (!listed.includes(rel)) listed.push(rel);
+  }
+  return listed;
+}
+
+const OPENZOO_SIDECAR_OVERLAY = getOpenzooSidecarOverlay();
+
 function overlayRepoOpenzooSidecar(stagedNM, projectDir) {
   const repo = path.join(projectDir, '..');
   const dest = path.join(stagedNM, 'openzoo');
   if (!fs.existsSync(dest)) return;
-  for (const rel of OPENZOO_SIDECAR_OVERLAY) {
+  const srcLib = path.join(repo, 'lib');
+  const destLib = path.join(dest, 'lib');
+  if (!fs.existsSync(srcLib) || !fs.statSync(srcLib).isDirectory()) {
+    throw new Error(`[afterPack] overlay source missing: ${srcLib}`);
+  }
+  fs.cpSync(srcLib, destLib, { recursive: true });
+  const srcBin = path.join(repo, 'bin');
+  const destBin = path.join(dest, 'bin');
+  if (fs.existsSync(srcBin) && fs.statSync(srcBin).isDirectory()) {
+    fs.cpSync(srcBin, destBin, { recursive: true });
+  }
+  for (const rel of OPENZOO_SIDECAR_EXTRAS) {
     const from = path.join(repo, rel);
     if (!fs.existsSync(from)) {
       throw new Error(`[afterPack] overlay source missing: ${from}`);
@@ -132,17 +180,19 @@ function overlayRepoOpenzooSidecar(stagedNM, projectDir) {
     }
   } catch { /* keep published package.json */ }
   assertOverlaidOpenzoo(dest, repo);
+  assertPackedOpenzooLib(dest);
 }
 
-// Bit-compare packed node_modules/openzoo against the repo overlay list.
-// A version match on package.json is not enough — npm latest can still
-// ship the 16k spill while repo lib/spill.js binds at 2k.
+// Bit-compare packed node_modules/openzoo against the whole repo lib/bin
+// plus vendor extras. A version match on package.json is not enough — npm
+// latest can still ship the 16k spill while repo lib/spill.js binds at 2k,
+// or ship livestatus.js without think.js.
 function assertOverlaidOpenzoo(openzooDir, repoRoot) {
   if (!openzooDir || !fs.existsSync(openzooDir)) {
     throw new Error('[afterPack] packed node_modules/openzoo missing — cannot bit-compare overlay');
   }
   const mismatches = [];
-  for (const rel of OPENZOO_SIDECAR_OVERLAY) {
+  for (const rel of getOpenzooSidecarOverlay(repoRoot)) {
     const from = path.join(repoRoot, rel);
     const got = path.join(openzooDir, rel);
     if (!fs.existsSync(from)) {
@@ -159,6 +209,36 @@ function assertOverlaidOpenzoo(openzooDir, repoRoot) {
   }
   if (mismatches.length) {
     throw new Error(`[afterPack] packed openzoo is not the overlaid tree:\n${mismatches.join('\n')}`);
+  }
+}
+
+// A cut that ships livestatus.js without think.js is a failed pack.
+// `node -e "import('./lib/livestatus.js')"` must resolve think.js.
+function assertPackedOpenzooLib(openzooDir) {
+  if (!openzooDir || !fs.existsSync(openzooDir)) {
+    throw new Error('[afterPack] packed node_modules/openzoo missing — cannot assert sidecar lib');
+  }
+  for (const rel of OPENZOO_SIDECAR_REQUIRED) {
+    const got = path.join(openzooDir, rel);
+    if (!fs.existsSync(got)) {
+      throw new Error(`[afterPack] packed openzoo missing ${rel}`);
+    }
+  }
+  const walker = path.join(__dirname, '..', '..', 'scripts', 'assert-esm-relatives.mjs');
+  try {
+    execFileSync(process.execPath, [walker, path.join(openzooDir, 'lib', 'livestatus.js')], { encoding: 'utf8' });
+  } catch (e) {
+    const detail = [e.stderr, e.stdout, e.message].filter(Boolean).join('\n');
+    throw new Error(`[afterPack] packed openzoo livestatus.js relatives missing:\n${detail}`);
+  }
+  try {
+    execFileSync(process.execPath, ['-e', "import('./lib/livestatus.js')"], {
+      cwd: openzooDir,
+      encoding: 'utf8',
+    });
+  } catch (e) {
+    const detail = [e.stderr, e.stdout, e.message].filter(Boolean).join('\n');
+    throw new Error(`[afterPack] packed openzoo cannot import lib/livestatus.js (think.js missing?):\n${detail}`);
   }
 }
 
@@ -305,14 +385,20 @@ function copyNodeModules(context) {
 
   assertCopiedOpenzoo(dest);
   assertOverlaidOpenzoo(path.join(dest, 'openzoo'), path.join(context.packager.projectDir, '..'));
+  assertPackedOpenzooLib(path.join(dest, 'openzoo'));
 
   const n = fs.readdirSync(path.join(dest, '@solana')).length;
   console.log(`[afterPack] copied production node_modules -> ${dest} (@solana: ${n}, stripped ${stripped} escaping symlink(s)/.bin)`);
 }
 
 exports.OPENZOO_SIDECAR_OVERLAY = OPENZOO_SIDECAR_OVERLAY;
+exports.OPENZOO_SIDECAR_REQUIRED = OPENZOO_SIDECAR_REQUIRED;
+exports.OPENZOO_SIDECAR_EXTRAS = OPENZOO_SIDECAR_EXTRAS;
+exports.getOpenzooSidecarOverlay = getOpenzooSidecarOverlay;
+exports.listRepoOpenzooOverlay = listRepoOpenzooOverlay;
 exports.overlayRepoOpenzooSidecar = overlayRepoOpenzooSidecar;
 exports.assertOverlaidOpenzoo = assertOverlaidOpenzoo;
+exports.assertPackedOpenzooLib = assertPackedOpenzooLib;
 exports.assertCopiedOpenzoo = assertCopiedOpenzoo;
 exports.publishedOpenzooVersion = publishedOpenzooVersion;
 exports.packedAppDir = packedAppDir;
