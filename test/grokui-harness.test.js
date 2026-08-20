@@ -235,12 +235,13 @@ test('AUTO keeps going after RUN and race-fail; DONE and pendingRun park', async
     process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
     process.env.OZ_AGENT_PORTS = '0';
     process.env.OZ_AUTO_MAX_STEPS = '8';
-    process.env.OZ_AUTO_RACE_RETRIES = '0';
     process.env.OZ_AUTO_EMPTY_RETRIES = '0';
     const assert = (await import('node:assert/strict')).default;
     const { RACE_EVERY_FAILED } = await import(${JSON.stringify(path.join(root, 'lib/livestatus.js'))});
     const {
-      newThread, runTurn, setBrainAskForTest, AUTO_CONTINUE, shouldKeepAuto,
+      newThread, runTurn, setBrainAskForTest, setRunTurnForTest,
+      handleSlash, AUTO_RACE_RETRY, shouldKeepAuto,
+      isDoneReply, isTransientModelFail,
     } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
 
     async function drain(pred) {
@@ -250,6 +251,11 @@ test('AUTO keeps going after RUN and race-fail; DONE and pendingRun park', async
         await new Promise((r) => setTimeout(r, 15));
       }
     }
+
+    assert.equal(isDoneReply('DONE: shipped'), true);
+    assert.equal(isTransientModelFail(RACE_EVERY_FAILED), true);
+    assert.equal(isTransientModelFail('error: fetch failed'), true);
+    assert.equal(isTransientModelFail('listed files'), false);
 
     const auto = newThread('auto-keep', null);
     auto.runMode = 'auto';
@@ -268,9 +274,9 @@ test('AUTO keeps going after RUN and race-fail; DONE and pendingRun park', async
     });
     await runTurn(auto.id, 'build it');
     await drain(() => hops.length >= 3 && auto.status === 'idle');
-    assert.ok(hops.length >= 3, 'RUN then race-fail must kick AUTO_CONTINUE, got ' + hops.length + ' ' + JSON.stringify(hops));
+    assert.ok(hops.length >= 3, 'RUN then race-fail must kick again, got ' + hops.length + ' ' + JSON.stringify(hops));
     assert.match(hops[1], /\\(command output\\)/);
-    assert.equal(hops[2], AUTO_CONTINUE);
+    assert.equal(hops[2], AUTO_RACE_RETRY);
 
     const doneBot = newThread('done-keep', null);
     doneBot.runMode = 'auto';
@@ -281,7 +287,7 @@ test('AUTO keeps going after RUN and race-fail; DONE and pendingRun park', async
     });
     await runTurn(doneBot.id, 'wrap up');
     await new Promise((r) => setTimeout(r, 40));
-    assert.equal(doneHops.length, 1, 'DONE: must not kick AUTO_CONTINUE');
+    assert.equal(doneHops.length, 1, 'DONE: must not kick');
     assert.equal(doneBot.status, 'idle');
 
     const askBot = newThread('ask-keep', null);
@@ -293,11 +299,35 @@ test('AUTO keeps going after RUN and race-fail; DONE and pendingRun park', async
     });
     await runTurn(askBot.id, 'please mkdir');
     await new Promise((r) => setTimeout(r, 40));
-    assert.equal(askHops.length, 1, 'pendingRun must not kick AUTO_CONTINUE');
+    assert.equal(askHops.length, 1, 'pendingRun must not kick');
     assert.ok(askBot.pendingRun);
     assert.equal(shouldKeepAuto(askBot, 'listed files'), false);
 
-    console.log(JSON.stringify({ ok: true, hops: hops.length, doneHops: doneHops.length, askHops: askHops.length }));
+    const parent = newThread('tetris-auto', null);
+    parent.runMode = 'auto';
+    const kid = newThread('game-builder', parent.id);
+    kid.runMode = 'auto';
+    const wakes = [];
+    setRunTurnForTest((threadId, userText) => {
+      wakes.push({ threadId, userText });
+      return Promise.resolve();
+    });
+    const ping = await handleSlash('/ping', parent);
+    assert.match(ping, /tetris-auto.*pinged, working/);
+    assert.match(ping, /game-builder: pinged, working/);
+    assert.ok(wakes.some((w) => w.threadId === parent.id), 'auto /ping wakes the parent');
+    assert.ok(wakes.some((w) => w.threadId === kid.id), 'auto /ping still wakes kids');
+
+    wakes.length = 0;
+    const all = await handleSlash('/all keep going', parent);
+    assert.match(all, /Sent down/);
+    assert.ok(wakes.some((w) => w.threadId === parent.id), 'auto /all wakes the parent');
+    assert.ok(wakes.some((w) => w.threadId === kid.id), 'auto /all still sends to kids');
+
+    console.log(JSON.stringify({
+      ok: true, hops: hops.length, doneHops: doneHops.length, askHops: askHops.length,
+      pingParent: true,
+    }));
     process.exit(0);
   `);
   const out = await runChild(script);

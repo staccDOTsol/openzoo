@@ -1,8 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { spawn } from 'node:child_process';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -95,17 +93,14 @@ test('auto keeps going instead of parking on a continue note', () => {
   assert.doesNotMatch(grokui, /OZ_AUTO_MAX_STEPS \|\| 8\b/);
   assert.doesNotMatch(grokui, /say "continue" to keep going/);
   assert.match(grokui, /const AUTO_CONTINUE/);
+  assert.match(grokui, /const AUTO_RACE_RETRY/);
   assert.match(grokui, /STALLED_OFFER/);
+  assert.match(grokui, /function isDoneReply/);
+  assert.match(grokui, /function isTransientModelFail/);
+  assert.match(grokui, /function enqueueAutoHop/);
   assert.match(grokui, /function shouldKeepAuto/);
-  assert.match(grokui, /function shouldParkAuto/);
-  assert.match(grokui, /function isBlockingQuestion/);
-  assert.match(grokui, /function isRaceFailReply/);
-  assert.match(grokui, /function queueAutoHop/);
   assert.match(grokui, /RACE_EVERY_FAILED/);
-  assert.match(grokui, /runTurn\(threadId, AUTO_CONTINUE/);
-  assert.match(grokui, /every model failed/);
-  assert.match(grokui, /retrying race/);
-  assert.match(grokui, /threads.get\(threadId\)\?\.turnSeq \|\| 0/);
+  assert.match(grokui, /kickTurn\(threadId, userText, onEvent\)/);
 });
 
 test('subagents get the root ask, recent turns, and a SEND brief refresh', () => {
@@ -326,148 +321,3 @@ test('the box image does not bake or decrypt encrypted ProofFront', () => {
   assert.doesNotMatch(workflow, /PROOFFRONT_URL/);
 });
 
-function runChild(script, envExtra = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [script], {
-      cwd: root,
-      env: { ...process.env, OZ_AGENT_PORTS: '0', ...envExtra },
-    });
-    let buf = '';
-    child.stdout.on('data', (d) => { buf += d; });
-    child.stderr.on('data', (d) => { buf += d; });
-    const t = setTimeout(() => {
-      child.kill('SIGKILL');
-      reject(new Error('desktop auto child timed out: ' + buf));
-    }, 20000);
-    child.on('exit', (code) => {
-      clearTimeout(t);
-      if (code !== 0) reject(new Error('desktop auto child exited ' + code + ': ' + buf));
-      else resolve(buf);
-    });
-  });
-}
-
-test('AUTO does not park on a continue note; a non-DONE tool result schedules another turn', async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'oz-auto-'));
-  const script = path.join(dir, 'run.mjs');
-  const uiPort = 22000 + Math.floor(Math.random() * 2000);
-  writeFileSync(script, `
-    process.env.HOME = ${JSON.stringify(dir)};
-    process.env.OZ_WORKSPACE_DIR = ${JSON.stringify(dir)};
-    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
-    process.env.OZ_AGENT_PORTS = '0';
-    process.env.OZ_AUTO_MAX_STEPS = '8';
-    process.env.OZ_AUTO_RACE_RETRIES = '0';
-    process.env.OZ_AUTO_EMPTY_RETRIES = '0';
-    const assert = (await import('node:assert/strict')).default;
-    const {
-      newThread, runTurn, setBrainAskForTest, AUTO_CONTINUE,
-      shouldKeepAuto, shouldParkAuto, isBlockingQuestion, isRaceFailReply,
-    } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
-
-    const probe = newThread('probe-keep', null);
-    probe.runMode = 'auto';
-    assert.equal(typeof shouldKeepAuto, 'function');
-    assert.equal(shouldKeepAuto(probe, '(race: every model failed — no reply)'), true);
-    assert.equal(shouldKeepAuto(probe, 'DONE: shipped'), false);
-    assert.equal(shouldParkAuto('DONE: shipped'), true);
-    assert.equal(shouldParkAuto('$ ls\\nfoo'), false);
-    assert.equal(shouldParkAuto('(race: every model failed — no reply)'), false);
-    assert.equal(shouldParkAuto('Should I proceed?'), false);
-    assert.equal(isBlockingQuestion('Should I proceed?'), false);
-    assert.equal(shouldParkAuto('I cannot proceed without your RPC url. What is it?'), true);
-    assert.equal(isRaceFailReply('(race: every model failed — no reply)'), true);
-
-    async function drain(pred) {
-      const start = Date.now();
-      while (Date.now() - start < 4000) {
-        if (pred()) return;
-        await new Promise((r) => setTimeout(r, 15));
-      }
-    }
-
-    // A ping / AUTO_CONTINUE that emits RUN: ls must not sit idle after the
-    // listing. The next hop is scheduled without the user typing continue.
-    const kid = newThread('game-builder', null);
-    kid.runMode = 'auto';
-    const asks = [];
-    setBrainAskForTest(({ userText }) => {
-      asks.push(String(userText || ''));
-      if (asks.length === 1) return 'RUN: echo ping-ok';
-      if (/^\\(command output\\)/.test(userText)) return 'listed files, still working';
-      return 'DONE: listed';
-    });
-    await runTurn(kid.id, AUTO_CONTINUE);
-    await drain(() => asks.length >= 3 && kid.status === 'idle');
-    assert.ok(asks.length >= 3, 'non-DONE tool result must schedule another turn, got ' + asks.length);
-    assert.match(asks[1], /\\(command output\\)/);
-    assert.match(asks[1], /ping-ok/);
-    assert.equal(asks[2], AUTO_CONTINUE);
-    assert.ok(asks.every((t) => !/^continue$/i.test(t.trim())), 'no user continue');
-    assert.equal(kid.status, 'idle');
-    const last = kid.history.filter((h) => h.who === 'bot').pop();
-    assert.match(String(last?.text || ''), /Done/i);
-
-    // DONE: on the first reply still stops.
-    const doneBot = newThread('done-bot', null);
-    doneBot.runMode = 'auto';
-    const doneAsks = [];
-    setBrainAskForTest(({ userText }) => {
-      doneAsks.push(String(userText || ''));
-      return 'DONE: finished the job';
-    });
-    await runTurn(doneBot.id, AUTO_CONTINUE);
-    await new Promise((r) => setTimeout(r, 40));
-    assert.equal(doneAsks.length, 1);
-    assert.equal(doneBot.status, 'idle');
-    assert.equal(doneBot.pendingRun, undefined);
-
-    // Ask mode still waits on RUN — no auto exec, no extra hop.
-    const askBot = newThread('ask-bot', null);
-    askBot.runMode = 'ask';
-    const askAsks = [];
-    setBrainAskForTest(({ userText }) => {
-      askAsks.push(String(userText || ''));
-      return 'RUN: echo should-not-run';
-    });
-    await runTurn(askBot.id, 'please list');
-    await new Promise((r) => setTimeout(r, 40));
-    assert.equal(askAsks.length, 1);
-    assert.ok(askBot.pendingRun);
-    assert.match(String(askBot.pendingRun.command || ''), /echo should-not-run/);
-    assert.equal(askBot.history.some((h) => /ping-ok|should-not-run\\n/.test(String(h.text || '')) && h.who === 'bot' && /\\$ /.test(String(h.text || ''))), false);
-
-    // A total race fail must not park idle — AUTO_CONTINUE hops again.
-    const raceBot = newThread('race-bot', null);
-    raceBot.runMode = 'auto';
-    const raceAsks = [];
-    setBrainAskForTest(({ userText }) => {
-      raceAsks.push(String(userText || ''));
-      if (raceAsks.length === 1) return '(race: every model failed — no reply)';
-      return 'DONE: retried after race fail';
-    });
-    await runTurn(raceBot.id, 'do the job');
-    await drain(() => raceAsks.length >= 2 && raceBot.status === 'idle');
-    assert.ok(raceAsks.length >= 2, 'race fail must AUTO_CONTINUE, got ' + raceAsks.length);
-    assert.equal(raceAsks[1], AUTO_CONTINUE);
-    assert.equal(raceBot.status, 'idle');
-
-    console.log(JSON.stringify({
-      ok: true,
-      toolHops: asks.length,
-      doneAsks: doneAsks.length,
-      askAsks: askAsks.length,
-      raceAsks: raceAsks.length,
-    }));
-    process.exit(0);
-  `);
-  const out = await runChild(script);
-  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
-  assert.ok(line, 'child printed a JSON result: ' + out);
-  const r = JSON.parse(line);
-  assert.equal(r.ok, true);
-  assert.ok(r.toolHops >= 3);
-  assert.equal(r.doneAsks, 1);
-  assert.equal(r.askAsks, 1);
-  assert.ok(r.raceAsks >= 2);
-});
