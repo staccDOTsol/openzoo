@@ -17,6 +17,9 @@ import {
   looksLikeFileView,
   resolveReadablePath,
   corpusCharsForSend,
+  unspilledBasis,
+  spillPricedTellBasis,
+  spillPricedLine,
   createSpillStats,
   applySpillCut,
   resetAdaptState,
@@ -72,6 +75,56 @@ test('send() uses Math.max so a stale 34056 cannot cap a bigger prefix', () => {
   assert.equal(corpusCharsForSend(map, 'ctx', 100_000), 100_000);
   assert.equal(corpusCharsForSend(map, 'ctx', 20_000), 34_056);
   assert.equal(corpusCharsForSend(new Map(), 'missing', 45_000), 45_000);
+});
+
+test('basis == sent on a spilled call must fail', () => {
+  const corpus = 40_000;
+  const sent = 4_000;
+  const tokensAfter = 1_000;
+  assert.ok(corpus > sent, 'fixture is a spilled call (corpus >> sent)');
+
+  const basis = unspilledBasis({ tokensBefore: sent, corpus });
+  assert.equal(basis, corpus);
+  assert.ok(basis > sent, 'basis == sent on a spilled call');
+  assert.ok(basis !== sent, 'basis == sent on a spilled call');
+
+  const x = {
+    pricing: 'counterfactual',
+    counterfactualTokensUsed: 40_000,
+    billedUsd: 0.01,
+    directUsd: 0.1,
+    lecore: {
+      corpusTokens: sent,
+      tokensBefore: sent,
+      tokensAfter,
+    },
+  };
+  assert.equal(x.lecore.corpusTokens, sent);
+  assert.equal(x.lecore.tokensBefore, sent);
+  assert.equal(spillPricedTellBasis(x), 40_000);
+  const line = spillPricedLine(x);
+  assert.match(line, /basis 40000/);
+  assert.doesNotMatch(line, /basis 4000\b/);
+  assert.match(line, /sent 4000 -> 1000/);
+  assert.match(line, /^spill priced:/);
+  assert.doesNotMatch(line, /streamed/);
+
+  const streamed = spillPricedLine(x, { streamed: true });
+  assert.match(streamed, /^spill priced \(streamed\):/);
+  assert.match(streamed, /basis 40000/);
+  assert.doesNotMatch(streamed, /basis 4000\b/);
+
+  const missing = {
+    pricing: 'markup',
+    billedUsd: 0.01,
+    directUsd: 0.01,
+    lecore: { corpusTokens: sent, tokensBefore: sent, tokensAfter },
+  };
+  assert.equal(spillPricedTellBasis(missing), null);
+  const missingLine = spillPricedLine(missing);
+  assert.match(missingLine, /basis \?/);
+  assert.doesNotMatch(missingLine, /basis 4000/);
+  assert.doesNotMatch(missingLine, /basis 40000/);
 });
 
 test('file bytes add on top of the conversation ledger', () => {
