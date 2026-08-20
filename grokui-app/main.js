@@ -267,12 +267,12 @@ function waitFor(url, retries, intervalMs, died) {
   });
 }
 
-// The chat backend needs openzoo's local proxy on :8402. Spawn the BUNDLED
-// bin with Electron's own node — never npx, never a login-shell PATH hunt.
-// If the packed Electron bin cannot load (MODULE_NOT_FOUND / immediate exit),
-// fall back to a real Node on PATH / ~/.local/bin running the same packed
-// bin, then `openzoo` on PATH. Do not reload or pkill the grokui window to
-// heal — only this sidecar process. Window paints even if :8402 is coming up.
+// The chat backend needs openzoo's local proxy on :8402. Prefer a real host
+// Node (nvm / homebrew / ~/.local/bin) running the packed bin so the sidecar
+// is not the .app binary and survives window close / Cmd+Q. Electron-as-node
+// is fallback when no host Node exists, then `openzoo` on PATH. Never npx.
+// Do not reload or pkill the grokui window to heal — only this sidecar.
+// Window paints even if :8402 is coming up.
 function getHealer() {
   if (!healer) {
     healer = createSidecarHealer({
@@ -294,6 +294,11 @@ async function ensureProxy() {
   if (quitting) return;
   await getHealer().ensure();
 }
+
+ipcMain.handle('heal-sidecar', async () => {
+  void ensureProxy();
+  return true;
+});
 
 // Black "starting…" so the window paints on ready. Do not await the sidecar
 // first — a clean Mac used to sit on a black screen for the whole
@@ -436,11 +441,16 @@ async function checkForUpdates() {
 
 app.whenReady().then(() => {
   buildAppMenu();
+  // Kick :8402 immediately so it is already spawning before the window
+  // paints. Do not await — sitting on black "starting…" looks hung.
+  void ensureProxy();
   startServer();
   createWindow();
   checkForUpdates();
   app.on('activate', () => {
     if (quitting) return;
+    // Sidecar may have died while windows were closed.
+    void ensureProxy();
     if (!serverProc) startServer();
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -455,6 +465,8 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   quitting = true;
+  // stop() drops health timers only — it must not SIGTERM a healthy
+  // detached :8402. Leave the sidecar listening after Cmd+Q.
   if (healer) healer.stop();
   if (serverProc) { serverProc.kill(); serverProc = null; }
 });

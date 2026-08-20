@@ -1,14 +1,17 @@
 'use strict';
 
-// Keep the packed :8402 sidecar alive for as long as grokui's window is open.
+// Keep the packed :8402 sidecar alive after launch.
 // Occupied TCP is not health — /v1/session must answer. Empty-wallet HTTP 402
 // still means the sidecar is up (Pay opens; that is not "sidecar dead").
 // Do not pkill/relaunch the Electron window to heal — only this child.
 //
-// First spawn is Electron execPath + packed bin. If that cannot load
-// (MODULE_NOT_FOUND / immediate exit), fall back to a real Node on PATH
-// (nvm Node 24, homebrew) running the same packed bin, then `openzoo` on
-// PATH. Do not sit forever restarting a bin that cannot boot.
+// Prefer host Node running the packed bin so the sidecar is NOT the .app
+// binary (it survives window close / Cmd+Q). Electron-as-node is fallback
+// when no host Node exists, then `openzoo` on PATH. If packed Electron
+// cannot load (MODULE_NOT_FOUND / immediate exit), fall through.
+//
+// Healer.stop() drops health timers only — it must not SIGTERM a healthy
+// detached sidecar. before-quit must leave :8402 listening.
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -42,16 +45,22 @@ function hostNodeSidecarEnv(env = process.env) {
   return next;
 }
 
-function sidecarSpawnOpts(env, { electronAsNode = true } = {}) {
-  return {
+function sidecarSpawnOpts(env, { electronAsNode = true, detached = !electronAsNode } = {}) {
+  const opts = {
     stdio: ['ignore', 'ignore', 'pipe'],
     env: electronAsNode ? packedSidecarEnv(env) : hostNodeSidecarEnv(env),
     windowsHide: true,
   };
+  if (detached) opts.detached = true;
+  return opts;
 }
 
 function packedSidecarSpawnOpts(env = process.env) {
-  return sidecarSpawnOpts(env, { electronAsNode: true });
+  return sidecarSpawnOpts(env, { electronAsNode: true, detached: false });
+}
+
+function hostNodeSidecarSpawnOpts(env = process.env) {
+  return sidecarSpawnOpts(env, { electronAsNode: false, detached: true });
 }
 
 function isCannotLoadOutput(text) {
@@ -76,16 +85,20 @@ function pathOpenzooName() {
   return process.platform === 'win32' ? 'openzoo.cmd' : 'openzoo';
 }
 
-function whichOnPath(name, env = process.env) {
+function existsDefault(p) {
+  return fs.existsSync(p);
+}
+
+function whichOnPath(name, env = process.env, exists = existsDefault) {
   const dirs = String(env.PATH || '').split(path.delimiter).filter(Boolean);
   for (const dir of dirs) {
     const candidate = path.join(dir, name);
-    if (fs.existsSync(candidate)) return candidate;
+    if (exists(candidate)) return candidate;
   }
   return null;
 }
 
-function listNvmNodes(env = process.env) {
+function listNvmNodes(env = process.env, exists = existsDefault) {
   const home = env.HOME || env.USERPROFILE || os.homedir();
   const nvm = env.NVM_DIR || path.join(home, '.nvm');
   const versions = path.join(nvm, 'versions', 'node');
@@ -96,20 +109,30 @@ function listNvmNodes(env = process.env) {
     .filter((d) => /^v\d+/.test(d))
     .sort((a, b) => parseInt(b.slice(1), 10) - parseInt(a.slice(1), 10))
     .map((d) => path.join(versions, d, 'bin', node))
-    .filter((p) => fs.existsSync(p));
+    .filter((p) => exists(p));
 }
 
-function resolveHostNode(env = process.env) {
+// First-run grokui / nvm-less Macs land node at ~/.local/bin (Finder PATH
+// is /usr/bin:/bin:/usr/sbin:/sbin — no homebrew). Check it before PATH.
+// Windows uses the same ~/.local/bin/node.exe layout (USERPROFILE).
+function localBinNode(env = process.env) {
+  const home = env.HOME || env.USERPROFILE || os.homedir();
+  return path.join(home, '.local', 'bin', exeName('node'));
+}
+
+function resolveHostNode(env = process.env, exists = existsDefault) {
   const node = exeName('node');
-  const nvm = listNvmNodes(env);
+  const nvm = listNvmNodes(env, exists);
   const prefer24 = nvm.find((p) => /[/\\]v24\./.test(p) || /[/\\]v24[/\\]/.test(p));
   const hardcoded = [
     '/opt/homebrew/bin/node',
     '/usr/local/bin/node',
     '/usr/bin/node',
-  ].filter((p) => fs.existsSync(p));
-  const fromPath = whichOnPath(node, env);
-  const ordered = [prefer24, ...nvm, ...hardcoded, fromPath].filter(Boolean);
+  ].filter((p) => exists(p));
+  const local = localBinNode(env);
+  const fromLocal = exists(local) ? local : null;
+  const fromPath = whichOnPath(node, env, exists);
+  const ordered = [prefer24, ...nvm, ...hardcoded, fromLocal, fromPath].filter(Boolean);
   const seen = new Set();
   for (const p of ordered) {
     if (seen.has(p)) continue;
@@ -119,9 +142,13 @@ function resolveHostNode(env = process.env) {
   return null;
 }
 
-function resolvePathOpenzoo(env = process.env) {
-  return whichOnPath(pathOpenzooName(), env)
-    || whichOnPath('openzoo', env);
+function resolvePathOpenzoo(env = process.env, exists = existsDefault) {
+  return whichOnPath(pathOpenzooName(), env, exists)
+    || whichOnPath('openzoo', env, exists);
+}
+
+function defaultSpawnMode(env = process.env, resolveHostNodeFn = resolveHostNode) {
+  return resolveHostNodeFn(env) ? 'host-node' : 'packed';
 }
 
 // Reuse only a healthy :8402. Starting a second bundled proxy resets
@@ -168,9 +195,10 @@ function createSidecarHealer({
   let timer = null;
   let nextAt = 0;
   let backoff = backoffMs;
-  // packed | host-node | path-openzoo
-  let spawnMode = 'packed';
+  // host-node | packed | path-openzoo
+  let spawnMode = defaultSpawnMode(env, resolveHostNodeFn);
   let packedUnbootable = false;
+  let hostNodeUnbootable = false;
   let lastSpawnHealthy = false;
 
   function child() { return owned; }
@@ -186,7 +214,8 @@ function createSidecarHealer({
       nextAt = 0;
       return ensure();
     }, ms);
-    if (timer && typeof timer.unref === 'function') timer.unref();
+    // Do NOT unref the health poll. unref() let the keep-alive evaporate
+    // once the window went idle / Electron had no other handles.
   }
 
   function bumpBackoff() {
@@ -196,29 +225,7 @@ function createSidecarHealer({
   }
 
   function pickSpawn() {
-    if (spawnMode === 'packed' && packedUnbootable) spawnMode = 'host-node';
-    if (spawnMode === 'host-node') {
-      const node = resolveHostNodeFn(env);
-      if (node) {
-        return {
-          kind: 'host-node',
-          cmd: node,
-          args: [binPath],
-          opts: sidecarSpawnOpts(env, { electronAsNode: false }),
-        };
-      }
-      spawnMode = 'path-openzoo';
-    }
-    if (spawnMode === 'path-openzoo') {
-      const oz = resolvePathOpenzooFn(env);
-      if (oz) {
-        return {
-          kind: 'path-openzoo',
-          cmd: oz,
-          args: [],
-          opts: sidecarSpawnOpts(env, { electronAsNode: false }),
-        };
-      }
+    if (!hostNodeUnbootable) {
       const node = resolveHostNodeFn(env);
       if (node) {
         spawnMode = 'host-node';
@@ -226,10 +233,40 @@ function createSidecarHealer({
           kind: 'host-node',
           cmd: node,
           args: [binPath],
-          opts: sidecarSpawnOpts(env, { electronAsNode: false }),
+          opts: hostNodeSidecarSpawnOpts(env),
         };
       }
     }
+    if (!packedUnbootable) {
+      spawnMode = 'packed';
+      return {
+        kind: 'packed',
+        cmd: execPath,
+        args: [binPath],
+        opts: packedSidecarSpawnOpts(env),
+      };
+    }
+    const oz = resolvePathOpenzooFn(env);
+    if (oz) {
+      spawnMode = 'path-openzoo';
+      return {
+        kind: 'path-openzoo',
+        cmd: oz,
+        args: [],
+        opts: hostNodeSidecarSpawnOpts(env),
+      };
+    }
+    const node = resolveHostNodeFn(env);
+    if (node) {
+      spawnMode = 'host-node';
+      return {
+        kind: 'host-node',
+        cmd: node,
+        args: [binPath],
+        opts: hostNodeSidecarSpawnOpts(env),
+      };
+    }
+    spawnMode = 'packed';
     return {
       kind: 'packed',
       cmd: execPath,
@@ -241,13 +278,14 @@ function createSidecarHealer({
   function markUnbootable(kind, reason) {
     if (kind === 'packed') {
       packedUnbootable = true;
-      spawnMode = 'host-node';
+      spawnMode = hostNodeUnbootable ? 'path-openzoo' : 'host-node';
       log(`[openzoo] packed sidecar cannot load (${reason}) — falling back to host node / PATH openzoo`);
       return;
     }
     if (kind === 'host-node') {
-      spawnMode = 'path-openzoo';
-      log(`[openzoo] host-node packed bin cannot load (${reason}) — falling back to PATH openzoo`);
+      hostNodeUnbootable = true;
+      spawnMode = packedUnbootable ? 'path-openzoo' : 'packed';
+      log(`[openzoo] host-node packed bin cannot load (${reason}) — falling back to packed electron / PATH openzoo`);
     }
   }
 
@@ -258,12 +296,18 @@ function createSidecarHealer({
     lastSpawnHealthy = false;
     childProc._ozKind = spec.kind;
     childProc._ozStartedAt = Date.now();
+    childProc._ozDetached = Boolean(spec.opts && spec.opts.detached);
     let stderr = '';
     if (childProc.stderr && typeof childProc.stderr.on === 'function') {
       childProc.stderr.on('data', (buf) => {
         stderr += String(buf);
         if (stderr.length > 8000) stderr = stderr.slice(-8000);
       });
+    }
+    // Detached host-node / PATH children should outlive the app. unref the
+    // child handle — never the health timer.
+    if (spec.opts && spec.opts.detached && typeof childProc.unref === 'function') {
+      childProc.unref();
     }
     childProc.on('error', (e) => {
       const msg = e && e.message;
@@ -343,15 +387,14 @@ function createSidecarHealer({
     }
   }
 
+  // Drop health timers only. Do not SIGTERM a healthy detached sidecar —
+  // :8402 must stay up after launch / window close / Cmd+Q. before-quit
+  // calls this so the keep-alive poll does not outlive the GUI; the child
+  // (host Node + packed bin) keeps listening.
   function stop() {
     stopped = true;
     if (timer) { clearTimeoutFn(timer); timer = null; }
     nextAt = 0;
-    const proc = owned;
-    owned = null;
-    if (proc) {
-      try { proc.kill(); } catch { /* already gone */ }
-    }
   }
 
   return { ensure, stop, schedule, spawnSidecar, child, getSpawnMode: () => spawnMode };
@@ -362,6 +405,7 @@ module.exports = {
   packedSidecarEnv,
   packedSidecarSpawnOpts,
   hostNodeSidecarEnv,
+  hostNodeSidecarSpawnOpts,
   sidecarSpawnOpts,
   shouldAttach,
   isCannotLoadOutput,
@@ -370,6 +414,8 @@ module.exports = {
   resolveHostNode,
   resolvePathOpenzoo,
   whichOnPath,
+  localBinNode,
+  defaultSpawnMode,
   DEFAULT_BACKOFF_MS,
   MAX_BACKOFF_MS,
   HEALTH_MS,

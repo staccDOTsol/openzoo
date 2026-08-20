@@ -15,8 +15,8 @@ const preload = readFileSync(path.join(root, 'grokui-app', 'preload.js'), 'utf8'
 const appPkg = require('../grokui-app/package.json');
 const ozPkg = require('../package.json');
 
-test('grokui app version is 1.6.1 so the next tag sorts above 1.5.99', () => {
-  assert.equal(appPkg.version, '1.6.1');
+test('grokui app version is 1.6.2 so the next tag sorts above 1.5.99', () => {
+  assert.equal(appPkg.version, '1.6.2');
   const harness = readFileSync(path.join(root, 'lib', 'harness-install.js'), 'utf8');
   assert.match(harness, /OPENZOO_CLAUDE_SPEC/);
   assert.match(harness, /ELECTRON_RUN_AS_NODE/);
@@ -554,10 +554,11 @@ test('darwin window-all-closed does not kill grokui or the sidecar', () => {
   assert.doesNotMatch(closed, /proxyProc.*\.kill\(/);
   assert.match(closed, /process\.platform !== 'darwin'/);
   assert.match(closed, /app\.quit\(\)/);
-  const beforeQuit = main.slice(end, end + 280);
+  const beforeQuit = main.slice(end, end + 420);
   assert.match(beforeQuit, /quitting = true/);
   assert.match(beforeQuit, /serverProc\.kill\(/);
   assert.match(beforeQuit, /healer\.stop\(/);
+  assert.match(beforeQuit, /must not SIGTERM a healthy/);
   assert.doesNotMatch(beforeQuit, /reloadOpenWindows/);
 });
 
@@ -573,6 +574,29 @@ test('grokui respawns if it exits while the app is still running', () => {
   assert.match(fnBody(main, 'reloadOpenWindows'), /loadURL\(LIVE_URL\)/);
   const activate = main.slice(main.indexOf("app.on('activate'"), main.indexOf("app.on('window-all-closed'"));
   assert.match(activate, /if \(!serverProc\) startServer\(\)/);
+  assert.match(activate, /void ensureProxy\(\)/);
+});
+
+test('whenReady kicks ensureProxy before createWindow without awaiting it', () => {
+  const start = main.indexOf('app.whenReady()');
+  const end = main.indexOf("app.on('window-all-closed'");
+  assert.ok(start >= 0 && end > start, 'whenReady and window-all-closed');
+  const body = main.slice(start, end);
+  const ensureAt = body.indexOf('void ensureProxy()');
+  const windowAt = body.indexOf('createWindow()');
+  assert.ok(ensureAt >= 0, 'whenReady starts ensureProxy');
+  assert.ok(windowAt > ensureAt, 'ensureProxy is kicked before createWindow');
+  assert.doesNotMatch(body, /await\s+ensureProxy/);
+  assert.match(body, /void ensureProxy\(\)/);
+});
+
+test('preload exposes heal-sidecar so unreachable UI can respawn :8402', () => {
+  assert.match(preload, /healSidecar:/);
+  assert.match(preload, /heal-sidecar/);
+  assert.match(main, /heal-sidecar/);
+  assert.match(main, /void ensureProxy\(\)/);
+  assert.match(grokui, /electronAPI\.healSidecar/);
+  assert.match(grokui, /function requestSidecarHeal/);
 });
 
 test('render-process-gone and unresponsive reload the live grokui URL', () => {
@@ -1200,6 +1224,10 @@ test('ensureProxy reuses a healthy :8402 and autoheals a dead packed sidecar', (
   assert.match(heal, /looksLikeModuleNotFound|isCannotLoadOutput/);
   assert.match(heal, /MODULE_NOT_FOUND/);
   assert.match(heal, /falling back to host node|resolveHostNode/);
+  assert.match(heal, /\.local['"`].*bin|localBinNode/);
+  assert.match(heal, /detached:\s*true/);
+  assert.match(heal, /Do not SIGTERM a healthy detached sidecar|must not SIGTERM/);
+  assert.doesNotMatch(heal, /timer\.unref/);
   assert.doesNotMatch(heal, /reloadOpenWindows/);
   assert.doesNotMatch(heal, /app\.quit\(/);
   assert.match(main, /createSidecarHealer/);

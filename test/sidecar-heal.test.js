@@ -12,11 +12,14 @@ const {
   createSidecarHealer,
   packedSidecarEnv,
   packedSidecarSpawnOpts,
+  hostNodeSidecarSpawnOpts,
   shouldAttach,
   looksLikeModuleNotFound,
   isCannotLoadOutput,
   resolveHostNode,
   resolvePathOpenzoo,
+  localBinNode,
+  defaultSpawnMode,
 } = require(
   path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'grokui-app', 'sidecar-heal.js'),
 );
@@ -27,19 +30,22 @@ const { sidecarIsAttachable } = require(
 function fakeChild() {
   const c = new EventEmitter();
   c.killed = false;
+  c.unrefed = false;
   c.stdout = new EventEmitter();
   c.stderr = new EventEmitter();
   c.kill = () => {
     c.killed = true;
     c.emit('exit', 1, null);
   };
+  c.unref = () => { c.unrefed = true; };
   return c;
 }
 
 function fakeTimers() {
   const pending = [];
   const setTimeoutFn = (fn, ms) => {
-    const t = { fn, ms, cancelled: false };
+    const t = { fn, ms, cancelled: false, unrefed: false };
+    t.unref = () => { t.unrefed = true; return t; };
     pending.push(t);
     return t;
   };
@@ -69,6 +75,8 @@ function makeHealer(overrides = {}) {
     sidecarIsAttachable,
     expectedVersion: '0.49.8',
     waitForSession: async () => true,
+    // Isolate from the runner's /usr/bin/node so packed-path tests stay packed.
+    resolveHostNode: () => null,
     log: () => {},
     setTimeoutFn: timers.setTimeoutFn,
     clearTimeoutFn: timers.clearTimeoutFn,
@@ -85,6 +93,16 @@ test('packed sidecar spawn uses Electron execPath, silent env, ignore stdio', ()
   assert.equal(env.OPENZOO_SILENT, '1');
   assert.equal(env.OPENZOO_NO_OPEN, '1');
   const opts = packedSidecarSpawnOpts({});
+  assert.deepEqual(opts.stdio, ['ignore', 'ignore', 'pipe']);
+  assert.equal(opts.windowsHide, true);
+  assert.equal(opts.detached, undefined);
+});
+
+test('host-node spawn opts are detached and never set ELECTRON_RUN_AS_NODE', () => {
+  const opts = hostNodeSidecarSpawnOpts({ ELECTRON_RUN_AS_NODE: '1', PATH: '/usr/bin' });
+  assert.equal(opts.detached, true);
+  assert.equal(opts.env.ELECTRON_RUN_AS_NODE, undefined);
+  assert.equal(opts.env.OPENZOO_SILENT, '1');
   assert.deepEqual(opts.stdio, ['ignore', 'ignore', 'pipe']);
   assert.equal(opts.windowsHide, true);
 });
@@ -133,15 +151,34 @@ test('occupied-but-dead port is wedged and does not spawn', async () => {
   healer.stop();
 });
 
-test('free port spawns Electron execPath + packed openzoo.js', async () => {
+test('free port with no host node spawns Electron execPath + packed openzoo.js', async () => {
   const { healer, spawned } = makeHealer();
   const result = await healer.ensure();
   assert.equal(result.spawned, true);
   assert.equal(spawned.length, 1);
+  assert.equal(spawned[0].cmd, '/fake/electron');
   assert.deepEqual(spawned[0].args, ['/fake/node_modules/openzoo/bin/openzoo.js']);
   assert.deepEqual(spawned[0].opts.stdio, ['ignore', 'ignore', 'pipe']);
   assert.equal(spawned[0].opts.env.ELECTRON_RUN_AS_NODE, '1');
   assert.equal(spawned[0].opts.env.OPENZOO_SILENT, '1');
+  assert.equal(spawned[0].opts.detached, undefined);
+  healer.stop();
+});
+
+test('when host node exists, first spawn is host node + packed bin, not Electron', async () => {
+  const { healer, spawned } = makeHealer({
+    resolveHostNode: () => '/fake/nvm/versions/node/v24.4.0/bin/node',
+  });
+  assert.equal(healer.getSpawnMode(), 'host-node');
+  const result = await healer.ensure();
+  assert.equal(result.spawned, true);
+  assert.equal(spawned.length, 1);
+  assert.equal(spawned[0].cmd, '/fake/nvm/versions/node/v24.4.0/bin/node');
+  assert.deepEqual(spawned[0].args, ['/fake/node_modules/openzoo/bin/openzoo.js']);
+  assert.equal(spawned[0].opts.detached, true);
+  assert.equal(spawned[0].opts.env.ELECTRON_RUN_AS_NODE, undefined);
+  assert.equal(spawned[0].opts.env.OPENZOO_SILENT, '1');
+  assert.equal(spawned[0].child.unrefed, true);
   healer.stop();
 });
 
@@ -156,16 +193,30 @@ test('killing the sidecar child respawns without a window restart', async () => 
   healer.stop();
 });
 
-test('stop() kills the child and does not respawn', async () => {
-  const { healer, spawned, timers } = makeHealer();
+test('stop() does not kill a detached healthy child and does not respawn', async () => {
+  const { healer, spawned, timers } = makeHealer({
+    resolveHostNode: () => '/opt/homebrew/bin/node',
+  });
   await healer.ensure();
+  assert.equal(spawned[0].opts.detached, true);
   healer.stop();
-  assert.equal(spawned[0].child.killed, true);
+  assert.equal(spawned[0].child.killed, false);
   await timers.flush();
   assert.equal(spawned.length, 1);
 });
 
-test('stale listener is displaced then packed sidecar is spawned', async () => {
+test('health timer is not unref\'d while the app is running', async () => {
+  const { healer, timers } = makeHealer({
+    fetchSession: async () => ({ version: '0.49.8' }),
+  });
+  await healer.ensure();
+  const live = timers.pending.filter((t) => !t.cancelled);
+  assert.ok(live.length >= 1, 'health poll should be scheduled');
+  assert.equal(live.every((t) => t.unrefed === false), true);
+  healer.stop();
+});
+
+test('stale listener is displaced then sidecar is spawned', async () => {
   let displaced = 0;
   const { healer, spawned } = makeHealer({
     fetchSession: async () => ({ version: '0.49.3' }),
@@ -207,7 +258,11 @@ test('MODULE_NOT_FOUND packed bin falls back to host node, not looped forever', 
       await new Promise((r) => setImmediate(r));
       return !died();
     },
-    resolveHostNode: () => '/fake/nvm/versions/node/v24.4.0/bin/node',
+    // No host node at first pick — packed is first; after MODULE_NOT_FOUND
+    // the same stub returns a node so fallback can land there.
+    resolveHostNode: () => (spawned.some((s) => s.cmd === '/fake/electron')
+      ? '/fake/nvm/versions/node/v24.4.0/bin/node'
+      : null),
     resolvePathOpenzoo: () => '/usr/local/bin/openzoo',
     log: () => {},
     setTimeoutFn: timers.setTimeoutFn,
@@ -223,13 +278,14 @@ test('MODULE_NOT_FOUND packed bin falls back to host node, not looped forever', 
   assert.equal(spawned[1].cmd, '/fake/nvm/versions/node/v24.4.0/bin/node');
   assert.deepEqual(spawned[1].args, ['/fake/node_modules/openzoo/bin/openzoo.js']);
   assert.equal(spawned[1].opts.env.ELECTRON_RUN_AS_NODE, undefined);
+  assert.equal(spawned[1].opts.detached, true);
   assert.equal(spawned[1].opts.env.OPENZOO_SILENT, '1');
   const electronSpawns = spawned.filter((s) => s.cmd === '/fake/electron').length;
   assert.equal(electronSpawns, 1, 'packed electron bin must not be looped after MODULE_NOT_FOUND');
   healer.stop();
 });
 
-test('host-node MODULE_NOT_FOUND falls back to PATH openzoo', async () => {
+test('host-node MODULE_NOT_FOUND falls back to packed then PATH openzoo', async () => {
   const timers = fakeTimers();
   const spawned = [];
   const healer = createSidecarHealer({
@@ -269,11 +325,12 @@ test('host-node MODULE_NOT_FOUND falls back to PATH openzoo', async () => {
   await healer.ensure();
   await timers.flush();
   const cmds = spawned.map((s) => s.cmd);
+  assert.equal(cmds[0], '/opt/homebrew/bin/node');
   assert.ok(cmds.includes('/fake/electron'));
-  assert.ok(cmds.includes('/opt/homebrew/bin/node'));
   assert.ok(cmds.includes('/usr/local/bin/openzoo'));
   const oz = spawned.find((s) => s.cmd === '/usr/local/bin/openzoo');
   assert.deepEqual(oz.args, []);
+  assert.equal(oz.opts.detached, true);
   healer.stop();
 });
 
@@ -293,6 +350,27 @@ test('resolveHostNode prefers nvm Node 24 over older nvm', () => {
     mkdirSync(path.join(dir, 'bin'), { recursive: true });
     writeFileSync(path.join(dir, 'bin', 'openzoo'), '');
     assert.equal(resolvePathOpenzoo({ PATH: path.join(dir, 'bin') }), path.join(dir, 'bin', 'openzoo'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('resolveHostNode finds ~/.local/bin/node when nvm/homebrew/PATH are empty', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-local-node-'));
+  try {
+    const local = path.join(dir, '.local', 'bin');
+    mkdirSync(local, { recursive: true });
+    writeFileSync(path.join(local, 'node'), '');
+    const env = { HOME: dir, USERPROFILE: dir, NVM_DIR: path.join(dir, '.nvm'), PATH: '/no/node/here' };
+    assert.equal(localBinNode(env), path.join(local, 'node'));
+    const exists = (p) => {
+      if (p === '/opt/homebrew/bin/node' || p === '/usr/local/bin/node' || p === '/usr/bin/node') return false;
+      try { return require('node:fs').existsSync(p); } catch { return false; }
+    };
+    const got = resolveHostNode(env, exists);
+    assert.equal(got, path.join(local, 'node'));
+    assert.equal(defaultSpawnMode(env, () => got), 'host-node');
+    assert.equal(defaultSpawnMode({ PATH: '/no/node' }, () => null), 'packed');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
