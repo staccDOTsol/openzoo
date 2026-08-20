@@ -2,7 +2,11 @@
 - Windows: the exe
 - Linux: the AppImage
 
-#61: Claude/Auto catalog is quoteable ids only (no fable clones, no :batch, no unpriced 500s).
+#65: thinking… fold / short 400s.
+#67: autoscroll.
+#68: gzip relay (no Content-Encoding-stripped gzip 400s).
+#66: Claude Auto on a PTY (/agents /tasks).
+#69: autoheal packed :8402 sidecar (respawn without window restart; 402 still Pay).
 
 ## Claude Code / Auto
 
