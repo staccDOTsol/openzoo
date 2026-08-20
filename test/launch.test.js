@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   claudeZooEnv, resolveClaudeCli, resolveOpenzooClaude, claudeSpawnSpec,
   isAnthropicBunClaude, isOpenzooClaudeBin, OPENZOO_CLAUDE_PACKAGE,
+  nvmNodeBinDirs, claudeCodeBinDirs,
 } from '../lib/launch.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -126,6 +127,31 @@ test('claudeZooEnv does not require ANTHROPIC_API_KEY; token from subscription o
     HOME: home,
   }, { port: 8402 });
   assert.equal(fromEnv.ANTHROPIC_AUTH_TOKEN, 'oz_from_env');
+});
+
+test('claudeZooEnv PATH is ~/.local/bin + nvm 24; zoo :8402; no ANTHROPIC_API_KEY', () => {
+  const home = tmp();
+  const local = path.join(home, '.local', 'bin');
+  const nvm24 = path.join(home, '.nvm', 'versions', 'node', 'v24.4.0', 'bin');
+  const nvm20 = path.join(home, '.nvm', 'versions', 'node', 'v20.19.0', 'bin');
+  mkdirSync(local, { recursive: true });
+  mkdirSync(nvm24, { recursive: true });
+  mkdirSync(nvm20, { recursive: true });
+  const env = claudeZooEnv({
+    ANTHROPIC_API_KEY: 'sk-ant-real',
+    PATH: '/usr/bin',
+    HOME: home,
+    NVM_DIR: path.join(home, '.nvm'),
+  }, { port: 8402 });
+  assert.equal(env.ANTHROPIC_API_KEY, undefined);
+  assert.equal(env.ANTHROPIC_BASE_URL, 'http://localhost:8402/v1');
+  const parts = env.PATH.split(path.delimiter);
+  assert.equal(parts[0], local);
+  assert.ok(parts.includes(nvm24), env.PATH);
+  assert.ok(parts.indexOf(nvm24) < parts.indexOf(nvm20), 'nvm 24 before other nvm');
+  const dirs = claudeCodeBinDirs(home, { NVM_DIR: path.join(home, '.nvm') });
+  assert.ok(dirs[0].endsWith(`${path.sep}.local${path.sep}bin`));
+  assert.deepEqual(nvmNodeBinDirs(home, { NVM_DIR: path.join(home, '.nvm') })[0], nvm24);
 });
 
 test('openzoo claude --help path mentions/execs openzoo-claude; no official install.sh', () => {

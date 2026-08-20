@@ -1,6 +1,8 @@
-- Silicon Mac users download the arm64.dmg
-- Windows: the exe
-- Linux: the AppImage
+Silicon Mac users download the arm64.dmg, Windows the exe, Linux the AppImage.
+
+1.6.4: Auto PTY waitIdle so a send completes on Claude Code. Orange Auto is `openzoo-claude` on a PTY (never official Anthropic `claude`): `~/.local/bin` + nvm 24 on PATH, zoo env `:8402`, no `ANTHROPIC_API_KEY`. `waitIdle` hard-caps ~90s — spinner / think / keepFold events must not reset that wall clock — and finishes early when visible assistant text AND idle/result. Do not skip the PTY. Do not invent `(no response)` after 3s so Ask/completions steal the send. Sidecar stays up after launch.
+
+1.6.3: tagged on main at the #79 merge (`retrieval_dispatch`). Leave that tag alone.
 
 1.6.2: Hung PTY Auto falls through to completions in 3s — do not ship a PTY that eats the send. `runAutoClaudeTurn` caps `runClaudeCode` on a separate AbortController (does not abort `turnAbort`; completions use that). Timeout / empty / missing / HTTP-N returns `(no response)` without a dead bot row (`isClaudeFallbackReply`). `ensureHarness` is Promise.race 2.5s and never blocks the send. Keep `:8402` up after launch. Host Node (`~/.local/bin` included) runs the packed bin detached so the sidecar is not the `.app` binary and survives window close / Cmd+Q. Occupied + null session is wedged: displace then spawn (402 stays live). Silicon users take the arm64.dmg. Windows: the exe. Linux: the AppImage. Do not overlay the demo Mac.
 
