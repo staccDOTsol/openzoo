@@ -36,7 +36,21 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 openzoo claude
 ```
 
-Windows: the nvm unix script will **not** run. Use https://github.com/coreybutler/nvm-windows (`nvm-setup.exe`). Claude still needs its own Windows install on PATH. No `source`, no `~/.zshrc`. Then:
+Windows — official Claude install, then nvm-windows (https://github.com/coreybutler/nvm-windows — `nvm-setup.exe`). Do not use the unix nvm curl on Windows. Do not source `~/.zshrc`.
+
+PowerShell:
+
+```
+irm https://claude.ai/install.ps1 | iex
+```
+
+CMD:
+
+```
+curl -fsSL https://downloads.claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd
+```
+
+Then nvm-windows:
 
 ```
 nvm install 24

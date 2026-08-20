@@ -271,16 +271,20 @@ test('install docs ship Mac nvm+openzoo claude and Windows nvm-windows, not extr
     assert.match(src, /npm i -g openzoo/);
     assert.match(src, /export PATH="\$HOME\/\.local\/bin:\$PATH"/);
     assert.match(src, /openzoo claude/);
+    assert.match(src, /irm https:\/\/claude\.ai\/install\.ps1 \| iex/);
+    assert.match(src, /curl -fsSL https:\/\/downloads\.claude\.ai\/install\.cmd -o install\.cmd && install\.cmd && del install\.cmd/);
     assert.match(src, /coreybutler\/nvm-windows/);
     assert.match(src, /nvm-setup\.exe/);
+    assert.match(src, /Then nvm-windows:/);
     assert.match(src, /nvm use 24/);
-    assert.match(src, /will \*\*not\*\* run/);
-    assert.match(src, /No `source`, no `~\/\.zshrc`/);
+    assert.match(src, /Do not use the unix nvm curl on Windows/);
+    assert.match(src, /Do not source `~\/\.zshrc`/);
     assert.match(src, /(?:\*\*not\*\* need to authenticate Claude first|No Claude login first)/);
   }
-  const win = readme.slice(readme.indexOf('Windows:'));
+  const win = readme.slice(readme.indexOf('Windows — official Claude install'));
   assert.doesNotMatch(win, /source ~\/\.zshrc/);
   assert.doesNotMatch(win, /claude\.ai\/install\.sh/);
+  assert.doesNotMatch(win, /nvm-sh\/nvm/);
 });
 
 test('subagents get the root ask, recent turns, and a SEND brief refresh', () => {
