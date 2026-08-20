@@ -143,11 +143,16 @@ function waitFor(url, retries, intervalMs) {
 // doubles as install-or-update: it fetches the current published version if
 // it's not already cached.
 async function ensureProxy() {
-  // Reuse a healthy :8402. Starting a second bundled proxy resets in-memory
-  // session counters and can race the one that already paid. Ping the
-  // session endpoint; if anything is already listening, do not replace it.
+  // Reuse only a healthy :8402. Starting a second bundled proxy resets
+  // session counters and can race the one that already paid — but a process
+  // that LISTENs and does not answer GET /v1/session is wedged. Treating
+  // "port occupied" as reuse is worse than a crash (completions then throw
+  // undici `fetch failed` forever). Ping must time out; occupied ≠ healthy.
   if (await pingUrl('http://127.0.0.1:8402/v1/session')) return;
-  if (await portOccupied(8402)) return;
+  if (await portOccupied(8402)) {
+    console.error('[openzoo] :8402 is listening but /v1/session did not answer — not reusing a wedged proxy');
+    return;
+  }
   // Run the BUNDLED openzoo with Electron's OWN node, rather than shelling out
   // to npx. Going through npx assumed the machine had Node installed and on
   // PATH, which is a bad assumption for a desktop app: a clean Windows 11 box
