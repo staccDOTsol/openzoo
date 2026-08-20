@@ -42,6 +42,9 @@ import {
   planTranscriptSpill,
   rememberSpillMemo,
   lookupSpillMemo,
+  decideChatSpill,
+  isOneShotCorpusAsk,
+  SPILL_MIN_PREFIX_CHARS,
 } from '../lib/spill.js';
 import { anthropicToOpenAI } from '../lib/anthropic.js';
 
@@ -1869,4 +1872,114 @@ test('SHRINK_OVER never stubs the in-flight tool round even when recall hits', (
   const live = got.messages.find((m) => m.tool_call_id === 'live');
   assert.equal(live.content, body);
   assert.doesNotMatch(live.content, /\[bound/);
+});
+
+/** Grokui 1-model AUTO after one RUN: system + ask + reply + fat output + continue.
+ *  5 messages — the old spillTranscript `msgs.length < 6` gate skipped this. */
+function grokuiOneModelHop({
+  outputChars = 40_000,
+  sysChars = 800,
+  ask = 'build the thing from the brief',
+  continueAsk = 'AUTO is still on — emit the next directive now',
+} = {}) {
+  const output = `(command output)\n${'L'.repeat(outputChars)}`;
+  const msgs = [
+    { role: 'system', content: `You are grokui. AUTO MODE IS ON.\n${'S'.repeat(sysChars)}` },
+    { role: 'user', content: ask },
+    { role: 'assistant', content: 'RUN: ls -la' },
+    { role: 'user', content: output },
+    { role: 'user', content: continueAsk },
+  ];
+  return { msgs, output, continueAsk, ask };
+}
+
+function sameSpillShape(a, b) {
+  assert.equal(a.mode, b.mode);
+  assert.equal(a.setHrrContext, b.setHrrContext);
+  assert.equal(a.prefix, b.prefix);
+  assert.equal(a.sentChars, b.sentChars);
+  assert.equal(a.unspilledChars, b.unspilledChars);
+  assert.deepEqual(a.forwarded, b.forwarded);
+}
+
+test('oversized 1-model grokui hop spills prefix, forwards system+tail, sets x-hrr-context', () => {
+  resetAdaptState();
+  const { msgs, output, continueAsk } = grokuiOneModelHop();
+  assert.ok(msgs.length < 6, 'fixture is the 1-model shape the count-gate used to skip');
+  const unspilled = sliceChars(msgs);
+  assert.ok(unspilled > SPILL_MIN_PREFIX_CHARS);
+
+  const got = decideChatSpill({ model: 'x-ai/grok-4', messages: msgs, max_tokens: 4096 }, {
+    adapt: false,
+    persist: false,
+    knobs: { keepTail: 8, minTurns: 6, budget: 6000, stubMore: false },
+  });
+
+  assert.equal(got.mode, 'spill');
+  assert.equal(got.setHrrContext, true, 'sidecar must attach x-hrr-context after bind');
+  assert.ok(got.prefix.includes(output), 'old command output is the bound prefix');
+  assert.ok(!got.forwarded.some((m) => typeof m.content === 'string' && m.content.includes(output)),
+    'fat prefix must not ride the live window');
+  assert.equal(got.head.length, 1);
+  assert.equal(got.head[0].role, 'system');
+  assert.ok(got.tail.some((m) => m.role === 'user' && String(m.content).includes(continueAsk)),
+    'current ask stays in the bounded tail');
+  assert.ok(got.sentChars < got.unspilledChars, `sent ${got.sentChars} must shrink vs unspilled ${got.unspilledChars}`);
+  assert.ok(got.sentChars < 20_000, `bounded tail still ${got.sentChars} chars`);
+  assert.ok(got.prefix.length > SPILL_MIN_PREFIX_CHARS);
+});
+
+test('small 1-model prompt passes through — no bind, no header', () => {
+  resetAdaptState();
+  const msgs = [
+    { role: 'system', content: 'You are grokui.' },
+    { role: 'user', content: 'hi' },
+    { role: 'assistant', content: 'hello' },
+    { role: 'user', content: 'what is 2+2?' },
+  ];
+  const got = decideChatSpill({ model: 'x-ai/grok-4', messages: msgs }, {
+    adapt: false,
+    persist: false,
+  });
+  assert.equal(got.mode, 'passthrough');
+  assert.equal(got.setHrrContext, false);
+  assert.ok(['no-cut', 'prefix-under-threshold'].includes(got.reason), `small chat reason was ${got.reason}`);
+  assert.deepEqual(got.forwarded, msgs);
+  assert.equal(got.sentChars, got.unspilledChars);
+});
+
+test('raced grokui AUTO and 1-model hit the same decideChatSpill result', () => {
+  resetAdaptState();
+  const { msgs } = grokuiOneModelHop();
+  const knobs = { keepTail: 8, minTurns: 6, budget: 6000, stubMore: false };
+  const oneModel = decideChatSpill({
+    model: 'x-ai/grok-4', messages: msgs, max_tokens: 4096, stream: true,
+  }, { adapt: false, persist: false, knobs });
+  const raced = decideChatSpill({
+    model: 'x-ai/grok-4', messages: msgs, max_tokens: 4096, stream: true,
+    race: 3, race_need: 2, tier: 'medium',
+  }, { adapt: false, persist: false, knobs });
+  assert.equal(oneModel.mode, 'spill');
+  assert.equal(raced.mode, 'spill');
+  sameSpillShape(oneModel, raced);
+  assert.equal(isOneShotCorpusAsk(msgs), false);
+});
+
+test('proxy 1-model and race doors share decideChatSpill; no 6-message bail', () => {
+  const src = fs.readFileSync(new URL('../lib/proxy.js', import.meta.url), 'utf8');
+  assert.match(src, /decideChatSpill/, 'spillTranscript must call the shared gate');
+  assert.match(src, /isOneShotCorpusAsk/, 'maybeCacheCorpus oneshot must share the helper');
+  assert.doesNotMatch(src, /if\s*\(\s*msgs\.length\s*<\s*6\s*\)/, 'count-gate skipped fat 1-model hops');
+});
+
+test('oneshot corpus+question still spills and shrinks the last message', () => {
+  const corpus = `${'C'.repeat(20_000)}\n\nwhat is the capital?`;
+  const msgs = [{ role: 'user', content: corpus }];
+  assert.equal(isOneShotCorpusAsk(msgs), true);
+  const got = decideChatSpill({ messages: msgs });
+  assert.equal(got.mode, 'oneshot');
+  assert.equal(got.setHrrContext, true);
+  assert.equal(got.forwarded[0].content, 'what is the capital?');
+  assert.ok(got.sentChars < got.unspilledChars);
+  assert.ok(got.prefix.length >= 20_000);
 });
