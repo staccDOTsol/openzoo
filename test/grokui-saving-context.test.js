@@ -137,6 +137,54 @@ test('/cost prefers spilled x and labels spilled vs session', async () => {
   assert.match(out, /"ok":true/);
 });
 
+test('/pay and /hud echo short lines, not wallet JSON', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-pay-hud-echo-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 23600 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.HOME = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    const assert = (await import('node:assert/strict')).default;
+    const { handleSlash, newThread } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+
+    const orig = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes('/session')) {
+        return {
+          ok: true, status: 200,
+          json: async () => ({
+            spentUsd: 1.25, cogsUsd: 0.4, directUsd: 2.5, paidCalls: 4,
+            spilled: { savingX: 3.5 },
+          }),
+        };
+      }
+      return orig(url);
+    };
+    const t = newThread('echo-bot', null);
+    t.runMode = 'ask';
+    t.tier = 'cheap';
+    const pay = await handleSlash('/pay', t);
+    assert.match(pay, /Pay — card checkout/);
+    assert.doesNotMatch(pay, /solana/i);
+    assert.doesNotMatch(pay, /\\{/);
+
+    const hud = await handleSlash('/hud', t);
+    assert.match(hud, /Sitrep — mode ask · cheap/);
+    assert.match(hud, /paid \\$1\\.25/);
+    assert.match(hud, /3\\.50x spilled/);
+    assert.match(hud, /4 calls/);
+    assert.doesNotMatch(hud, /\\{/);
+    assert.doesNotMatch(hud, /spentUsd/);
+
+    console.log(JSON.stringify({ ok: true }));
+    process.exit(0);
+  `);
+  const out = await runChild(script);
+  assert.match(out, /"ok":true/);
+});
+
 test('new chat does not reuse another root contextId; SPAWN kids still share', async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'oz-newchat-ctx-'));
   const ws = path.join(dir, 'workspace');
