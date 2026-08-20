@@ -3,6 +3,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
+const net = require('node:net');
 
 // One source of truth: the live UI is repo lib/grokui.mjs. A packaged build
 // copies that file next to this script; a checkout prefers the repo copy so
@@ -104,7 +105,20 @@ function startServer() {
 
 function pingUrl(url) {
   return new Promise((resolve) => {
-    http.get(url, (res) => { res.resume(); resolve(true); }).on('error', () => resolve(false));
+    const req = http.get(url, { timeout: 1500 }, (res) => {
+      res.resume();
+      resolve(Boolean(res.statusCode && res.statusCode < 500));
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+
+function portOccupied(port) {
+  return new Promise((resolve) => {
+    const s = net.connect({ port, host: '127.0.0.1' }, () => { s.end(); resolve(true); });
+    s.on('error', () => resolve(false));
+    s.setTimeout(800, () => { s.destroy(); resolve(false); });
   });
 }
 
@@ -129,7 +143,11 @@ function waitFor(url, retries, intervalMs) {
 // doubles as install-or-update: it fetches the current published version if
 // it's not already cached.
 async function ensureProxy() {
-  if (await pingUrl('http://127.0.0.1:8402/v1/session')) return; // already running
+  // Reuse a healthy :8402. Starting a second bundled proxy resets in-memory
+  // session counters and can race the one that already paid. Ping the
+  // session endpoint; if anything is already listening, do not replace it.
+  if (await pingUrl('http://127.0.0.1:8402/v1/session')) return;
+  if (await portOccupied(8402)) return;
   // Run the BUNDLED openzoo with Electron's OWN node, rather than shelling out
   // to npx. Going through npx assumed the machine had Node installed and on
   // PATH, which is a bad assumption for a desktop app: a clean Windows 11 box

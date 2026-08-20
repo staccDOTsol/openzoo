@@ -103,8 +103,37 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.88');
-  assert.equal(appPkg.version, '1.5.66');
+  assert.equal(ozPkg.version, '0.48.89');
+  assert.equal(appPkg.version, '1.5.67');
+});
+
+test('HUD and wallet show prepaid credit, not only session spend', () => {
+  assert.match(grokui, /id="hCredit"/);
+  assert.match(grokui, /prepaid credit/);
+  assert.match(grokui, /Prepaid credit/);
+  assert.match(grokui, /creditUsd/);
+  assert.match(grokui, /creditBalance/);
+  const proxy = readFileSync(path.join(root, 'lib', 'proxy.js'), 'utf8');
+  assert.match(proxy, /creditUsd, chainUsd/);
+});
+
+test('a thinking turn paints live status, not mute dots', () => {
+  assert.match(grokui, /type: 'status'/);
+  assert.match(grokui, /waiting on model/);
+  assert.match(grokui, /peekDirectiveStatus/);
+  assert.match(grokui, /liveStatus/);
+  assert.match(grokui, /function liveBubbleHtml/);
+  assert.match(grokui, /STALE_THINKING_MS/);
+  const brain = readFileSync(path.join(root, 'lib', 'podagent.mjs'), 'utf8');
+  assert.match(brain, /STREAM_IDLE/);
+  assert.match(brain, /formatPayStatus/);
+  assert.match(brain, /startModelWait/);
+});
+
+test('ensureProxy reuses a healthy :8402 and does not spawn over it', () => {
+  assert.match(main, /function portOccupied/);
+  assert.match(main, /if \(await portOccupied\(8402\)\) return/);
+  assert.match(main, /Reuse a healthy :8402/);
 });
 
 test('the box image does not bake or decrypt encrypted ProofFront', () => {
