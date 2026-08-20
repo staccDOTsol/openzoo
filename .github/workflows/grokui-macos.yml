@@ -40,6 +40,8 @@ jobs:
           V="${GITHUB_REF#refs/tags/grokui-v}"
           node -e "const f='grokui-app/package.json';const p=require('./'+f);p.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')" "$V"
           echo "app version set to $V"
+      - name: Served APP_HTML script must parse
+        run: node scripts/assert-app-html-script.mjs
       - name: Install deps
         working-directory: grokui-app
         run: |

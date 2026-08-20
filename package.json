@@ -16,7 +16,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test test/*.test.js && node scripts/assert-grokui-pin.mjs"
+    "test": "node --test test/*.test.js && node scripts/assert-grokui-pin.mjs && node scripts/assert-app-html-script.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

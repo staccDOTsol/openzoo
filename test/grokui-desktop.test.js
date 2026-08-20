@@ -102,7 +102,8 @@ test('sitrep is a plus-menu button that opens a wallet-style drawer, not a chat 
   assert.match(grokui, /name: '\/sitrep'/);
   const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
   assert.doesNotMatch(appHtml, /\/\^\\\/sitrep\\b/);
-  assert.match(appHtml, /sitrepHead === '\/sitrep'/);
+  assert.match(appHtml, /s === '\/sitrep'/);
+  assert.match(appHtml, /s\.startsWith\('\/sitrep '/);
   assert.match(grokui, /Drawer-only\. Never dump sitrep into the transcript/);
   assert.match(grokui, /if \(c\.name === '\/sitrep'\)/);
   assert.match(grokui, /sitrepRow\('race'/);
@@ -127,7 +128,15 @@ test('served APP_HTML <script> is valid JS (node --check)', () => {
   assert.ok(open >= 0 && close > open, 'served HTML has a script');
   const script = html.slice(open + '<script>'.length, close);
   assert.doesNotMatch(script, /\/\^\/sitrep/);
-  assert.match(script, /sitrepHead === '\/sitrep'/);
+  assert.match(script, /s === '\/sitrep'/);
+  assert.match(script, /includes\('wallet is empty'\)/);
+  // Eaten \b becomes a literal backspace inside a regex literal (wallet-empty).
+  // Do not scan comments — they mention /^/api// as the failure mode.
+  const regexLits = script.match(/\/(?:\\.|[^/\n])+\/[gimsuy]*/g) || [];
+  for (const r of regexLits) {
+    assert.doesNotMatch(r, /\x08/, 'regex has eaten \\b: ' + r);
+    assert.doesNotMatch(r, /\/\^\/[A-Za-z]/, 'regex has eaten \\/: ' + r);
+  }
   const dir = mkdtempSync(path.join(tmpdir(), 'oz-apphtml-'));
   try {
     const file = path.join(dir, 'apphtml.js');
@@ -302,6 +311,9 @@ test('empty-wallet park opens Pay; a generic 402 handshake does not', () => {
   const addFn = script.slice(add, script.indexOf('let lastRenderKey', add));
   assert.match(addFn, /isEmptyWalletPayment\(text\)/);
   assert.match(addFn, /maybeOpenPayForEmptyWallet\(text\)/);
+  const appWallet = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.match(appWallet, /includes\('wallet is empty'\)/);
+  assert.doesNotMatch(appWallet, /\\b\(\?:wallet is empty/);
   assert.match(addFn, /openWallet\(\)/);
   assert.doesNotMatch(script, /if \(isPaymentFailed\(text\)\) openWallet/);
   const pod = readFileSync(path.join(root, 'lib', 'podagent.mjs'), 'utf8');
@@ -347,6 +359,7 @@ test('desktop pack CI walks packed grokui.mjs relatives', () => {
   for (const name of ['grokui-macos.yml', 'grokui-linux.yml', 'grokui-windows.yml']) {
     const yml = readFileSync(path.join(root, '.github', 'workflows', name), 'utf8');
     assert.match(yml, /assert-packed-grokui-lib\.mjs/);
+    assert.match(yml, /assert-app-html-script\.mjs/);
   }
   const ignore = readFileSync(path.join(root, 'grokui-app', '.gitignore'), 'utf8');
   assert.match(ignore, /^lib\/$/m);
