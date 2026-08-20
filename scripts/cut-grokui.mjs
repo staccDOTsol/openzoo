@@ -93,4 +93,14 @@ if (esm.status !== 0) {
   die('refuse to cut: packed lib/package.json missing or not type module, or dry import failed');
 }
 
+const overlay = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-overlaid-openzoo.mjs')], {
+  cwd: root,
+  encoding: 'utf8',
+});
+if (overlay.stdout) process.stdout.write(overlay.stdout);
+if (overlay.status !== 0) {
+  process.stderr.write(overlay.stderr || '');
+  die('refuse to cut: afterPack overlay list is missing sidecar files');
+}
+
 console.log(`cut grokui ${opts.grokui} / openzoo ${opts.openzoo} (app dep stays latest)`);
