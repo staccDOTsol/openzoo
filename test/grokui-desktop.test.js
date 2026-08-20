@@ -392,6 +392,9 @@ test('AUTO loop stop: 5xx/empty/pay never hop; same RUN capped; empty PTY does n
   assert.match(grokui, /!usedClaude && !t\.autoStopped && !atCap/);
   assert.match(grokui, /function persistUserTurn/);
   assert.match(grokui, /function persistAssistantTurn/);
+  assert.match(grokui, /looksLikeDirectiveAsBash/);
+  assert.match(grokui, /isFailedExecOutput/);
+  assert.match(grokui, /lastRunFailed/);
   const autoFn = fnBody(grokui, 'runAutoClaudeTurn');
   assert.doesNotMatch(autoFn, /enqueueAutoHop\(/);
   assert.match(grokui, /AUTO_EMPTY_PTY_STOP/);
@@ -1107,7 +1110,7 @@ test('canvas collapses completed RUN cards like thinking, not as the message', (
   assert.match(grokui, /text: botText, runStatus: 'done', runOutput: output/);
   // Auto lastReply stays `$ cmd\\noutput` unless the same RUN hit the retry cap.
   assert.match(grokui, /const shown = `\$ \$\{command\}\\n\$\{output\}`/);
-  assert.match(grokui, /lastReply = stopSame \? `\$\{shown\}\\n\$\{AUTO_SAME_COMMAND_STOP\}` : shown/);
+  assert.match(grokui, /lastReply = \(stopSame \|\| failed\) \? `\$\{shown\}\\n\$\{stopMsg\}` : shown/);
   // Approve/Deny stay on pending cards.
   assert.match(appHtml, /run\.id && st === 'pending'/);
   assert.match(appHtml, /textContent = 'Approve'/);

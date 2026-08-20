@@ -45,8 +45,10 @@ test('parseRun, think-tag strip, inDir, MCP-as-bash refuse', async () => {
     const { mkdirSync, writeFileSync } = await import('node:fs');
     const path = await import('node:path');
     const {
-      parseRun, looksLikeMcpAsBash, stripThinkTags, takeThink, safeResolveIn, inDir,
-      tryDirective,
+      parseRun, looksLikeMcpAsBash, looksLikeDirectiveAsBash, isFailedExecOutput,
+      stripThinkTags, takeThink, safeResolveIn, inDir,
+      tryDirective, newThread, enqueueAutoHop, shouldKeepAuto, setRunTurnForTest,
+      NUDGE, AUTO_CONTINUE,
     } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
 
     assert.equal(parseRun('RUN: ls -la'), 'ls -la');
@@ -59,6 +61,22 @@ test('parseRun, think-tag strip, inDir, MCP-as-bash refuse', async () => {
     assert.equal(parseRun('RUN: publish-update'), null);
     assert.equal(parseRun('RUN: MCP: http://127.0.0.1:9 | get_skill | {}'), null);
     assert.equal(parseRun('RUN:\\nget_skill\\nproofnetwork-contract\\npublish-update'), null);
+    assert.equal(parseRun('RUN: WRITE:5d_chess.py'), null, 'WRITE: as RUN body is not bash');
+    assert.equal(parseRun('RUN: WRITE: 5d_chess.py | print(1)'), null);
+    assert.equal(looksLikeDirectiveAsBash('WRITE:5d_chess.py'), true);
+    assert.equal(isFailedExecOutput('WRITE:5d_chess.py: command not found\\n(exit 127)'), true);
+    assert.equal(isFailedExecOutput('SyntaxError: unexpected EOF while parsing'), true);
+    const failT = newThread('fail-run', null);
+    failT.runMode = 'auto';
+    failT.lastRunFailed = true;
+    const hops = [];
+    setRunTurnForTest((id, text) => { hops.push(text); return Promise.resolve(); });
+    assert.equal(shouldKeepAuto(failT, '$ python -c x\\nSyntaxError: bad'), false);
+    assert.equal(enqueueAutoHop(failT, failT.id, NUDGE), false);
+    assert.equal(enqueueAutoHop(failT, failT.id, AUTO_CONTINUE), false);
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(hops.length, 0, 'failed RUN must not inject NUDGE/AUTO_CONTINUE as a user turn');
+    setRunTurnForTest(null);
     assert.equal(looksLikeMcpAsBash('get_skill'), true);
     assert.equal(looksLikeMcpAsBash('proofnetwork-contract'), true);
     assert.equal(looksLikeMcpAsBash('MCP: http://x | get_skill | {}'), true);
