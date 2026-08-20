@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveModel, isTinyClassify, pickClassifierModel, raiseReasoningMaxTokens, rewriteChatModel, REASONING_MODEL_RE, displayNameFor, publishModelList, anthropicModelList, modelsListForRequest } from '../lib/models.js';
+import { resolveModel, isTinyClassify, pickClassifierModel, raiseReasoningMaxTokens, rewriteChatModel, REASONING_MODEL_RE, displayNameFor, publishModelList, anthropicModelList, modelsListForRequest, anthropicNativeAlias, ANTHROPIC_NATIVE_ALIASES, isHarnessAliasId } from '../lib/models.js';
 import { applyClaudeCodeCatalogEnv, claudeZooEnv, resolveClaudeCli, claudeCodeBinDirs } from '../lib/launch.js';
 import { anthropicToOpenAI } from '../lib/anthropic.js';
 
@@ -330,6 +330,67 @@ test('opus-5 AUTO classify ignores OPENZOO_DEFAULT_MODEL and does not raise', ()
   }
 });
 
+test('bare Anthropic classifier ids always alias to a priced anthropic/ twin', () => {
+  // Fly x402-tokens 500s `claude-opus-5` ("unknown model") and 402s the twin.
+  // Catalog miss, catalog listing the bare name, and a live zoo catalog
+  // must all rewrite — the sidecar must never forward the bare id.
+  assert.equal(anthropicNativeAlias('claude-opus-5'), 'anthropic/claude-opus-5');
+  assert.equal(anthropicNativeAlias('claude-opus-5-fast'), 'anthropic/claude-opus-5-fast');
+  assert.equal(anthropicNativeAlias('claude-3-5-opus'), 'anthropic/claude-opus-5');
+  assert.equal(anthropicNativeAlias('claude-opus-5[1m]'), 'anthropic/claude-opus-5');
+  assert.equal(anthropicNativeAlias('anthropic/claude-opus-5'), null);
+  assert.equal(anthropicNativeAlias('openzoo-claude-opus-5'), null);
+  assert.equal(isHarnessAliasId('claude-opus-5'), true);
+  assert.equal(isHarnessAliasId('claude-opus-5[1m]'), true);
+
+  const catalogs = [
+    CATALOG,
+    [...CATALOG, 'anthropic/claude-opus-5', 'anthropic/claude-opus-5-fast'],
+    ['claude-opus-5', 'anthropic/claude-opus-5'],
+    [],
+  ];
+  for (const id of Object.keys(ANTHROPIC_NATIVE_ALIASES)) {
+    const want = ANTHROPIC_NATIVE_ALIASES[id];
+    for (const ids of catalogs) {
+      assert.equal(resolveModel(id, ids), want, `${id} vs ${ids.length} ids`);
+      assert.notEqual(resolveModel(id, ids), id);
+    }
+  }
+});
+
+test('non-tiny /v1/messages claude-opus-5 rewrites off the bare id', () => {
+  const fat = {
+    model: 'claude-opus-5',
+    max_tokens: 2000,
+    messages: Array.from({ length: 20 }, (_, i) => ({
+      role: i % 2 ? 'assistant' : 'user',
+      content: `turn ${i} ${'x'.repeat(500)}`,
+    })),
+  };
+  assert.equal(isTinyClassify(fat), false);
+  for (const ids of [CATALOG, [...CATALOG, 'anthropic/claude-opus-5'], [], ['claude-opus-5']]) {
+    const out = rewriteChatModel(fat, ids);
+    assert.equal(out.tiny, false);
+    assert.notEqual(out.parsed.model, 'claude-opus-5');
+    assert.equal(out.parsed.model.includes('/'), true, `expected vendor-prefixed id, got ${out.parsed.model}`);
+  }
+  const withTwin = rewriteChatModel(fat, [...CATALOG, 'anthropic/claude-opus-5']);
+  assert.equal(withTwin.parsed.model, 'anthropic/claude-opus-5');
+});
+
+test('tiny classify on bare claude-opus-5 still pins to flash, never the bare id', () => {
+  const body = {
+    model: 'claude-opus-5',
+    max_tokens: 16,
+    messages: [{ role: 'user', content: 'Is this command safe? Reply yes or no.' }],
+  };
+  for (const ids of [CATALOG, [], ['claude-opus-5', 'anthropic/claude-opus-5']]) {
+    const out = rewriteChatModel(body, ids);
+    assertClassifyNotHardBlocked(out);
+    assert.notEqual(out.parsed.model, 'claude-opus-5');
+  }
+});
+
 test('Anthropic Messages opus-5 classify is pinned off opus-5 after translate', () => {
   // Claude Code speaks /v1/messages; proxy converts then rewriteChatModel.
   const inbound = {
@@ -418,6 +479,9 @@ test('publishModelList keeps the full zoo catalog, not a single opus-5', async (
   assert.equal(published.object, 'list');
   assert.ok(ids.some((id) => id.startsWith('openzoo-')));
   assert.ok(ALIAS_IDS.every((id) => ids.includes(id)));
+  assert.ok(ids.includes('claude-opus-5'));
+  assert.ok(ids.includes('claude-opus-5-fast'));
+  assert.ok(ids.includes('claude-3-5-opus'));
 });
 
 test('anthropicModelList uses real zoo ids (Claude Code reads id + display_name)', () => {
@@ -455,6 +519,9 @@ test('applyClaudeCodeCatalogEnv opts Claude Code into GET /v1/models discovery',
   const { dirname, join } = await import('node:path');
   const launchSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../lib/launch.js'), 'utf8');
   assert.doesNotMatch(launchSrc, /\|\| 'claude-sonnet-5'/);
+  // Terminal `openzoo claude` must keep Auto permissions (classifier on).
+  // grokui Auto is the one that passes --permission-mode bypassPermissions.
+  assert.doesNotMatch(launchSrc, /bypassPermissions/);
 });
 
 test('claudeZooEnv is the openzoo claude writer: gateway token, no Anthropic API key', () => {
@@ -506,4 +573,156 @@ test('GET /v1/models (OpenAI + Claude-shaped) returns the mocked zoo catalog, no
   assert.ok(cids.length > 1);
   assert.equal(fakeClaudeAliases(cids).length, 0);
   assert.equal(shaped.data.find((m) => m.id === 'x-ai/grok-4.6').type, 'model');
+});
+
+// Sidecar /v1/messages: Claude Code's classifier POSTs model=claude-opus-5.
+// Fly 500s that bare id. The proxy must rewrite before the request leaves.
+
+test('POST /v1/messages model=claude-opus-5 does not 500 unavailable', async (t) => {
+  const http = await import('node:http');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const fs = await import('node:fs');
+  const { config } = await import('../lib/config.js');
+  const { resetZooModelIdsCache } = await import('../lib/models.js');
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oz-opus5-'));
+  const prev = {
+    apiBase: config.apiBase,
+    port: config.port,
+    walletPath: config.walletPath,
+    noTopup: process.env.OPENZOO_NO_AUTOTOPUP,
+    sessionPath: process.env.OPENZOO_SESSION_PATH,
+  };
+  process.env.OPENZOO_NO_AUTOTOPUP = '1';
+  process.env.OPENZOO_NO_OPEN = '1';
+  process.env.OPENZOO_SESSION_PATH = path.join(tmp, 'session.json');
+  config.walletPath = path.join(tmp, 'wallet.json');
+
+  const seen = [];
+  const catalog = {
+    object: 'list',
+    data: [
+      { id: 'anthropic/claude-opus-5', object: 'model' },
+      { id: 'anthropic/claude-opus-5-fast', object: 'model' },
+      { id: 'anthropic/claude-sonnet-5', object: 'model' },
+      { id: 'google/gemini-3.7-flash', object: 'model' },
+    ],
+  };
+  const completion = {
+    id: 'chatcmpl-test',
+    object: 'chat.completion',
+    choices: [{ index: 0, message: { role: 'assistant', content: 'yes' }, finish_reason: 'stop' }],
+    usage: { prompt_tokens: 8, completion_tokens: 1 },
+  };
+
+  const up = await new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      if (req.method === 'GET' && req.url.split('?')[0] === '/v1/models') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(catalog));
+        return;
+      }
+      let buf = '';
+      req.on('data', (c) => { buf += c; });
+      req.on('end', () => {
+        let body = {};
+        try { body = JSON.parse(buf || '{}'); } catch { body = {}; }
+        seen.push({ path: req.url, model: body.model });
+        const bare = String(body.model || '');
+        if (!bare.includes('/') && /^claude-/i.test(bare)) {
+          res.writeHead(500, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: `unknown model ${bare}` }));
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ...completion, model: body.model }));
+      });
+    });
+    server.listen(0, '127.0.0.1', () => resolve(server));
+    server.on('error', reject);
+  });
+
+  resetZooModelIdsCache();
+  config.apiBase = `http://127.0.0.1:${up.address().port}`;
+  config.port = 0;
+  const { startProxy } = await import('../lib/proxy.js');
+  const proxy = await startProxy({ silent: true, autoTunnel: false });
+  t.after(async () => {
+    await new Promise((resolve) => {
+      try { proxy.server?.closeAllConnections?.(); } catch { /* already */ }
+      if (!proxy.server) { resolve(); return; }
+      proxy.server.close(() => resolve());
+      setTimeout(resolve, 400).unref?.();
+    });
+    await new Promise((resolve) => {
+      try { up.closeAllConnections?.(); } catch { /* already */ }
+      up.close(() => resolve());
+      setTimeout(resolve, 400).unref?.();
+    });
+    config.apiBase = prev.apiBase;
+    config.port = prev.port;
+    config.walletPath = prev.walletPath;
+    if (prev.noTopup == null) delete process.env.OPENZOO_NO_AUTOTOPUP;
+    else process.env.OPENZOO_NO_AUTOTOPUP = prev.noTopup;
+    if (prev.sessionPath == null) delete process.env.OPENZOO_SESSION_PATH;
+    else process.env.OPENZOO_SESSION_PATH = prev.sessionPath;
+    resetZooModelIdsCache();
+  });
+
+  const port = proxy.server.address().port;
+  const post = (model, extra = {}) => fetch(`http://127.0.0.1:${port}/v1/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({
+      model,
+      max_tokens: 16,
+      messages: [{ role: 'user', content: 'Is this command safe? Reply yes or no.' }],
+      ...extra,
+    }),
+  });
+
+  for (const id of ['claude-opus-5', 'claude-opus-5-fast', 'claude-3-5-opus', 'claude-opus-5[1m]']) {
+    const r = await post(id);
+    const text = await r.text();
+    assert.notEqual(r.status, 500, `${id} must not 500: ${text}`);
+    assert.doesNotMatch(text, /unknown model|temporarily unavailable/i);
+    assert.equal(r.status, 200, `${id} expected 200, got ${r.status} ${text}`);
+    const msg = JSON.parse(text);
+    const content = msg.content ?? msg.choices?.[0]?.message?.content;
+    assert.match(JSON.stringify(content), /yes/, `body: ${text}`);
+  }
+
+  const forwarded = seen.filter((h) => h.model != null);
+  assert.ok(forwarded.length >= 1, `expected an upstream POST, got ${JSON.stringify(seen)}`);
+  for (const hit of forwarded) {
+    assert.ok(String(hit.model).includes('/'), `upstream must not see a bare Anthropic id: ${hit.model}`);
+    assert.notEqual(hit.model, 'claude-opus-5');
+    assert.notEqual(hit.model, 'claude-opus-5-fast');
+    assert.notEqual(hit.model, 'claude-3-5-opus');
+  }
+  // Tiny classify pins to flash; that is a live priced id, not the bare one.
+  assert.ok(forwarded.some((h) => h.model === 'google/gemini-3.7-flash'));
+
+  const probe = await fetch(`http://127.0.0.1:${port}/v1/models/claude-opus-5`);
+  assert.equal(probe.status, 200);
+  assert.equal((await probe.json()).id, 'claude-opus-5');
+
+  // Non-tiny chat with the same bare id must also rewrite (not only classify).
+  const fat = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({
+      model: 'claude-opus-5',
+      max_tokens: 2000,
+      messages: Array.from({ length: 20 }, (_, i) => ({
+        role: i % 2 ? 'assistant' : 'user',
+        content: `turn ${i} ${'x'.repeat(500)}`,
+      })),
+    }),
+  });
+  const fatText = await fat.text();
+  assert.equal(fat.status, 200, `fat claude-opus-5 expected 200, got ${fat.status} ${fatText}`);
+  const last = seen[seen.length - 1];
+  assert.equal(last.model, 'anthropic/claude-opus-5');
 });
