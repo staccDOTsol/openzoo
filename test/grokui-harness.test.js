@@ -568,5 +568,84 @@ test('AUTO loop stop: 500/empty/pay do not enqueue AUTO_CONTINUE; same RUN twice
   assert.equal(r.claudeEmpty, 1);
   assert.equal(r.claude500, 1);
   assert.equal(r.claudePay, 1);
-  assert.equal(r.hopsAfterCap, 0);
+    assert.equal(r.hopsAfterCap, 0);
+});
+
+test('Auto Claude: never --model openzoo/auto, persist session for resume, never inject NUDGE', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-claude-session-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 27000 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.HOME = ${JSON.stringify(dir)};
+    process.env.OZ_WORKSPACE_DIR = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    const assert = (await import('node:assert/strict')).default;
+    const { readFileSync } = await import('node:fs');
+    const path = await import('node:path');
+    const {
+      newThread, runTurn, setBrainAskForTest, setRunTurnForTest, setClaudeRunnerForTest,
+      enqueueAutoHop, persistUserTurn, persistClaudeSession, claudeModelArg,
+      NUDGE, AUTO_CONTINUE,
+    } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+
+    assert.equal(claudeModelArg('openzoo/auto'), undefined);
+    assert.equal(claudeModelArg('openzoo-claude-sonnet-5'), 'openzoo-claude-sonnet-5');
+
+    const hops = [];
+    setRunTurnForTest((id, text) => { hops.push(String(text || '')); return Promise.resolve(); });
+    const nudgeT = newThread('nudge-never', null);
+    nudgeT.runMode = 'auto';
+    assert.equal(enqueueAutoHop(nudgeT, nudgeT.id, NUDGE), false, 'NUDGE must never enqueue as a user turn');
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(hops.length, 0);
+    assert.equal(nudgeT.autoStopped, true);
+    const nudged = persistUserTurn(nudgeT, NUDGE);
+    assert.equal(nudged.skipped, true);
+    assert.ok(!(nudgeT.messages || []).some((m) => m.role === 'user' && String(m.content || '').includes('announced work')),
+      'NUDGE must not become a user message');
+    setRunTurnForTest(null);
+
+    setBrainAskForTest(() => { throw new Error('Auto must not fall through to chat/completions'); });
+    const pin = newThread('auto-pin', null);
+    pin.runMode = 'auto';
+    pin.model = 'openzoo/auto';
+    const seen = [];
+    setClaudeRunnerForTest(async ({ model, sessionId, onEvent }) => {
+      seen.push({ model, sessionId });
+      onEvent?.({ kind: 'init', sessionId: 'sess-fate' });
+      return {
+        text: 'target/sbpf-solana-solana/release/fate.so already exists',
+        sessionId: 'sess-fate', error: false, paymentFailed: '',
+      };
+    });
+    await runTurn(pin.id, 'compile fate.so');
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].model, undefined, 'never pass openzoo/auto as Claude --model');
+    assert.equal(pin.claudeSessionId, 'sess-fate');
+    assert.equal(persistClaudeSession(pin, 'sess-fate'), false, 'same session is already flushed');
+    const store = path.join(${JSON.stringify(dir)}, '.openzoo', 'grokui-threads.json');
+    const disk = JSON.parse(readFileSync(store, 'utf8')).find((x) => x.id === pin.id);
+    assert.equal(disk.claudeSessionId, 'sess-fate', 'session must be on disk before the next hop');
+    assert.ok(disk.history.some((h) => h.who === 'user' && h.text === 'compile fate.so'));
+    assert.match(disk.history.map((h) => h.text).join('\\n'), /fate\\.so already exists/);
+
+    await runTurn(pin.id, 'where is fate.so');
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(seen.length, 2);
+    assert.equal(seen[1].sessionId, 'sess-fate', 'second hop must --resume the saved session');
+    assert.equal(seen[1].model, undefined);
+
+    console.log(JSON.stringify({ ok: true, hops: hops.length, seen: seen.length, session: pin.claudeSessionId }));
+    process.exit(0);
+  `);
+  const out = await runChild(script);
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result: ' + out);
+  const r = JSON.parse(line);
+  assert.equal(r.ok, true);
+  assert.equal(r.hops, 0);
+  assert.equal(r.seen, 2);
+  assert.equal(r.session, 'sess-fate');
 });

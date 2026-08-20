@@ -4,7 +4,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
-  claudeInteractiveArgs, foldClaudeEvent, foldTuiText, stripAnsi,
+  claudeInteractiveArgs, claudeModelArg, foldClaudeEvent, foldTuiText, stripAnsi,
   sanitizeClaudeOutput, looksRawToolJson, tuiLooksIdle, TinyTerm,
   toolStatusLine, paymentFailText, GROKUI_RESERVED_SLASH,
   AUTO_CLAUDE_SYSTEM, CLAUDE_MISSING, PTY_WINDOWS,
@@ -28,6 +28,27 @@ test('claudeInteractiveArgs is the TUI, not --print stream-json', () => {
   assert.ok(args.includes('s1'));
   assert.ok(!args.includes('write hello'), 'prompt is written to PTY stdin, not argv');
   assert.deepEqual([...GROKUI_RESERVED_SLASH], ['mode', 'tier', 'help', 'dir']);
+});
+
+test('claudeInteractiveArgs never passes --model openzoo/auto', () => {
+  assert.equal(claudeModelArg('openzoo/auto'), undefined);
+  assert.equal(claudeModelArg('openzoo-auto'), undefined);
+  assert.equal(claudeModelArg('auto'), undefined);
+  assert.equal(claudeModelArg(''), undefined);
+  assert.equal(claudeModelArg(undefined), undefined);
+  assert.equal(claudeModelArg('openzoo-claude-sonnet-5'), 'openzoo-claude-sonnet-5');
+  for (const id of ['openzoo/auto', 'openzoo-auto', 'auto', '', undefined]) {
+    const args = claudeInteractiveArgs({ model: id });
+    assert.equal(args.includes('--model'), false, String(id));
+    assert.equal(args.includes('openzoo/auto'), false, String(id));
+  }
+  const pinned = claudeInteractiveArgs({ model: 'openzoo-claude-sonnet-5' });
+  assert.ok(pinned.includes('--model'));
+  assert.ok(pinned.includes('openzoo-claude-sonnet-5'));
+  const resumed = claudeInteractiveArgs({ sessionId: 'sess-fate', model: 'openzoo/auto' });
+  assert.ok(resumed.includes('--resume'));
+  assert.ok(resumed.includes('sess-fate'));
+  assert.equal(resumed.includes('--model'), false);
 });
 
 test('foldClaudeEvent still maps leaked stream-json, not RUN:/WRITE: text', () => {

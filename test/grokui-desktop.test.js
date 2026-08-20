@@ -397,8 +397,12 @@ test('AUTO loop stop: 5xx/empty/pay never hop; same RUN capped; empty PTY does n
   assert.match(grokui, /lastRunFailed/);
   const autoFn = fnBody(grokui, 'runAutoClaudeTurn');
   assert.doesNotMatch(autoFn, /enqueueAutoHop\(/);
+  assert.match(autoFn, /claudeModelArg\(t\.model\)/);
+  assert.match(autoFn, /persistClaudeSession/);
+  assert.match(grokui, /function persistClaudeSession/);
   assert.match(grokui, /AUTO_EMPTY_PTY_STOP/);
   assert.match(grokui, /identicalCommandCapped/);
+  assert.doesNotMatch(grokui, /enqueueAutoHop\(t, threadId, NUDGE/);
   assert.doesNotMatch(fnBody(grokui, 'shouldKeepAuto'), /isEmptyToolResult\(userText\) \|\| isEmptyShownRun\(reply\)\) return true/);
 });
 
@@ -431,6 +435,8 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.doesNotMatch(claude, /'--print'/);
   assert.doesNotMatch(claude, /'--output-format'/);
   assert.doesNotMatch(claude, /'stream-json'/);
+  assert.match(claude, /export function claudeModelArg/);
+  assert.match(claude, /const pin = claudeModelArg\(model\)/);
   assert.match(claude, /export function claudeInteractiveArgs/);
   assert.match(claude, /spawnClaudePty/);
   assert.match(claude, /bypassPermissions/);
@@ -440,6 +446,8 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.match(grokui, /CLAUDE_SLASH_IN_AUTO/);
   assert.match(grokui, /closeClaudeSession/);
   assert.match(autoFn, /sessionKey: t\.id/);
+  assert.match(autoFn, /claudeModelArg\(t\.model\)/);
+  assert.match(grokui, /claudeModelArg/);
 });
 
 test('install docs ship Mac nvm+openzoo claude and Windows nvm-windows, not extra steps', () => {
