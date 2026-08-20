@@ -93,8 +93,13 @@ function overlayRepoOpenzooSidecar(stagedNM, projectDir) {
     'lib/modelroute.js',
     'lib/models.js',
     'lib/proxy.js',
+    'lib/modelroute/catalog.json',
+    'lib/modelroute/router.json',
+    'lib/modelroute/outcomes.json',
+    'lib/modelroute/README.md',
     'vendor/modelroute/catalog.json',
     'vendor/modelroute/router.json',
+    'vendor/modelroute/outcomes.json',
     'vendor/modelroute/HANDOFF.md',
     'vendor/modelroute/CURRENT_STATE.md',
   ];

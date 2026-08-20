@@ -4,6 +4,6 @@ __pycache__/
 grokui-app/dist/
 lib/proxy.js.bak
 .openzoo/
-# machine-local modelroute posteriors — mergeable, never commit
+# machine-local live posteriors — shipped suite tables stay in
+# lib/modelroute/outcomes.json and vendor/modelroute/outcomes.json
 **/modelroute-outcomes.json
-vendor/modelroute/outcomes.json

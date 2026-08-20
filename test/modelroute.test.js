@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,9 @@ import {
   BIND_ABOVE_TOKENS,
   BIND_SLICE_TOKENS,
   resetModelrouteSingletons,
+  artifactDir,
+  shippedOutcomesPath,
+  getOutcomes,
 } from '../lib/modelroute.js';
 import { resolveModel, rewriteChatModel, publishModelList } from '../lib/models.js';
 
@@ -223,6 +226,43 @@ test('bind_ctx is not a routing window; bind_first uses the leCore slice', () =>
   assert.equal(nobind.bind_first, false);
   assert.equal(nobind.model, null);
   assert.equal(nobind.feasible_models, 0);
+});
+
+test('runtime loads lib/modelroute catalog, router, and shipped outcomes', () => {
+  resetModelrouteSingletons();
+  const prevOut = process.env.OPENZOO_MODELROUTE_OUTCOMES;
+  const prevDir = process.env.OPENZOO_MODELROUTE_DIR;
+  const tmp = mkdtempSync(path.join(tmpdir(), 'oz-ship-'));
+  delete process.env.OPENZOO_MODELROUTE_DIR;
+  process.env.OPENZOO_MODELROUTE_OUTCOMES = path.join(tmp, 'live.json');
+  try {
+    const dir = artifactDir();
+    assert.equal(path.basename(dir), 'modelroute');
+    assert.ok(dir.replace(/\\/g, '/').endsWith('lib/modelroute'));
+    assert.equal(shippedOutcomesPath(), path.join(dir, 'outcomes.json'));
+    assert.ok(existsSync(path.join(dir, 'catalog.json')));
+    assert.ok(existsSync(path.join(dir, 'router.json')));
+    const shipped = JSON.parse(readFileSync(shippedOutcomesPath(), 'utf8'));
+    const n = Object.values(shipped).reduce((a, p) => a + (p[1] || 0), 0);
+    assert.equal(Object.keys(shipped).length, 341);
+    assert.equal(n, 3832);
+    const out = getOutcomes();
+    assert.equal(Object.keys(out.shipped).length, 341);
+    const [p, obs] = out.posterior('agentic', 'anthropic/claude-sonnet-5', 0.45);
+    assert.equal(obs, 9);
+    assert.ok(p > 0.45, `measured posterior should beat the prior, got ${p}`);
+    out.record('code', 'test/live-only', true);
+    const disk = JSON.parse(readFileSync(process.env.OPENZOO_MODELROUTE_OUTCOMES, 'utf8'));
+    assert.deepEqual(disk, { 'code|test/live-only': [1, 1] });
+    assert.equal(Object.keys(disk).length, 1);
+  } finally {
+    resetModelrouteSingletons();
+    if (prevOut === undefined) delete process.env.OPENZOO_MODELROUTE_OUTCOMES;
+    else process.env.OPENZOO_MODELROUTE_OUTCOMES = prevOut;
+    if (prevDir === undefined) delete process.env.OPENZOO_MODELROUTE_DIR;
+    else process.env.OPENZOO_MODELROUTE_DIR = prevDir;
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test('outcomes file is mergeable {class|model: [successes, attempts]}', () => {
