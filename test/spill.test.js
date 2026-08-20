@@ -14,6 +14,8 @@ import {
   readFilesForCorpus,
   boundAbsFromKeys,
   stubBoundFileResults,
+  corpusRecall,
+  recallReturnedBytes,
   looksLikeFileView,
   resolveReadablePath,
   corpusCharsForSend,
@@ -32,6 +34,8 @@ import {
   sliceChars,
   currentToolRound,
   KEEP_TOOL_CHARS,
+  FAT_TOOL_CHARS,
+  SHRINK_OVER,
   hudDollarX,
   isLiveFileTool,
   LAST_SEND_TIGHTEN,
@@ -1740,4 +1744,129 @@ test('cold-bind: first session call may go unspilled; later call recalls tail + 
   assert.ok(tail.length < secondMsgs.length, 'second call forwards a tail, not the full thread');
   assert.ok(t2.corpus.startsWith(t1.corpus), 'later prefix continues the bound corpus');
   assert.ok(t2.bindPlan.append, 'grown transcript appends a delta');
+});
+
+/**
+ * SHRINK_OVER fixture: older completed Read (stub-eligible) + current small
+ * round + ask. Tail is over a tight budget. Body stays under FAT_TOOL_CHARS
+ * so only the over-budget path (not fat/aggressive) can rewrite it.
+ */
+function shrinkOverFixture({
+  bound = true,
+  body = `UNIQUE_SHRINK_OVER_BODY ${'X'.repeat(180)}`,
+  abs = '/tmp/shrink-over.rs',
+} = {}) {
+  assert.ok(body.length < FAT_TOOL_CHARS, 'fixture body must miss the fat first-pass');
+  const ask = 'what was in shrink-over.rs?';
+  const current = 'CURRENT_ROUND_SMALL';
+  const msgs = [
+    { role: 'system', content: 'You are a coding agent.' },
+    { role: 'user', content: 'read the file' },
+    {
+      role: 'assistant',
+      tool_calls: [{
+        id: 'old',
+        type: 'function',
+        function: { name: 'Read', arguments: JSON.stringify({ file_path: abs }) },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'old', content: body },
+    {
+      role: 'assistant',
+      tool_calls: [{
+        id: 'cur',
+        type: 'function',
+        function: { name: 'Read', arguments: JSON.stringify({ file_path: '/tmp/other.rs' }) },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'cur', content: current },
+    { role: 'user', content: ask },
+  ];
+  return {
+    msgs,
+    abs,
+    body,
+    ask,
+    current,
+    boundFiles: bound ? new Set([`${abs}:1`]) : new Set(),
+  };
+}
+
+test('recallReturnedBytes is false on empty / miss / no hook', () => {
+  const body = 'UNIQUE_SHRINK_OVER_BODY xxxxx';
+  assert.equal(recallReturnedBytes(null, { content: body }), false);
+  assert.equal(recallReturnedBytes(() => '', { content: body }), false);
+  assert.equal(recallReturnedBytes(() => 'unrelated slice', { content: body }), false);
+  assert.equal(recallReturnedBytes(() => body.slice(0, 24), { content: body }), true);
+  assert.equal(SHRINK_OVER, 6000);
+});
+
+test('SHRINK_OVER + successful recall of the file bytes → [bound] stub allowed', () => {
+  const { msgs, body, abs, boundFiles, current } = shrinkOverFixture({ bound: true });
+  const recall = corpusRecall(`FILE ${abs}\n${body}`);
+  assert.equal(recallReturnedBytes(recall, { content: body, paths: [abs] }), true);
+  const got = stubBoundFileResults(msgs, { boundFiles, budget: 200, recall });
+  const older = got.messages.find((m) => m.tool_call_id === 'old');
+  assert.match(older.content, /\[bound, \d+ chars\]/);
+  assert.doesNotMatch(older.content, /UNIQUE_SHRINK_OVER_BODY/);
+  assert.equal(got.messages.find((m) => m.tool_call_id === 'cur')?.content, current);
+  assert.ok(got.stubbed >= 1);
+});
+
+test('SHRINK_OVER + recall empty / miss → body stays, no [bound] stub', () => {
+  const { msgs, body, boundFiles, current } = shrinkOverFixture({ bound: true });
+  const misses = [
+    () => '',
+    () => null,
+    () => ({ text: '' }),
+    () => 'unrelated recall slice that does not overlap',
+  ];
+  for (const recall of misses) {
+    const got = stubBoundFileResults(msgs, { boundFiles, budget: 200, recall });
+    const older = got.messages.find((m) => m.tool_call_id === 'old');
+    assert.equal(older.content, body, 'lying [bound] stub is forbidden on a recall miss');
+    assert.doesNotMatch(older.content, /\[bound/);
+    assert.equal(got.messages.find((m) => m.tool_call_id === 'cur')?.content, current);
+  }
+});
+
+test('SHRINK_OVER + never bound → body stays', () => {
+  const { msgs, body, current } = shrinkOverFixture({ bound: false });
+  const noHook = stubBoundFileResults(msgs, { boundFiles: new Set(), budget: 200 });
+  assert.equal(noHook.messages.find((m) => m.tool_call_id === 'old')?.content, body);
+  assert.doesNotMatch(noHook.messages.find((m) => m.tool_call_id === 'old')?.content, /\[bound/);
+  assert.equal(noHook.messages.find((m) => m.tool_call_id === 'cur')?.content, current);
+
+  const miss = stubBoundFileResults(msgs, {
+    boundFiles: new Set(),
+    budget: 200,
+    recall: () => '',
+  });
+  assert.equal(miss.messages.find((m) => m.tool_call_id === 'old')?.content, body);
+  assert.doesNotMatch(miss.messages.find((m) => m.tool_call_id === 'old')?.content, /\[bound/);
+});
+
+test('SHRINK_OVER never stubs the in-flight tool round even when recall hits', () => {
+  const abs = '/tmp/shrink-over-live.rs';
+  const body = `INFLIGHT_SHRINK_OVER_EYES ${'Z'.repeat(500)}`;
+  const msgs = [
+    { role: 'user', content: 'read it now' },
+    {
+      role: 'assistant',
+      tool_calls: [{
+        id: 'live',
+        function: { name: 'Read', arguments: JSON.stringify({ file_path: abs }) },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'live', content: body },
+  ];
+  const recall = corpusRecall(`FILE ${abs}\n${body}`);
+  const got = stubBoundFileResults(msgs, {
+    boundFiles: new Set([`${abs}:1`]),
+    budget: 80,
+    recall,
+  });
+  const live = got.messages.find((m) => m.tool_call_id === 'live');
+  assert.equal(live.content, body);
+  assert.doesNotMatch(live.content, /\[bound/);
 });
