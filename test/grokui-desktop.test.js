@@ -100,6 +100,9 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
   assert.match(grokui, /WORKING SET:/);
   assert.match(grokui, /function childKickoff/);
   assert.match(grokui, /childKickoff\(threads\.get\(originId\), target\.name, msg, \{ fresh: false \}\)/);
+  // Repeat SPAWN is a wake, not another CONTEXT REFRESH.
+  assert.match(grokui, /wakeOnPing\(existing\)/);
+  assert.doesNotMatch(grokui, /runTurn\(existing\.id, childKickoff/);
 });
 
 test('openzoo and grokui-app versions bump together', () => {
@@ -147,6 +150,11 @@ test('ping-all wakes the crew without a prompt or /all modal', () => {
   assert.doesNotMatch(pingHandler, /task: '\/all /);
   assert.match(pingHandler, /task: '\/ping'/);
   assert.match(grokui, /wake idle bots below you/);
+  assert.match(grokui, /Never childKickoff/);
+  const wakeAt = grokui.indexOf('function wakeOnPing');
+  const wakeFn = grokui.slice(wakeAt, grokui.indexOf('// Ceiling on subagents', wakeAt));
+  assert.doesNotMatch(wakeFn, /childKickoff\s*\(/);
+  assert.match(wakeFn, /pingWakeText/);
 });
 
 test('wallet modal offers Stripe subscriptions next to x402', () => {
