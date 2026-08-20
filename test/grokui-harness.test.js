@@ -702,20 +702,18 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
     assert.doesNotMatch(missAuto.history.map((h) => h.text).join('\\n'), /npx -y openzoo-claude/);
     assert.equal(missAuto.status, 'idle');
 
-    process.env.OZ_AUTO_CLAUDE_PTY_MS = '80';
-    setClaudeRunnerForTest(() => new Promise(() => { /* never resolves */ }));
-    setBrainAskForTest(() => 'hi from completions after hung pty');
-    const hungPty = newThread('hung-pty-auto', null);
-    hungPty.runMode = 'auto';
-    const hungT0 = Date.now();
-    await runTurn(hungPty.id, 'hi');
-    assert.ok(Date.now() - hungT0 < 4000, 'hung PTY must settle via the 3s cap, not forever');
-    assert.ok(hungPty.history.some((h) => h.who === 'user' && h.text === 'hi'), 'persist the user turn');
-    assert.equal(hungPty.history.filter((h) => h.who === 'bot').pop().text, 'hi from completions after hung pty');
-    assert.doesNotMatch(hungPty.history.map((h) => h.text).join('\\n'), /\\(no response\\)/);
-    assert.equal(hungPty.status, 'idle');
-    assert.notEqual(hungPty.liveStatus, 'waiting on model…');
-    delete process.env.OZ_AUTO_CLAUDE_PTY_MS;
+    setBrainAskForTest(() => { throw new Error('real Claude reply must not fall through to completions'); });
+    setClaudeRunnerForTest(async () => ({
+      text: 'Claude Code finished the send', error: false, paymentFailed: '', sessionId: 'sess-waitidle',
+    }));
+    const realPty = newThread('waitidle-reply-auto', null);
+    realPty.runMode = 'auto';
+    await runTurn(realPty.id, 'hi');
+    assert.ok(realPty.history.some((h) => h.who === 'user' && h.text === 'hi'), 'persist the user turn');
+    assert.equal(realPty.history.filter((h) => h.who === 'bot').pop().text, 'Claude Code finished the send');
+    assert.doesNotMatch(realPty.history.map((h) => h.text).join('\\n'), /\\(no response\\)/);
+    assert.equal(realPty.status, 'idle');
+    assert.notEqual(realPty.liveStatus, 'waiting on model…');
 
     let askClaude = 0;
     setClaudeRunnerForTest(async () => {

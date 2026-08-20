@@ -8,8 +8,9 @@ import {
   sanitizeClaudeOutput, looksRawToolJson, tuiLooksIdle, TinyTerm,
   toolStatusLine, paymentFailText, GROKUI_RESERVED_SLASH,
   AUTO_CLAUDE_SYSTEM, CLAUDE_MISSING, PTY_WINDOWS,
-  spawnClaudeInteractive, setClaudeRunnerForTest, runClaudeCode,
+  spawnClaudeInteractive, setClaudeRunnerForTest, runClaudeCode, waitIdle,
   sanitizeClaudeCanvas, looksBinaryCanvas, canvasHttpErrorLine,
+  WAIT_IDLE_HARD_MS,
 } from '../lib/claudecode.js';
 import { claudeZooEnv } from '../lib/launch.js';
 
@@ -230,6 +231,57 @@ test('spawnClaudeInteractive PTY runs /agents — not the print-mode stub', asyn
   assert.ok(events.some((e) => (e.text || '').includes('Agents') || (e.kind === 'tui' && /Agents/.test(e.text || ''))));
 });
 
+function mockPtySession({ text = '', term = '', dead = false } = {}) {
+  const listeners = new Set();
+  const sess = {
+    dead,
+    _text: text,
+    _term: term,
+    term: { text: () => sess._term },
+    screenText: () => ({ text: sess._text, thinking: sess._thinking || '' }),
+    onEvent(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    emit(ev) {
+      for (const fn of listeners) fn(ev);
+    },
+    paint({ text, term, thinking } = {}) {
+      if (text != null) sess._text = text;
+      if (term != null) sess._term = term;
+      if (thinking != null) sess._thinking = thinking;
+    },
+  };
+  return sess;
+}
+
+test('waitIdle hard-cap settles when think events never stop', async () => {
+  assert.equal(WAIT_IDLE_HARD_MS, 90_000);
+  const sess = mockPtySession({ term: '✻ Thinking…', text: '' });
+  const iv = setInterval(() => sess.emit({ kind: 'think', text: '…' }), 15);
+  const t0 = Date.now();
+  await waitIdle(sess, { hardCapMs: 200, minWait: 10, promptWaitMs: 5_000 });
+  clearInterval(iv);
+  const elapsed = Date.now() - t0;
+  assert.ok(elapsed >= 160, `hard cap must hold (~200ms), got ${elapsed}ms`);
+  assert.ok(elapsed < 900, `think loop must not hang waitIdle, got ${elapsed}ms`);
+});
+
+test('waitIdle finishes early on visible assistant text and idle', async () => {
+  const sess = mockPtySession();
+  const t0 = Date.now();
+  const p = waitIdle(sess, { hardCapMs: 5_000, minWait: 10, promptWaitMs: 5_000 });
+  setTimeout(() => {
+    sess.paint({ text: 'Wrote hello.txt', term: 'Wrote hello.txt\n> ' });
+    sess.emit({ kind: 'tui', text: 'Wrote hello.txt' });
+  }, 25);
+  await p;
+  const elapsed = Date.now() - t0;
+  assert.ok(elapsed < 600, `visible+idle must finish early, got ${elapsed}ms`);
+  assert.equal(sess.screenText().text, 'Wrote hello.txt');
+  assert.notEqual(sess.screenText().text, '(no response)');
+});
+
 test('runClaudeCode override and missing CLI', async () => {
   setClaudeRunnerForTest(async ({ prompt }) => ({
     text: 'overridden ' + prompt, sessionId: 'x', error: false, paymentFailed: '',
@@ -251,4 +303,76 @@ test('runClaudeCode override and missing CLI', async () => {
   assert.doesNotMatch(CLAUDE_MISSING, /install\.sh/);
   assert.doesNotMatch(CLAUDE_MISSING, /claude\.ai/);
   assert.match(PTY_WINDOWS, /node-pty/);
+});
+
+function writeReplyIdleClaude(dir) {
+  const cli = path.join(dir, 'openzoo-claude');
+  writeFileSync(cli, `#!/usr/bin/env node
+process.stdout.write('session_id=sess-reply-1\\n> ');
+let buf = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (d) => {
+  buf += d;
+  const parts = buf.split(/\\r\\n|\\n|\\r/);
+  buf = parts.pop() || '';
+  for (const raw of parts) {
+    const line = raw.replace(/\\r/g, '').trim();
+    if (!line) continue;
+    process.stdout.write('The files are written.\\n> ');
+  }
+});
+`);
+  chmodSync(cli, 0o755);
+  return cli;
+}
+
+function writeThinkForeverClaude(dir) {
+  const cli = path.join(dir, 'openzoo-claude');
+  writeFileSync(cli, `#!/usr/bin/env node
+process.stdout.write('session_id=sess-think-1\\n> ');
+let buf = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (d) => {
+  buf += d;
+  if (!buf.trim()) return;
+  const tick = () => process.stdout.write('\\x1b[2m✻ Thinking…\\x1b[0m\\n');
+  tick();
+  setInterval(tick, 20);
+});
+`);
+  chmodSync(cli, 0o755);
+  return cli;
+}
+
+test('spawnClaudeInteractive reply + idle is that reply, not (no response)', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-pty-reply-'));
+  const cli = writeReplyIdleClaude(dir);
+  const r = await spawnClaudeInteractive({
+    cli,
+    args: ['--permission-mode', 'bypassPermissions'],
+    cwd: dir,
+    env: { ...process.env, TERM: 'xterm-256color' },
+    prompt: 'write the files',
+    waitIdleMs: 4000,
+  });
+  assert.match(r.text, /The files are written/);
+  assert.notEqual(r.text.trim(), '(no response)');
+  assert.doesNotMatch(r.text, /\(no response\)/);
+});
+
+test('spawnClaudeInteractive infinite think settles at waitIdle hard-cap', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-pty-think-'));
+  const cli = writeThinkForeverClaude(dir);
+  const t0 = Date.now();
+  const r = await spawnClaudeInteractive({
+    cli,
+    args: ['--permission-mode', 'bypassPermissions'],
+    cwd: dir,
+    env: { ...process.env, TERM: 'xterm-256color' },
+    prompt: 'think forever',
+    waitIdleMs: 400,
+  });
+  const elapsed = Date.now() - t0;
+  assert.ok(elapsed < 3000, `think-forever PTY must settle via cap, got ${elapsed}ms`);
+  assert.doesNotMatch(String(r.text || ''), /wizard removed/);
 });
