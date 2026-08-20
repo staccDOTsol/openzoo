@@ -105,11 +105,30 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
   // Repeat SPAWN is a wake, not another CONTEXT REFRESH.
   assert.match(grokui, /wakeOnPing\(existing\)/);
   assert.doesNotMatch(grokui, /runTurn\(existing\.id, childKickoff/);
+  // Kids must not inherit p.dir (testingcluade). Isolation is prepareChildDir.
+  assert.doesNotMatch(grokui, /\.\.\.\(p\?\.dir \? \{ dir: p\.dir \} : \{\}\)/);
+  assert.match(grokui, /function attachChildDir/);
+  assert.match(grokui, /prepareChildDir/);
+  assert.doesNotMatch(grokui, /type  \/dir <path>  if you need one/);
 });
 
 test('openzoo and grokui-app versions bump together', () => {
   assert.equal(ozPkg.version, '0.48.99');
   assert.equal(appPkg.version, '1.5.77');
+});
+
+test('desktop grokui ships dugite so Finder has git without PATH', () => {
+  assert.ok(ozPkg.dependencies.dugite, 'openzoo depends on dugite');
+  assert.ok(appPkg.dependencies.dugite, 'packaged grokui-app depends on dugite');
+  const afterPack = readFileSync(path.join(root, 'grokui-app', 'build', 'afterPack.js'), 'utf8');
+  assert.match(afterPack, /ensureDugiteGit/);
+  assert.match(afterPack, /download-git\.js/);
+  const wt = readFileSync(path.join(root, 'lib', 'worktree.mjs'), 'utf8');
+  assert.match(wt, /from 'dugite'/);
+  assert.match(wt, /setupEnvironment/);
+  assert.match(wt, /bundledGitPath/);
+  assert.doesNotMatch(wt, /bin:\s*'git'/);
+  assert.match(wt, /will not call PATH git/);
 });
 
 test('pay modal lists the card subscribe lane before wallet/x402', () => {
