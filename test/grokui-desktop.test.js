@@ -103,8 +103,8 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.87');
-  assert.equal(appPkg.version, '1.5.65');
+  assert.equal(ozPkg.version, '0.48.88');
+  assert.equal(appPkg.version, '1.5.66');
 });
 
 test('the box image does not bake or decrypt encrypted ProofFront', () => {
