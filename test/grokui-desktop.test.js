@@ -712,7 +712,7 @@ test('afterPack overlays sidecar spill/runguard into node_modules/openzoo and bi
   // node_modules/openzoo/bin/openzoo.js, so a missing overlay leaves npm's
   // 16k spill in the dmg even though repo lib/spill.js binds at 2k.
   const afterPack = require('../grokui-app/build/afterPack.js');
-  const required = ['lib/spill.js', 'lib/runguard.js', 'lib/racesettle.js', 'lib/hrr.js', 'lib/livestatus.js', 'lib/think.js'];
+  const required = ['lib/spill.js', 'lib/runguard.js', 'lib/racesettle.js', 'lib/hrr.js', 'lib/retrieve.js', 'lib/livestatus.js', 'lib/think.js'];
   for (const rel of required) {
     assert.equal(afterPack.OPENZOO_SIDECAR_OVERLAY.includes(rel), true, rel);
   }

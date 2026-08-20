@@ -110,6 +110,7 @@ const OPENZOO_SIDECAR_REQUIRED = [
   'lib/runguard.js',
   'lib/racesettle.js',
   'lib/hrr.js',
+  'lib/retrieve.js',
   'lib/proxy.js',
   'bin/openzoo.js',
 ];
