@@ -5,7 +5,22 @@ import {
   looksLikeDirectiveAsBash, isFailedExecOutput, looksLikeGrepIds,
   hasCompileArtifact, extractLastBashCommand, extractLastBashStdout,
   countNearIdenticalBashRuns, createBashLoopTracker, bashStopText,
+  parseWriteDirective, writeDirectiveStopText,
 } from '../lib/bashloop.js';
+
+test('WRITE:path as bash maps to a write, never a shell command', () => {
+  assert.deepEqual(parseWriteDirective('WRITE:5d_chess.py'), { path: '5d_chess.py', content: null });
+  assert.equal(parseWriteDirective('WRITE: 5d_chess.py | print("hi")').path, '5d_chess.py');
+  assert.match(parseWriteDirective('WRITE: 5d_chess.py | print("hi")').content, /print\("hi"\)/);
+  assert.equal(parseWriteDirective('Do not emit RUN:/WRITE:/DONE: text'), null);
+  const t = createBashLoopTracker();
+  const d = t.decide('sid', 'WRITE:5d_chess.py');
+  assert.equal(d.stop, true);
+  assert.equal(d.reason, 'ask-directive');
+  assert.match(d.text, /Write tool/);
+  assert.doesNotMatch(d.text, /command not found/);
+  assert.match(writeDirectiveStopText({ path: '5d_chess.py' }), /WRITE:5d_chess\.py/);
+});
 
 test('WRITE:/READ: as bash is a harness directive, not a shell command', () => {
   assert.equal(looksLikeDirectiveAsBash('WRITE:5d_chess.py'), true);

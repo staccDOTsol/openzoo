@@ -403,6 +403,9 @@ test('AUTO loop stop: 5xx/empty/pay never hop; same RUN capped; empty PTY does n
   assert.match(grokui, /AUTO_EMPTY_PTY_STOP/);
   assert.match(grokui, /identicalCommandCapped/);
   assert.doesNotMatch(grokui, /enqueueAutoHop\(t, threadId, NUDGE/);
+  assert.match(grokui, /function isAskHarnessInjection/);
+  assert.match(grokui, /function applyWriteDirective/);
+  assert.doesNotMatch(grokui, /extras\.push\(\{ role: 'system', content: AUTO_DIRECTIVE \}\)/);
   assert.doesNotMatch(fnBody(grokui, 'shouldKeepAuto'), /isEmptyToolResult\(userText\) \|\| isEmptyShownRun\(reply\)\) return true/);
 });
 
@@ -421,6 +424,9 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.doesNotMatch(autoFn, /tryDirective\(/);
   assert.doesNotMatch(autoFn, /enqueueAutoHop\(/);
   assert.doesNotMatch(autoFn, /AUTO_DIRECTIVE/);
+  assert.doesNotMatch(autoFn, /NUDGE/);
+  assert.doesNotMatch(autoFn, /AUTO_CONTINUE/);
+  assert.match(fnBody(grokui, 'autoClaudePrompt'), /isAskHarnessInjection/);
   assert.doesNotMatch(autoFn, /fetch\([^)]*chat\/completions/);
   assert.match(autoFn, /type: 'tool'/);
   assert.match(autoFn, /sanitizeClaudeCanvas/);

@@ -500,9 +500,9 @@ test('AUTO loop stop: 500/empty/pay do not enqueue AUTO_CONTINUE; same RUN twice
 
     const okHop = newThread('ok-hop', null);
     okHop.runMode = 'auto';
-    assert.equal(enqueueAutoHop(okHop, okHop.id, AUTO_CONTINUE), true);
-    await new Promise((r) => setTimeout(r, 80));
-    assert.ok(hops.includes(AUTO_CONTINUE), 'uncapped hop still works');
+    assert.equal(enqueueAutoHop(okHop, okHop.id, AUTO_CONTINUE), false, 'Auto-Claude must not enqueue AUTO_CONTINUE');
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(hops.length, 0, 'AUTO_CONTINUE must not become a user turn on Auto');
     hops.length = 0;
     setRunTurnForTest(null);
 
@@ -648,4 +648,80 @@ test('Auto Claude: never --model openzoo/auto, persist session for resume, never
   assert.equal(r.hops, 0);
   assert.equal(r.seen, 2);
   assert.equal(r.session, 'sess-fate');
+});
+
+test('Auto-Claude never receives AUTO_DIRECTIVE/NUDGE/AUTO_CONTINUE; WRITE: maps to writeFile', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-no-nudge-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 28000 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.HOME = ${JSON.stringify(dir)};
+    process.env.OZ_WORKSPACE_DIR = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    const assert = (await import('node:assert/strict')).default;
+    const { readFileSync, existsSync } = await import('node:fs');
+    const path = await import('node:path');
+    const {
+      newThread, runTurn, setBrainAskForTest, setClaudeRunnerForTest,
+      autoClaudePrompt, isAskHarnessInjection, applyWriteDirective, persistUserTurn,
+      enqueueAutoHop, NUDGE, AUTO_CONTINUE, AUTO_DIRECTIVE, AUTO_RACE_RETRY,
+    } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+
+    assert.equal(isAskHarnessInjection(NUDGE), true);
+    assert.equal(isAskHarnessInjection(AUTO_CONTINUE), true);
+    assert.equal(isAskHarnessInjection(AUTO_DIRECTIVE), true);
+    assert.equal(isAskHarnessInjection(AUTO_RACE_RETRY), true);
+    assert.equal(isAskHarnessInjection('write 5d chess'), false);
+    const t = newThread('prompt-t', null);
+    t.runMode = 'auto';
+    assert.equal(autoClaudePrompt(t, NUDGE), '');
+    assert.equal(autoClaudePrompt(t, AUTO_CONTINUE), '');
+    assert.equal(autoClaudePrompt(t, AUTO_DIRECTIVE), '');
+    assert.doesNotMatch(autoClaudePrompt(t, NUDGE), /WRITE:|RUN:|SPAWN:/);
+    assert.match(autoClaudePrompt(t, 'build 5d chess'), /build 5d chess/);
+
+    const hops = [];
+    setBrainAskForTest(() => { throw new Error('Ask chat-completions are not Auto'); });
+    const claude = [];
+    setClaudeRunnerForTest(async ({ prompt }) => {
+      claude.push(String(prompt || ''));
+      return { text: 'ok', sessionId: 's', error: false, paymentFailed: '' };
+    });
+    await runTurn(t.id, NUDGE);
+    await runTurn(t.id, AUTO_CONTINUE);
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(claude.length, 0, 'NUDGE/AUTO_CONTINUE must not reach the Claude PTY');
+    assert.ok(!(t.messages || []).some((m) => m.role === 'user' && String(m.content || '').includes('announced work')));
+    assert.ok(!(t.messages || []).some((m) => m.role === 'user' && String(m.content || '').includes('Please continue')));
+    assert.equal(enqueueAutoHop(t, t.id, NUDGE), false);
+    assert.equal(persistUserTurn(t, AUTO_CONTINUE).skipped, true);
+
+    const writer = newThread('write-map', null);
+    writer.runMode = 'auto';
+    writer.dir = ${JSON.stringify(dir)};
+    setClaudeRunnerForTest(async () => ({
+      text: 'WRITE: 5d_chess.py | print("ok")\\n',
+      sessionId: 'w', error: false, paymentFailed: '',
+    }));
+    await runTurn(writer.id, 'make 5d chess');
+    await new Promise((r) => setTimeout(r, 40));
+    const chess = path.join(${JSON.stringify(dir)}, '5d_chess.py');
+    assert.equal(existsSync(chess), true, 'WRITE: text on Auto must writeFile, not bash');
+    assert.match(readFileSync(chess, 'utf8'), /print\\("ok"\\)/);
+    assert.doesNotMatch(writer.history.map((h) => h.text).join('\\n'), /command not found/);
+
+    const refuse = applyWriteDirective(writer.id, 'WRITE: missing.py');
+    assert.match(refuse, /Write tool|not bash/);
+    assert.equal(existsSync(path.join(${JSON.stringify(dir)}, 'missing.py')), false);
+
+    console.log(JSON.stringify({ ok: true, claude: claude.length }));
+    process.exit(0);
+  `);
+  const out = await runChild(script);
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result: ' + out);
+  const r = JSON.parse(line);
+  assert.equal(r.ok, true);
+  assert.equal(r.claude, 0);
 });
