@@ -136,6 +136,36 @@ test('HUD sitrep and /cost paint Nx spilled vs Nx session, never unlabeled Nx', 
   assert.match(grokui, /HUD is spilled-call x when any call bound/);
 });
 
+test('always-on bottom-left dock HUD sits above #bar and keeps refreshing after ◎ closes', () => {
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.match(grokui, /id="dockHud"/);
+  assert.match(grokui, /data-component="dock-hud"/);
+  assert.match(grokui, /id="dockSpill"/);
+  assert.match(grokui, /id="dockSession"/);
+  assert.match(grokui, /id="dockPaid"/);
+  assert.match(grokui, /id="dockBind"/);
+  assert.match(grokui, /id="dockCalls"/);
+  assert.match(grokui, /#dockHud \{ position: absolute; left: 14px; bottom: 72px; z-index: 200;/);
+  assert.match(grokui, /#dockHud \{[\s\S]*?pointer-events: none/);
+  assert.match(grokui, /#hud \{[^}]*z-index: 300/);
+  assert.match(appHtml, /function paintDock/);
+  assert.match(appHtml, /function placeDockHud/);
+  assert.match(appHtml, /function ensureHudTick/);
+  assert.match(appHtml, /paintDock\(you\)/);
+  assert.match(appHtml, /ensureHudTick\(\)/);
+  assert.match(appHtml, /placeDockHud\(\)/);
+  assert.match(appHtml, /spillEl\.className = spillOn \? 'dv hlime' : 'dv'/);
+  assert.match(appHtml, /sessEl\.className = 'dv'/);
+  assert.match(appHtml, /bindEl\.textContent = bound \? 'yes' : 'no'/);
+  assert.doesNotMatch(appHtml, /else if \(hudTimer\) \{\s*clearInterval\(hudTimer\)/);
+  const hudBtn = appHtml.indexOf("hudBtn.addEventListener('click'");
+  const clearTick = appHtml.indexOf('clearInterval(hudTimer)', hudBtn);
+  assert.equal(clearTick, -1, 'closing ◎ must not stop the dock refresh');
+  const dockHtml = grokui.indexOf('id="dockHud"');
+  const barHtml = grokui.indexOf('<div id="bar">');
+  assert.ok(dockHtml > 0 && barHtml > dockHtml, 'dock sits in markup before #bar');
+});
+
 test('served APP_HTML <script> is valid JS (node --check)', () => {
   const src = grokui.replace(/\r\n/g, '\n');
   const start = src.indexOf('const APP_HTML = `');
