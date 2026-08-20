@@ -156,9 +156,26 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
   assert.doesNotMatch(grokui, /type  \/dir <path>  if you need one/);
 });
 
-test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.49.4');
-  assert.equal(appPkg.version, '1.5.82');
+test('packaged sidecar is the same openzoo as this repo', () => {
+  assert.equal(appPkg.dependencies.openzoo, ozPkg.version);
+  const lock = JSON.parse(readFileSync(path.join(root, 'grokui-app', 'package-lock.json'), 'utf8'));
+  const locked = lock.packages?.['node_modules/openzoo']?.version
+    || lock.dependencies?.openzoo?.version;
+  assert.equal(locked, ozPkg.version, 'grokui-app lockfile openzoo must match the repo');
+  const afterPack = readFileSync(path.join(root, 'grokui-app', 'build', 'afterPack.js'), 'utf8');
+  assert.match(afterPack, /function wantedOpenzooVersion/);
+  assert.match(afterPack, /stale \.prod-modules/);
+  assert.match(afterPack, /bundled openzoo is/);
+  assert.match(afterPack, /Refusing to pack a stale sidecar/);
+  const packed = [
+    path.join(root, 'grokui-app', 'node_modules', 'openzoo', 'package.json'),
+    path.join(root, 'grokui-app', 'dist', 'mac-arm64', 'openzoo.app', 'Contents', 'Resources', 'app', 'node_modules', 'openzoo', 'package.json'),
+  ];
+  for (const p of packed) {
+    if (existsSync(p)) {
+      assert.equal(JSON.parse(readFileSync(p, 'utf8')).version, ozPkg.version, p);
+    }
+  }
 });
 
 test('desktop grokui ships dugite so Finder has git without PATH', () => {
@@ -398,6 +415,36 @@ test('ensureProxy reuses a healthy :8402 and does not spawn over it', () => {
   // Occupied-port + hung session is NOT reuse — ping must time out.
   assert.match(main, /not reusing a wedged proxy/);
   assert.match(main, /Ping must time out/);
+});
+
+test('createWindow paints a loader before ensureProxy or /threads', () => {
+  const start = main.indexOf('function createWindow');
+  assert.notEqual(start, -1);
+  const winAt = main.indexOf('new BrowserWindow', start);
+  const before = main.slice(start, winAt);
+  assert.doesNotMatch(before, /await ensureProxy/);
+  assert.doesNotMatch(before, /await waitFor/);
+  assert.match(main, /boot\.html/);
+  assert.match(main, /function revealChat/);
+  assert.match(main, /loadURL\(`http:\/\/localhost:\$\{PORT\}`\)/);
+  assert.doesNotMatch(main, /spawn\([^)]*npx/);
+  const boot = readFileSync(path.join(root, 'grokui-app', 'boot.html'), 'utf8');
+  assert.match(boot, /id="bootSplash"/);
+  assert.match(boot, /starting…/);
+  assert.match(boot, /@keyframes bootdot/);
+  assert.equal((appPkg.build.files || []).includes('boot.html'), true);
+  assert.match(grokui, /id="bootSplash"/);
+  assert.match(grokui, /function dismissBootSplash/);
+});
+
+test('user canvas hides tool dumps and aggregates crew hops', () => {
+  assert.match(grokui, /function visibleTranscript/);
+  assert.match(grokui, /function formatCrewSummary/);
+  assert.match(grokui, /Messaged \$\{m\} Bots/);
+  assert.match(grokui, /messages with \$\{m\} Bots/);
+  assert.match(grokui, /function quietWorkingStatus/);
+  assert.match(grokui, /history: visibleTranscript\(t\.history\)/);
+  assert.doesNotMatch(grokui, /class="ttrail"/);
 });
 
 test('the box image does not bake or decrypt encrypted ProofFront', () => {

@@ -32,10 +32,42 @@ const fs = require('node:fs');
 // themselves, and codesign then walks so many files it dies with
 //   EMFILE: too many open files, open '.../viem/_types/chains/.../bobaSepolia.d.ts'
 // So build the production tree once into a staging dir and copy that.
+function wantedOpenzooVersion(projectDir) {
+  const app = JSON.parse(fs.readFileSync(path.join(projectDir, 'package.json'), 'utf8'));
+  const declared = String(app.dependencies?.openzoo || '').replace(/^[^\d]*/, '');
+  const rootPath = path.join(projectDir, '..', 'package.json');
+  if (fs.existsSync(rootPath)) {
+    const root = JSON.parse(fs.readFileSync(rootPath, 'utf8'));
+    if (root.name === 'openzoo' && root.version) return String(root.version);
+  }
+  return declared;
+}
+
+function readOpenzooVersion(nmDir) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(nmDir, 'openzoo', 'package.json'), 'utf8')).version;
+  } catch {
+    return '';
+  }
+}
+
+function assertOpenzooVersion(nmDir, want, where) {
+  const have = readOpenzooVersion(nmDir);
+  if (have !== want) {
+    throw new Error(`[afterPack] ${where}: bundled openzoo is ${have || 'missing'}, want ${want}. Refusing to pack a stale sidecar.`);
+  }
+}
+
 function prodModules(projectDir) {
   const staging = path.join(projectDir, '.prod-modules');
   const stagedNM = path.join(staging, 'node_modules');
-  if (fs.existsSync(stagedNM)) return stagedNM;
+  const want = wantedOpenzooVersion(projectDir);
+  if (fs.existsSync(stagedNM)) {
+    const have = readOpenzooVersion(stagedNM);
+    if (have === want) return stagedNM;
+    console.warn(`[afterPack] stale .prod-modules openzoo ${have || 'missing'} (want ${want}) — reinstalling`);
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
   fs.mkdirSync(staging, { recursive: true });
   for (const f of ['package.json', 'package-lock.json']) {
     const from = path.join(projectDir, f);
@@ -50,6 +82,7 @@ function prodModules(projectDir) {
   // this binary `git worktree add` dies. Download it explicitly.
   ensureDugiteGit(stagedNM);
   prune(stagedNM);
+  assertOpenzooVersion(stagedNM, want, '.prod-modules');
   return stagedNM;
 }
 
@@ -141,7 +174,9 @@ function copyNodeModules(context) {
   strip(dest);
 
   const n = fs.readdirSync(path.join(dest, '@solana')).length;
-  console.log(`[afterPack] copied production node_modules -> ${dest} (@solana: ${n}, stripped ${stripped} escaping symlink(s)/.bin)`);
+  const want = wantedOpenzooVersion(context.packager.projectDir);
+  assertOpenzooVersion(dest, want, dest);
+  console.log(`[afterPack] copied production node_modules -> ${dest} (@solana: ${n}, openzoo ${want}, stripped ${stripped} escaping symlink(s)/.bin)`);
 }
 
 exports.default = async function afterPack(context) {

@@ -419,3 +419,67 @@ test('AUTO empty command output retries and does not idle', async () => {
   assert.ok(r.wrapHops >= 2);
   assert.ok(r.runHops >= 2);
 });
+
+test('visible transcript hides tool dumps and aggregates a 3-bot spawn', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-visible-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 27000 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.HOME = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    const assert = (await import('node:assert/strict')).default;
+    const {
+      visibleTranscript, formatCrewSummary, newThread, runTurn,
+      setBrainAskForTest, setRunTurnForTest,
+    } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+
+    assert.equal(formatCrewSummary(['alice', 'bob', 'carol'], 3), 'Messaged 3 Bots');
+    assert.equal(formatCrewSummary(['alice', 'alice', 'bob'], 5), '5 messages with 2 Bots');
+
+    const vis = visibleTranscript([
+      { who: 'user', text: 'fan out' },
+      { who: 'user', text: '(command output)\\nsecret-tool-output' },
+      { who: 'user', text: '(directive result)\\nWrote x.js (12 bytes)' },
+      { who: 'bot', text: '$ echo secret-tool-output\\nsecret-tool-output' },
+      { who: 'bot', text: 'Wrote x.js (12 bytes) to /tmp' },
+      { who: 'bot', text: 'Spawned alice — working on it.', kind: 'crew' },
+      { who: 'bot', text: 'Spawned bob — working on it.', kind: 'crew' },
+      { who: 'bot', text: 'Messaged carol.', kind: 'crew' },
+      { who: 'bot', text: 'here is the plan' },
+    ]);
+    const blob = JSON.stringify(vis);
+    assert.doesNotMatch(blob, /command output/);
+    assert.doesNotMatch(blob, /directive result/);
+    assert.doesNotMatch(blob, /secret-tool-output/);
+    assert.doesNotMatch(blob, /Wrote x\\.js/);
+    assert.match(vis.map((h) => h.text).join('\\n'), /Messaged 3 Bots/);
+    assert.match(vis.map((h) => h.text).join('\\n'), /here is the plan/);
+    assert.equal(vis.filter((h) => h.who === 'user').length, 1);
+
+    setRunTurnForTest(() => Promise.resolve());
+    setBrainAskForTest(() => 'SPAWN: alice | a\\nSPAWN: bob | b\\nSPAWN: carol | c');
+    const t = newThread('lead', null);
+    t.runMode = 'ask';
+    await runTurn(t.id, 'fan out');
+    const live = visibleTranscript(t.history);
+    const liveBlob = JSON.stringify(live);
+    assert.doesNotMatch(liveBlob, /Spawned 3 together/);
+    assert.doesNotMatch(liveBlob, /command output|directive result/);
+    assert.match(live.map((h) => h.text).join('\\n'), /Messaged 3 Bots/);
+
+    console.log(JSON.stringify({
+      ok: true,
+      chip: vis.find((h) => h.kind === 'crew')?.text,
+      liveChip: live.find((h) => h.kind === 'crew')?.text,
+    }));
+    process.exit(0);
+  `);
+  const out = await runChild(script);
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result: ' + out);
+  const r = JSON.parse(line);
+  assert.equal(r.ok, true);
+  assert.equal(r.chip, 'Messaged 3 Bots');
+  assert.equal(r.liveChip, 'Messaged 3 Bots');
+});
