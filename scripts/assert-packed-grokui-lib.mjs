@@ -5,12 +5,13 @@
 // would have shipped 1.5.86 — that dmg had livestatus.js and still died
 // on info.js.
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const walker = join(root, 'scripts', 'assert-esm-relatives.mjs');
+const esmAssert = join(root, 'scripts', 'assert-packed-grokui-esm.mjs');
 const start = process.argv[2];
 if (!start) {
   console.error('usage: assert-packed-grokui-lib.mjs <dist-or-app-dir>');
@@ -52,6 +53,13 @@ for (const entry of found) {
     failed = 1;
   } else {
     console.log(`ok packed: ${entry}`);
+  }
+  const esm = spawnSync(process.execPath, [esmAssert, dirname(entry)], { encoding: 'utf8' });
+  if (esm.stdout) process.stdout.write(esm.stdout);
+  if (esm.status !== 0) {
+    process.stderr.write(esm.stderr || '');
+    console.error(`FAIL: packed lib/package.json or dry import next to ${entry}`);
+    failed = 1;
   }
 }
 process.exit(failed);

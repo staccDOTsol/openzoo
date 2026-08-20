@@ -74,4 +74,23 @@ if (pin.status !== 0) {
   die('refuse to cut: grokui-app openzoo dep is not "latest"');
 }
 
+const bundle = spawnSync(process.execPath, [path.join(root, 'grokui-app', 'scripts', 'bundle-grokui.js')], {
+  cwd: root,
+  stdio: 'inherit',
+});
+if (bundle.status !== 0) {
+  die('refuse to cut: bundle-grokui failed');
+}
+
+const packedLib = path.join(root, 'grokui-app', 'lib');
+const esm = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-packed-grokui-esm.mjs'), packedLib], {
+  cwd: root,
+  encoding: 'utf8',
+});
+if (esm.stdout) process.stdout.write(esm.stdout);
+if (esm.status !== 0) {
+  process.stderr.write(esm.stderr || '');
+  die('refuse to cut: packed lib/package.json missing or not type module, or dry import failed');
+}
+
 console.log(`cut grokui ${opts.grokui} / openzoo ${opts.openzoo} (app dep stays latest)`);

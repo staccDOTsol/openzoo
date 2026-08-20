@@ -43,13 +43,20 @@ test('bundle-grokui copies the entire repo lib, not a filename whitelist', () =>
   });
   assert.equal(r.status, 0, r.stderr || r.stdout);
   const dest = path.join(root, 'grokui-app', 'lib');
-  for (const f of ['grokui.mjs', 'info.js', 'hrr.js', 'spill.js', 'subscription.js', 'livestatus.js', 'podagent.mjs', 'worktree.mjs']) {
+  for (const f of ['grokui.mjs', 'info.js', 'hrr.js', 'spill.js', 'subscription.js', 'livestatus.js', 'podagent.mjs', 'worktree.mjs', 'package.json']) {
     assert.equal(existsSync(path.join(dest, f)), true, f);
   }
+  const destPkg = JSON.parse(readFileSync(path.join(dest, 'package.json'), 'utf8'));
+  assert.equal(destPkg.type, 'module');
+  assert.equal(appPkg.type, undefined, 'grokui-app/package.json must stay CJS (main.js is require())');
   const walk = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-esm-relatives.mjs'), path.join(dest, 'grokui.mjs')], {
     encoding: 'utf8',
   });
   assert.equal(walk.status, 0, walk.stderr || walk.stdout);
+  const esm = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-packed-grokui-esm.mjs'), dest], {
+    encoding: 'utf8',
+  });
+  assert.equal(esm.status, 0, esm.stderr || esm.stdout);
 });
 
 test('the 1.5.86 grokui-app lib whitelist is missing grokui.mjs relatives', () => {
@@ -338,8 +345,10 @@ test('afterPack fails the pack when copied openzoo is not npm latest', () => {
   assert.match(src, /npm install openzoo@latest/);
   assert.match(src, /resources',\s*'app'/);
   assert.match(src, /copyRepoLib/);
+  assert.match(src, /writeLibEsmPackage/);
   assert.match(src, /assertPackedGrokuiLib/);
   assert.match(src, /assert-esm-relatives\.mjs/);
+  assert.match(src, /assert-packed-grokui-esm\.mjs/);
 });
 
 test('afterPack copies the whole repo lib and fails if a relative is missing', () => {
@@ -350,6 +359,8 @@ test('afterPack copies the whole repo lib and fails if a relative is missing', (
   assert.equal(existsSync(path.join(dir, 'lib', 'hrr.js')), true);
   assert.equal(existsSync(path.join(dir, 'lib', 'spill.js')), true);
   assert.equal(existsSync(path.join(dir, 'lib', 'subscription.js')), true);
+  assert.equal(existsSync(path.join(dir, 'lib', 'package.json')), true);
+  assert.equal(JSON.parse(readFileSync(path.join(dir, 'lib', 'package.json'), 'utf8')).type, 'module');
   assert.doesNotThrow(() => afterPack.assertPackedGrokuiLib(dir));
   rmSync(path.join(dir, 'lib', 'info.js'));
   assert.throws(() => afterPack.assertPackedGrokuiLib(dir), /info\.js|missing relative/);
@@ -361,6 +372,8 @@ test('desktop pack CI walks packed grokui.mjs relatives', () => {
     assert.match(yml, /assert-packed-grokui-lib\.mjs/);
     assert.match(yml, /assert-app-html-script\.mjs/);
   }
+  const packed = readFileSync(path.join(root, 'scripts', 'assert-packed-grokui-lib.mjs'), 'utf8');
+  assert.match(packed, /assert-packed-grokui-esm\.mjs/);
   const ignore = readFileSync(path.join(root, 'grokui-app', '.gitignore'), 'utf8');
   assert.match(ignore, /^lib\/$/m);
   assert.doesNotMatch(ignore, /lib\/grokui\.mjs/);
@@ -382,6 +395,33 @@ test('assert-packed-grokui-lib fails a 1.5.86-shaped packed tree', () => {
     assert.match(r.stderr, /info\.js|FAIL: packed relatives missing/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assert-packed-grokui-esm fails a 1.5.87 CJS lib (no type:module)', () => {
+  // Reproduce the packaged tree: parent package.json is CJS (like grokui-app
+  // main.js). Without lib/package.json {"type":"module"}, named imports from
+  // livestatus.js throw "is a CommonJS module" — that is 1.5.87 on :4173.
+  const app = mkdtempSync(path.join(tmpdir(), 'oz-packed-cjs-'));
+  try {
+    writeFileSync(path.join(app, 'package.json'), JSON.stringify({ name: 'openzoo-grokui', main: 'main.js' }) + '\n');
+    const lib = path.join(app, 'lib');
+    cpSync(path.join(root, 'lib'), lib, { recursive: true });
+    rmSync(path.join(lib, 'package.json'), { force: true });
+    const missing = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-packed-grokui-esm.mjs'), lib], {
+      encoding: 'utf8',
+    });
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stderr, /package\.json missing|type is not module|is a CommonJS module/);
+    writeFileSync(path.join(lib, 'package.json'), '{\n  "type": "module"\n}\n');
+    const ok = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-packed-grokui-esm.mjs'), lib], {
+      encoding: 'utf8',
+    });
+    assert.equal(ok.status, 0, ok.stderr || ok.stdout);
+    assert.match(ok.stdout, /type=module/);
+    assert.match(ok.stdout, /ok dry import/);
+  } finally {
+    rmSync(app, { recursive: true, force: true });
   }
 });
 
@@ -646,6 +686,8 @@ test('cut and release scripts keep openzoo latest or refuse', () => {
   const rel = readFileSync(path.join(root, 'scripts', 'release-mac.sh'), 'utf8');
   assert.match(cut, /dependencies\.openzoo = 'latest'/);
   assert.match(cut, /refuse to cut/);
+  assert.match(cut, /assert-packed-grokui-esm\.mjs/);
+  assert.match(cut, /bundle-grokui\.js/);
   assert.match(rel, /assert-grokui-pin/);
   const missing = spawnSync(process.execPath, [path.join(root, 'scripts', 'cut-grokui.mjs'), '--grokui', '1.5.84'], { encoding: 'utf8' });
   assert.notEqual(missing.status, 0);
