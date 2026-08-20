@@ -3,7 +3,6 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
-const net = require('node:net');
 
 // One source of truth: the live UI is repo lib/grokui.mjs. A packaged build
 // copies that file next to this script; a checkout prefers the repo copy so
@@ -114,14 +113,6 @@ function pingUrl(url) {
   });
 }
 
-function portOccupied(port) {
-  return new Promise((resolve) => {
-    const s = net.connect({ port, host: '127.0.0.1' }, () => { s.end(); resolve(true); });
-    s.on('error', () => resolve(false));
-    s.setTimeout(800, () => { s.destroy(); resolve(false); });
-  });
-}
-
 function waitFor(url, retries, intervalMs) {
   return new Promise((resolve) => {
     const attempt = (n) => {
@@ -143,33 +134,22 @@ function waitFor(url, retries, intervalMs) {
 // doubles as install-or-update: it fetches the current published version if
 // it's not already cached.
 async function ensureProxy() {
-  // Reuse only a healthy :8402. Starting a second bundled proxy resets
-  // session counters and can race the one that already paid — but a process
-  // that LISTENs and does not answer GET /v1/session is wedged. Treating
-  // "port occupied" as reuse is worse than a crash (completions then throw
-  // undici `fetch failed` forever). Ping must time out; occupied ≠ healthy.
-  if (await pingUrl('http://127.0.0.1:8402/v1/session')) return;
-  if (await portOccupied(8402)) {
-    console.error('[openzoo] :8402 is listening but /v1/session did not answer — not reusing a wedged proxy');
-    return;
-  }
-  // Run the BUNDLED openzoo with Electron's OWN node, rather than shelling out
-  // to npx. Going through npx assumed the machine had Node installed and on
-  // PATH, which is a bad assumption for a desktop app: a clean Windows 11 box
-  // has no Node, so `npx` did not exist, the proxy never started, and every
-  // message came back "error: fetch failed" while the app itself ran fine
-  // (Electron ships its own Node, which is exactly what we use here). It also
-  // dodges the macOS problem that a GUI app launched from Finder/Dock does not
-  // inherit ~/.zshrc's PATH, and it pins the proxy to a version we actually
-  // tested instead of whatever @latest resolves to at runtime.
-  const bin = path.join(__dirname, 'node_modules', 'openzoo', 'bin', 'openzoo.js');
-  proxyProc = spawn(process.execPath, [bin], {
-    stdio: 'inherit',
+  // Shared with standalone lib/grokui.mjs. Occupied TCP is not health —
+  // /v1/session must 200 within a short timeout or we do not reuse.
+  // grokui.mjs (the child we just spawned) starts+supervises :8402; wait
+  // for it, then spawn ourselves only if the port is still free.
+  const repo = path.join(__dirname, '..', 'lib', 'ensureproxy.js');
+  const bundled = path.join(__dirname, 'lib', 'ensureproxy.js');
+  const { ensureProxy: go } = await import(fs.existsSync(repo) ? repo : bundled);
+  const result = await go({
+    execPath: process.execPath,
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-    windowsHide: true,
+    waitMs: 8000,
   });
-  proxyProc.on('error', (e) => console.error('[openzoo] proxy failed to start:', e.message));
-  await waitFor('http://127.0.0.1:8402/v1/session', 60, 500); // up to ~30s (first-run npx fetch)
+  if (result.child) proxyProc = result.child;
+  if (result.healthy || result.spawned) {
+    await waitFor('http://127.0.0.1:8402/v1/session', 60, 500);
+  }
 }
 
 async function createWindow() {

@@ -273,12 +273,13 @@ test('harness strips think tags, refuses MCP-as-bash, and does not join absolute
 });
 
 test('ensureProxy reuses a healthy :8402 and does not spawn over it', () => {
-  assert.match(main, /function portOccupied/);
-  assert.match(main, /Reuse only a healthy :8402/);
-  assert.match(main, /if \(await pingUrl\('http:\/\/127\.0\.0\.1:8402\/v1\/session'\)\) return/);
-  // Occupied-port + hung session is NOT reuse — ping must time out.
-  assert.match(main, /not reusing a wedged proxy/);
-  assert.match(main, /Ping must time out/);
+  assert.match(main, /Occupied TCP is not health/);
+  assert.match(main, /ensureproxy\.js/);
+  assert.doesNotMatch(main, /if \(await portOccupied\(8402\)\) return/);
+  assert.match(grokui, /ensureProxy\(\)/);
+  assert.match(grokui, /OPENZOO_NO_PROXY/);
+  const bundle = readFileSync(path.join(root, 'grokui-app', 'scripts', 'bundle-grokui.js'), 'utf8');
+  assert.match(bundle, /ensureproxy\.js/);
 });
 
 test('the box image does not bake or decrypt encrypted ProofFront', () => {
