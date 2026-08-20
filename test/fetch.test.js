@@ -65,7 +65,8 @@ describe('fetchHeaders + session unwedge', { concurrency: 1 }, () => {
   test('fetchHeaders lets the body stream after headers arrive', async () => {
     const slow = await listen((_req, res) => {
       res.writeHead(200, { 'content-type': 'text/plain' });
-      setTimeout(() => { res.end('streamed'); }, 350);
+      res.write('stream'); // flush headers / first byte so the TTFB timer clears
+      setTimeout(() => { res.end('ed'); }, 350);
     });
     try {
       const res = await fetchHeaders(`http://127.0.0.1:${slow.address().port}/v1/chat`, {}, 150);
