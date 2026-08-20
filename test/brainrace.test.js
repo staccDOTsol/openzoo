@@ -8,7 +8,7 @@ const { brainRace } = await import('../lib/podagent.mjs');
 const {
   receiptUsedCogs, capRaceByCredit, doorAcceptsRace, resetGatewayRaceProbe,
   RACE_NO_CREDIT,
-} from '../lib/racesettle.js';
+} = await import('../lib/racesettle.js');
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -414,7 +414,7 @@ test('fetch-failed racer is retried once and can still fill X', async () => {
 test('receipt cogs is used racers after unused refund — never N+judge ceiling', () => {
   const ceiling = { billedUsd: 1.44, cogsUsd: 2.20, race_unused: { cogsUsd: 0.90 } };
   const used = receiptUsedCogs(ceiling);
-  assert.equal(used, 1.30);
+  assert.ok(Math.abs(used - 1.3) < 1e-9);
   assert.ok(used <= ceiling.billedUsd, 'cogs ≤ billed after unused refund');
   // Already-net receipt: unused informational billed must not double-subtract spent
   assert.equal(receiptUsedCogs({ billedUsd: 1.00, cogsUsd: 0.70 }), 0.70);
