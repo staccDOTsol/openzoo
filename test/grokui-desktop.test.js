@@ -52,6 +52,26 @@ test('header always ships the spend dials and wallet', () => {
   assert.doesNotMatch(grokui, /#modeToggle \{ margin-left: auto/);
 });
 
+test('sitrep is a plus-menu button that opens a wallet-style drawer, not a chat dump', () => {
+  const attach = grokui.indexOf('id="attachBtn"');
+  const sitrep = grokui.indexOf('id="sitrepBtn"');
+  assert.ok(attach >= 0 && sitrep > attach, 'Sitrep sits next to Attach files');
+  assert.match(grokui, /id="sitrepOverlay"/);
+  assert.match(grokui, /data-component="sitrep-drawer"/);
+  assert.match(grokui, /id="sitrepBox"/);
+  assert.match(grokui, /function openSitrep/);
+  assert.match(grokui, /\/sitrep/);
+  assert.match(grokui, /name: '\/sitrep'/);
+  assert.match(grokui, /\^\\\/sitrep\\b/);
+  assert.match(grokui, /Drawer-only\. Never dump sitrep into the transcript/);
+  assert.match(grokui, /if \(c\.name === '\/sitrep'\)/);
+  assert.match(grokui, /sitrepRow\('race'/);
+  assert.match(grokui, /sitrepRow\('paid calls'/);
+  assert.doesNotMatch(grokui, /sitrepRow\('subscription'/);
+  assert.doesNotMatch(grokui, /sitrepRow\('credit'/);
+  assert.doesNotMatch(grokui, /sitrep.*npmrc/i);
+});
+
 test('race picker paints the savings cut on every choice, including 1-model', () => {
   // Cut = (1 - 1/Y). X does not change it — they pay every launched racer.
   assert.match(grokui, />1 model  0%</);

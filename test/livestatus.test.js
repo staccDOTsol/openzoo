@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   clipStatusArg, peekDirectiveStatus, formatModelWait, formatPayStatus,
   formatRaceStatus, parseClassifyScore, pickRaceWinner, createRaceFeed,
+  raceSavingsCutPct, raceChoiceLabel,
   isRaceCountable, raceLastShip, RACE_EVERY_FAILED, shouldRetryRaceArrival,
   summarizeRaceFailures, raceFailKind, shortModelName, clipRacePreview,
   startModelWait, readWithIdleTimeout, STREAM_IDLE_MS, STALE_THINKING_MS,
@@ -186,6 +187,16 @@ test('onBack after settle cannot paint racing 4/2 onto an idle thread', () => {
   feed.onBack();
   feed.onBack();
   assert.deepEqual(statuses, ['racing 0/2 back…', 'racing 1/2 back…', 'racing 2/2 back…']);
+});
+
+test('race savings cut is Y-based: 1→0%, 2→50%, 4→75%', () => {
+  assert.equal(raceSavingsCutPct(1), 0);
+  assert.equal(raceSavingsCutPct(2), 50);
+  assert.equal(raceSavingsCutPct(3), 67);
+  assert.equal(raceSavingsCutPct(4), 75);
+  assert.equal(raceChoiceLabel(1), '1 model  0%');
+  assert.equal(raceChoiceLabel(2, 1), 'race 2  −50%');
+  assert.equal(raceChoiceLabel(4, 2), 'best 2 of 4  −75%');
 });
 
 test('shortModelName drops the org prefix; clipRacePreview keeps an opening, not the whole answer', () => {
