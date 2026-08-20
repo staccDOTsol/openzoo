@@ -739,6 +739,28 @@ test('harness strips think tags, refuses MCP-as-bash, and does not join absolute
   assert.doesNotMatch(grokui, /id="assetsBtn"/);
 });
 
+test('canvas folds reasoning behind a collapsed thinking row, not the Auto chip', () => {
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.match(grokui, /from '\.\/think\.js'/);
+  assert.match(grokui, /type: 'think'/);
+  assert.match(grokui, /takeThink/);
+  assert.match(appHtml, /function splitThinkTags/);
+  assert.match(appHtml, /function makeThinkFold/);
+  assert.match(appHtml, /thinking\.\.\./);
+  assert.match(appHtml, /'thought'/);
+  assert.match(appHtml, /class="thinkfold/);
+  assert.match(appHtml, /class="thinkchip"/);
+  assert.match(appHtml, /liveThinkOpen/);
+  assert.match(appHtml, /ev\.type === 'think'/);
+  assert.match(appHtml, /body\.textContent = liveThinkOpen \? think : ''/);
+  assert.match(appHtml, /Not the Auto run-mode chip/);
+  assert.doesNotMatch(appHtml, /class="thinkchip modebtn/);
+  assert.doesNotMatch(appHtml, /id="modeAuto".*thinkfold/);
+  // Live bubble must not dump raw CoT: paint the visible split, not streamBuf.
+  assert.match(appHtml, /b\.textContent = parts\.visible/);
+  assert.doesNotMatch(appHtml, /b\.textContent = streamBuf;/);
+});
+
 test('grokui chat does not dump raw 0x6a wrap simulation logs', () => {
   const brain = readFileSync(path.join(root, 'lib', 'podagent.mjs'), 'utf8');
   assert.match(brain, /function sanitizeProxiedError/);

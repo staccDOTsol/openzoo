@@ -45,7 +45,7 @@ test('parseRun, think-tag strip, inDir, MCP-as-bash refuse', async () => {
     const { mkdirSync, writeFileSync } = await import('node:fs');
     const path = await import('node:path');
     const {
-      parseRun, looksLikeMcpAsBash, stripThinkTags, safeResolveIn, inDir,
+      parseRun, looksLikeMcpAsBash, stripThinkTags, takeThink, safeResolveIn, inDir,
       tryDirective,
     } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
 
@@ -74,6 +74,11 @@ test('parseRun, think-tag strip, inDir, MCP-as-bash refuse', async () => {
     assert.match(clean, /visible/);
     assert.match(clean, /more/);
     assert.equal(stripThinkTags('<thinking>unclosed'), '');
+    const folded = takeThink(leaked);
+    assert.equal(folded.text, clean);
+    assert.match(folded.thinking, /secret plan/);
+    assert.match(folded.thinking, /nope/);
+    assert.equal(takeThink('plain answer').thinking, undefined);
 
     const doubled = safeResolveIn(${JSON.stringify(ws)}, ${JSON.stringify(ws + '/')});
     assert.equal(doubled, path.resolve(${JSON.stringify(ws)}));
