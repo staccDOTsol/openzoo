@@ -100,7 +100,9 @@ test('sitrep is a plus-menu button that opens a wallet-style drawer, not a chat 
   assert.match(grokui, /function openSitrep/);
   assert.doesNotMatch(grokui, /function runSitrep/);
   assert.match(grokui, /name: '\/sitrep'/);
-  assert.match(grokui, /\^\\\/sitrep\\b/);
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.doesNotMatch(appHtml, /\/\^\\\/sitrep\\b/);
+  assert.match(appHtml, /sitrepHead === '\/sitrep'/);
   assert.match(grokui, /Drawer-only\. Never dump sitrep into the transcript/);
   assert.match(grokui, /if \(c\.name === '\/sitrep'\)/);
   assert.match(grokui, /sitrepRow\('race'/);
@@ -110,6 +112,31 @@ test('sitrep is a plus-menu button that opens a wallet-style drawer, not a chat 
   assert.doesNotMatch(grokui, /task: '\/sitrep'/);
   assert.doesNotMatch(grokui, /sitrepRow\('subscription'/);
   assert.doesNotMatch(grokui, /sitrep.*npmrc/i);
+});
+
+test('served APP_HTML <script> is valid JS (node --check)', () => {
+  const start = grokui.indexOf('const APP_HTML = `');
+  const end = grokui.indexOf('`;\n\nconst server = http.createServer', start);
+  assert.ok(start >= 0 && end > start, 'APP_HTML template bounds');
+  const literal = grokui.slice(start + 'const APP_HTML = '.length, end + 1);
+  // APP_HTML interpolates SUBSCRIPTIONS_PAGE into an href. Stub it so we
+  // can evaluate the template and --check the script the browser actually gets.
+  const html = Function('SUBSCRIPTIONS_PAGE', 'return ' + literal)('https://example.test/subscriptions');
+  const open = html.indexOf('<script>');
+  const close = html.indexOf('</script>', open);
+  assert.ok(open >= 0 && close > open, 'served HTML has a script');
+  const script = html.slice(open + '<script>'.length, close);
+  assert.doesNotMatch(script, /\/\^\/sitrep/);
+  assert.match(script, /sitrepHead === '\/sitrep'/);
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-apphtml-'));
+  try {
+    const file = path.join(dir, 'apphtml.js');
+    writeFileSync(file, script);
+    const r = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr || r.stdout);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('race picker paints the savings cut on every choice, including 1-model', () => {
