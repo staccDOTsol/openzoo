@@ -256,6 +256,11 @@ test('/tier grok 4.6 pins the grok4.6 band and spawn inherits it', async () => {
     assert.equal(parent.tier, 'grok4.6');
     assert.match(hyphen, /x-ai\\/grok-4\\.6/);
 
+    parent.tier = 'medium';
+    const bare = await handleSlash('/tier grok', parent);
+    assert.equal(parent.tier, 'grok4.6');
+    assert.match(bare, /grok4\\.6/);
+
     const unknown = await handleSlash('/tier opus', parent);
     assert.equal(parent.tier, 'grok4.6');
     assert.match(unknown, /Unknown tier/);

@@ -54,6 +54,8 @@ test('header always ships the spend dials and wallet', () => {
   assert.match(header, /option value="cheap">cheap</);
   assert.match(header, /option value="medium" selected>medium</);
   assert.match(header, /option value="expensive">expensive</);
+  assert.match(grokui, /value="grok4.6"/);
+  assert.match(grokui, />grok 4.6</);
   assert.match(header, /option value="grok4.6">grok 4.6</);
   const tierAt = header.indexOf('id="tierSel"');
   const raceAt = header.indexOf('id="raceSel"');
@@ -61,8 +63,8 @@ test('header always ships the spend dials and wallet', () => {
   assert.ok(tierAt < raceAt && raceAt < payAt, 'tier, race, pay stay in that order');
   assert.match(grokui, /#tierSel \{ max-width: 7\.6em/);
   assert.match(grokui, /#headerDials \{[^}]*flex: 0 0 auto/);
-  assert.match(grokui, /\/tier', args: 'cheap\|medium\|expensive\|grok4\.6/);
-  assert.match(grokui, /parseTier/);
+  assert.match(grokui, /\/tier', args: 'cheap\|medium\|expensive\|grok 4.6/);
+  assert.match(grokui, /normalizeTier/);
 });
 
 test('grokui does not ship an assets unlock button or decrypt route', () => {
