@@ -382,6 +382,23 @@ test('selecting text copies it and toasts copied', () => {
   assert.doesNotMatch(grokui, /window\.alert\s*\(/);
 });
 
+test('AUTO loop stop: 5xx/empty/pay never hop; same RUN capped; empty PTY does not continue', () => {
+  assert.match(grokui, /function isAutoStopReply/);
+  assert.match(grokui, /function rememberAutoCommand/);
+  assert.match(grokui, /const AUTO_EMPTY_PTY_STOP/);
+  assert.match(grokui, /const AUTO_SAME_COMMAND_STOP/);
+  assert.match(grokui, /t\.autoStopped/);
+  assert.match(grokui, /const atCap = \(t\.autoSteps \|\| 0\) >= AUTO_MAX_STEPS/);
+  assert.match(grokui, /!usedClaude && !t\.autoStopped && !atCap/);
+  assert.match(grokui, /function persistUserTurn/);
+  assert.match(grokui, /function persistAssistantTurn/);
+  const autoFn = fnBody(grokui, 'runAutoClaudeTurn');
+  assert.doesNotMatch(autoFn, /enqueueAutoHop\(/);
+  assert.match(grokui, /AUTO_EMPTY_PTY_STOP/);
+  assert.match(grokui, /identicalCommandCapped/);
+  assert.doesNotMatch(fnBody(grokui, 'shouldKeepAuto'), /isEmptyToolResult\(userText\) \|\| isEmptyShownRun\(reply\)\) return true/);
+});
+
 test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.match(grokui, /from '\.\/claudecode\.js'/);
   assert.match(grokui, /async function runAutoClaudeTurn/);

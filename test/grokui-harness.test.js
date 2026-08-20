@@ -267,6 +267,11 @@ test('AUTO is Claude Code once; ask still parks pendingRun; ping wakes', async (
     assert.equal(isEmptyWalletPayment('openzoo wallet underfunded: this call needs more'), true);
     assert.equal(isPaymentFailed('(payment failed — HTTP 402 after 3 retries, though the wallet holds 12 USDC)'), true);
     assert.equal(shouldKeepAuto({ runMode: 'auto' }, '(payment required — HTTP 402, the wallet is empty.)'), false);
+    assert.equal(shouldKeepAuto({ runMode: 'auto' }, 'upstream HTTP 500'), false);
+    assert.equal(shouldKeepAuto({ runMode: 'auto' }, '(upstream error — HTTP 500, try again)'), false);
+    assert.equal(shouldKeepAuto({ runMode: 'auto' }, ''), false);
+    assert.equal(shouldKeepAuto({ runMode: 'auto' }, '(no response)'), false);
+    assert.equal(shouldKeepAuto({ runMode: 'auto' }, '(payment failed — HTTP 402 after 3 retries, though the wallet holds 12 USDC)'), false);
     assert.equal(isEmptyToolResult('(command output)\\n(no output)'), true);
 
     const auto = newThread('auto-keep', null);
@@ -432,4 +437,128 @@ test('AUTO does not mkdir-and-Done or curl chat/completions', async () => {
   assert.equal(r.ok, true);
   assert.equal(r.calls, 1);
   assert.equal(r.brainCalls, 0);
+});
+
+test('AUTO loop stop: 500/empty/pay do not enqueue AUTO_CONTINUE; same RUN twice stops; empty PTY does not hop', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-loop-stop-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 26000 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.HOME = ${JSON.stringify(dir)};
+    process.env.OZ_WORKSPACE_DIR = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    const assert = (await import('node:assert/strict')).default;
+    const {
+      newThread, runTurn, setBrainAskForTest, setRunTurnForTest, setClaudeRunnerForTest,
+      shouldKeepAuto, enqueueAutoHop, rememberAutoCommand, identicalCommandCapped,
+      isAutoStopReply, persistUserTurn,
+      AUTO_CONTINUE, AUTO_RACE_RETRY, AUTO_EMPTY_RETRY, AUTO_EMPTY_PTY_STOP, AUTO_SAME_COMMAND_STOP,
+    } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+
+    assert.equal(isAutoStopReply('upstream HTTP 500'), true);
+    assert.equal(isAutoStopReply('(upstream error — HTTP 500, try again)'), true);
+    assert.equal(isAutoStopReply(''), true);
+    assert.equal(isAutoStopReply('(no response)'), true);
+    assert.equal(isAutoStopReply(AUTO_EMPTY_PTY_STOP), true);
+    assert.equal(isAutoStopReply('(payment failed — HTTP 402 after 3 retries)'), true);
+    assert.equal(isAutoStopReply('(payment required — HTTP 402, the wallet is empty.)'), true);
+    assert.equal(shouldKeepAuto({ runMode: 'auto' }, 'upstream HTTP 500'), false);
+    assert.equal(shouldKeepAuto({ runMode: 'auto' }, ''), false);
+    assert.equal(shouldKeepAuto({ runMode: 'auto' }, AUTO_EMPTY_PTY_STOP), false);
+
+    const hops = [];
+    setRunTurnForTest((id, text) => { hops.push(String(text || '')); return Promise.resolve(); });
+
+    const cap = newThread('cmd-cap', null);
+    cap.runMode = 'auto';
+    rememberAutoCommand(cap, 'ls -la');
+    rememberAutoCommand(cap, 'ls -la');
+    assert.equal(identicalCommandCapped(cap), true);
+    assert.equal(shouldKeepAuto(cap, '$ ls -la\\n(no output)', AUTO_EMPTY_RETRY), false);
+    assert.equal(enqueueAutoHop(cap, cap.id, AUTO_EMPTY_RETRY), false);
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(hops.length, 0, 'same RUN twice must not enqueue a third');
+
+    const okHop = newThread('ok-hop', null);
+    okHop.runMode = 'auto';
+    assert.equal(enqueueAutoHop(okHop, okHop.id, AUTO_CONTINUE), true);
+    await new Promise((r) => setTimeout(r, 80));
+    assert.ok(hops.includes(AUTO_CONTINUE), 'uncapped hop still works');
+    hops.length = 0;
+    setRunTurnForTest(null);
+
+    const emptyPty = newThread('empty-pty', null);
+    emptyPty.runMode = 'auto';
+    const claudeEmpty = [];
+    setBrainAskForTest(() => { throw new Error('empty PTY must not fall into a hop loop via chat'); });
+    setClaudeRunnerForTest(async ({ prompt }) => {
+      claudeEmpty.push(String(prompt || ''));
+      return { text: '', error: false, paymentFailed: '' };
+    });
+    await runTurn(emptyPty.id, 'do work');
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(claudeEmpty.length, 1, 'empty PTY must not schedule another runTurn');
+    assert.ok(!claudeEmpty.some((p) => p.includes('Please continue') || p.includes('AUTO is still on') || p.includes('AUTO_EMPTY')), 'empty PTY must not send AUTO_CONTINUE');
+    assert.match(emptyPty.history.map((h) => h.text).join('\\n'), /no output|Not retrying/);
+    assert.equal(emptyPty.status, 'idle');
+    assert.equal(emptyPty.autoStopped, true);
+    assert.ok(emptyPty.messages.some((m) => m.role === 'user' && m.content === 'do work'), 'persist user before hop/stop');
+    assert.ok(emptyPty.messages.some((m) => m.role === 'assistant'), 'persist assistant before hop/stop');
+
+    const http500 = newThread('http-500', null);
+    http500.runMode = 'auto';
+    const claude500 = [];
+    setClaudeRunnerForTest(async ({ prompt }) => {
+      claude500.push(String(prompt || ''));
+      return { text: 'upstream HTTP 500', error: true, paymentFailed: '' };
+    });
+    await runTurn(http500.id, 'do work');
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(claude500.length, 1, '500 must not enqueue AUTO_CONTINUE');
+    assert.ok(!claude500.some((p) => /Please continue|AUTO is still on/.test(p)));
+    assert.equal(http500.status, 'idle');
+    assert.equal(http500.autoStopped, true);
+
+    const pay = newThread('pay-stop', null);
+    pay.runMode = 'auto';
+    const claudePay = [];
+    setClaudeRunnerForTest(async ({ prompt }) => {
+      claudePay.push(String(prompt || ''));
+      return { text: 'API Error', error: true, paymentFailed: '(payment failed — HTTP 402 after 3 retries, though the wallet holds 12 USDC)' };
+    });
+    await runTurn(pay.id, 'do work');
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(claudePay.length, 1, 'paymentFailed must not enqueue AUTO_CONTINUE');
+    assert.match(pay.history[pay.history.length - 1].text, /payment failed|HTTP 402/);
+    assert.equal(pay.status, 'idle');
+
+    const crew = newThread('crew', null, [{ name: 'A', color: '#f00' }]);
+    crew.runMode = 'auto';
+    let brainN = 0;
+    setClaudeRunnerForTest(async () => { throw new Error('members must not call Claude'); });
+    setBrainAskForTest(() => { brainN += 1; return 'RUN: true'; });
+    await runTurn(crew.id, 'go');
+    await new Promise((r) => setTimeout(r, 400));
+    assert.ok(brainN <= 2, 'same RUN twice must not enqueue a third, brainN=' + brainN);
+    assert.match(crew.history.map((h) => h.text).join('\\n'), /same command ran twice|true/);
+
+    const persisted = persistUserTurn(emptyPty, 'do work');
+    assert.equal(persisted.ok, true);
+
+    console.log(JSON.stringify({
+      ok: true, claudeEmpty: claudeEmpty.length, claude500: claude500.length,
+      claudePay: claudePay.length, brainN, hopsAfterCap: 0,
+    }));
+    process.exit(0);
+  `);
+  const out = await runChild(script);
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result: ' + out);
+  const r = JSON.parse(line);
+  assert.equal(r.ok, true);
+  assert.equal(r.claudeEmpty, 1);
+  assert.equal(r.claude500, 1);
+  assert.equal(r.claudePay, 1);
+  assert.ok(r.brainN <= 2);
 });
