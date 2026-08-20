@@ -3,6 +3,10 @@
 // "latest" so the next pack resolves whatever npm currently publishes.
 //
 //   node scripts/cut-grokui.mjs --openzoo 0.49.6 --grokui 1.5.84
+//
+// grokui-v* tags build desktop installers only — they do NOT npm-publish.
+// After bumping --openzoo, tag v<openzoo> (e.g. v0.49.9) so
+// .github/workflows/npm-publish.yml publishes the registry package.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';

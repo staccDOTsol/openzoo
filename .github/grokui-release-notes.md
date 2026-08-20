@@ -2,50 +2,22 @@
 - Windows: the exe
 - Linux: the AppImage
 
+## CLI
+
+Desktop installers above are the default. For the sidecar / proxy from a terminal, current main is **openzoo@0.49.9** on npm (gzip relay, thinking fold, PTY Auto, sidecar autoheal) — not the 0.49.8 / 1.5.97-era recipe:
+
+```
+npx openzoo
+```
+
+or `npm i -g openzoo` then `openzoo`. `openzoo claude` points Claude Code / grokui orange Auto at the local x402 proxy. PATH `~/.local/bin` is required on Mac so `claude` is found.
+
 #65: thinking… fold / short 400s.
 #67: autoscroll.
 #68: gzip relay (no Content-Encoding-stripped gzip 400s).
-#66: Claude Auto on a PTY (/agents /tasks).
+#66: Claude Code / Auto on a PTY (`/agents` `/tasks`).
 #69: autoheal packed :8402 sidecar (respawn without window restart; 402 still Pay).
-
-## Claude Code / Auto
-
-Orange Auto is `openzoo claude` then `claude` — not a `RUN:` text parser. `openzoo claude` sets the Anthropic API key + base URL to the local OpenZoo proxy. No Claude login first. PATH `~/.local/bin` is required on Mac so `claude` is found.
-
-Mac:
-
-```
-curl -fsSL https://claude.ai/install.sh | bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.7/install.sh | bash
-. "$HOME/.nvm/nvm.sh"
-nvm install 24
-npm i -g openzoo
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
-openzoo claude
-```
-
-Windows — official Claude install, then nvm-windows (https://github.com/coreybutler/nvm-windows — `nvm-setup.exe`). Do not use the unix nvm curl on Windows. Do not source `~/.zshrc`.
-
-PowerShell:
-
-```
-irm https://claude.ai/install.ps1 | iex
-```
-
-CMD:
-
-```
-curl -fsSL https://downloads.claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd
-```
-
-Then nvm-windows:
-
-```
-nvm install 24
-nvm use 24
-npm i -g openzoo
-openzoo claude
-```
+#70: grokui 1.5.99.
 
 ## Arch
 

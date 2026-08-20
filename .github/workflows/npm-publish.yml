@@ -1,0 +1,45 @@
+# Publish the openzoo CLI/sidecar to the npm registry.
+#
+# grokui-v* tags build desktop installers (dmg / exe / AppImage) only.
+# CLI users get `npx openzoo` / `npm i -g openzoo` from registry latest.
+# That publish is this workflow, on v* (openzoo semver) tags — the same
+# v* glob docker-box.yml already listens for.
+#
+#   git tag -a v0.49.9 -m "openzoo 0.49.9" && git push origin v0.49.9
+#
+# Do not tag grokui-v* for an npm-only cut. This job publishes the sidecar tarball only.
+name: npm publish
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install and test sidecar
+        run: npm ci && npm test
+
+      - name: Tarball must include gzip relay
+        run: |
+          set -eu
+          TARBALL=$(npm pack --json | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const j=JSON.parse(s);console.log((Array.isArray(j)?j[0]:j).filename)})")
+          tar -tzf "$TARBALL" | grep -F 'package/lib/relay.js'
+          tar -xOf "$TARBALL" package/lib/relay.js | grep -E 'createGunzip|gunzipAsync'
+          rm -f "$TARBALL"
+
+      - name: Publish
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
