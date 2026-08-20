@@ -1,6 +1,6 @@
 {
   "name": "openzoo",
-  "version": "0.48.99",
+  "version": "0.49.0",
   "description": "Local x402-paying proxy + MCP server for openzoo.fun \u2014 point any OpenAI-compatible harness (Cursor, Claude Code, aider, SDKs) at localhost and it pays per call from a local burner wallet. Solana and Base rails live; Robinhood experimental.",
   "license": "MIT",
   "type": "module",

@@ -113,8 +113,8 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.99');
-  assert.equal(appPkg.version, '1.5.77');
+  assert.equal(ozPkg.version, '0.49.0');
+  assert.equal(appPkg.version, '1.5.78');
 });
 
 test('desktop grokui ships dugite so Finder has git without PATH', () => {

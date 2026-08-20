@@ -3,3 +3,4 @@
 lib/grokui.mjs
 lib/podagent.mjs
 lib/livestatus.js
+lib/worktree.mjs
