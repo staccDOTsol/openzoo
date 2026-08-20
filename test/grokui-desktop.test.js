@@ -36,6 +36,10 @@ test('cost HUD sits below the wrapping header, not on top of the dials', () => {
   assert.match(grokui, /function placeHud/);
   assert.match(grokui, /chatHeader\.getBoundingClientRect\(\)\.bottom/);
   assert.match(grokui, /#main \{ position: relative;/);
+  const scriptStart = grokui.indexOf('<script>');
+  const scriptEnd = grokui.indexOf('</script>', scriptStart);
+  const script = grokui.slice(scriptStart, scriptEnd);
+  assert.equal((script.match(/const chatHeader =/g) || []).length, 1);
 });
 
 test('header always ships the spend dials and wallet', () => {
@@ -99,8 +103,8 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.85');
-  assert.equal(appPkg.version, '1.5.50');
+  assert.equal(ozPkg.version, '0.48.87');
+  assert.equal(appPkg.version, '1.5.65');
 });
 
 test('the box image does not bake or decrypt encrypted ProofFront', () => {
