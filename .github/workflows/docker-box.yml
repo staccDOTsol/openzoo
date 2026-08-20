@@ -10,16 +10,26 @@
 # "429: Too Many Requests", which then fails like an app bug rather than a
 # download bug.
 #
-# BUILT ON DOCKER BUILD CLOUD (jrsdunn123/cloud), which has native linux-amd64
-# AND linux-arm64 machines plus a persistent shared cache. That replaces the
-# previous shape — a two-runner matrix that pushed by digest and needed a
-# separate merge job to stitch the manifest, because two runners cannot write
-# the same tag without clobbering each other. One builder emits a proper
-# multi-arch manifest directly, so the matrix, the digest artifacts and the
-# merge job are all gone.
+# BUILT ON GITHUB'S OWN NATIVE RUNNERS — `ubuntu-latest` (amd64) and
+# `ubuntu-24.04-arm` (real arm64 hardware, free on public repos). We ran OUT OF
+# DOCKER BUILD CLOUD MINUTES, so the `driver: cloud` shape is gone; this is the
+# two-runner matrix it replaced, restored.
 #
-# History, so nobody reintroduces a slower shape: single-job QEMU emulation
-# was ~7m30s, the native two-runner matrix ~2m50s.
+# WHY PUSH-BY-DIGEST + A MERGE JOB: two runners cannot both write the same tag
+# without clobbering each other's manifest — whoever pushes last wins and the
+# image silently becomes single-arch. So each leg pushes an untagged blob and
+# reports its digest, and `merge` stitches them into one multi-arch manifest.
+# That machinery is the price of the matrix; it is not optional.
+#
+# NO setup-qemu-action. Both arches are native here. Emulation is what made the
+# original single job ~7m30s, and that action was also the flakiest step in this
+# file (codeload 503'd on it three times in one incident, failing the run before
+# anything was built).
+#
+# History, so nobody reintroduces a slower shape: single-job QEMU ~7m30s, this
+# native matrix ~2m50s, Build Cloud cold ~4m05s / warm ~1m09s. Build Cloud was
+# fastest when warm and is the thing to go back to if minutes are topped up —
+# the only edit needed is restoring `driver: cloud` and collapsing to one job.
 name: docker-box
 
 on:
@@ -32,12 +42,19 @@ on:
         required: false
         default: ''
 
-env:
-  CLOUD_BUILDER: cloud          # the builder named "cloud" under the Hub namespace
-
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -51,28 +68,22 @@ jobs:
           fi
           if [ -z "$TAG" ]; then TAG=latest; fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "baking $TAG"
+          echo "baking $TAG for ${{ matrix.platform }}"
 
       - uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # driver: cloud sends the build to Docker's remote native machines. No
-      # setup-qemu-action — nothing is emulated, and that action was also the
-      # flakiest step here (codeload 503'd on it three times in one incident,
-      # failing the run before anything was built).
-      - name: Use the cloud builder
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver: cloud
-          endpoint: ${{ secrets.DOCKERHUB_USERNAME }}/${{ env.CLOUD_BUILDER }}
-          install: true
+      # Plain docker-container driver on the runner itself. Native, no cloud
+      # endpoint, no emulation.
+      - uses: docker/setup-buildx-action@v3
 
       # amd64 only, --load'ed, so the gate can actually RUN the image. A
       # multi-arch result is a manifest and cannot be loaded into the local
-      # docker. The cloud cache makes this nearly free for the push below.
-      - name: Build (amd64, for smoke test)
+      # docker. The push below reuses this layer cache, so it is close to free.
+      - name: Build (for smoke test)
+        if: matrix.arch == 'amd64'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -83,10 +94,13 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: openzoo-box:smoke
+          cache-from: type=gha,scope=box-amd64
+          cache-to: type=gha,scope=box-amd64,mode=max
 
       # The gate. A 429 corpse, a missing bin, a musl base, a UI that does not
       # serve, or a missing dev toolchain fails HERE and nothing is published.
       - name: Smoke test
+        if: matrix.arch == 'amd64'
         run: |
           set -eu
           docker run --rm openzoo-box:smoke cat /etc/os-release | grep -qi debian \
@@ -119,24 +133,10 @@ jobs:
           echo "OK: $(wc -c < /tmp/g.html) bytes of grokui HTML"
           docker rm -f ozbox
 
-      - name: Compute Hub tags
-        id: meta
-        run: |
-          T="${{ steps.oz.outputs.tag }}"
-          SHA="sha-$(echo ${{ github.sha }} | cut -c1-7)"
-          U="${{ secrets.DOCKERHUB_USERNAME }}"
-          {
-            echo "tags<<EOF"
-            for repo in openzoo-box grokui; do
-              echo "$U/$repo:latest"
-              if [ "$T" != "latest" ]; then echo "$U/$repo:$T"; fi
-              echo "$U/$repo:$SHA"
-            done
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      # One build, both arches, native, straight to a multi-arch manifest.
-      - name: Build and push (amd64 + arm64)
+      # UNTAGGED, by digest. Everything lands in openzoo-box; `merge` creates
+      # every tag, in both repos, from these digests.
+      - name: Build and push by digest
+        id: push
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -144,28 +144,107 @@ jobs:
           build-args: |
             OZ_TAG=${{ steps.oz.outputs.tag }}
             PROOFFRONT_URL=${{ vars.PROOFFRONT_URL }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: ${{ matrix.platform }}
+          cache-from: type=gha,scope=box-${{ matrix.arch }}
+          cache-to: type=gha,scope=box-${{ matrix.arch }},mode=max
+          outputs: type=image,name=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/openzoo-box,push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          set -eu
+          mkdir -p /tmp/digests
+          # ${digest#sha256:} — the filename is the bare hex; merge globs these.
+          digest='${{ steps.push.outputs.digest }}'
+          [ -n "$digest" ] || { echo 'FAIL: build-push-action reported no digest'; exit 1; }
+          touch "/tmp/digests/${digest#sha256:}"
+          echo "$digest for ${{ matrix.platform }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the tag being baked
+        id: oz
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="${{ github.event.inputs.tag }}"
+          fi
+          if [ -z "$TAG" ]; then TAG=latest; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Create the multi-arch manifests
+        run: |
+          set -eu
+          U="${{ secrets.DOCKERHUB_USERNAME }}"
+          T="${{ steps.oz.outputs.tag }}"
+          SHA="sha-$(echo ${{ github.sha }} | cut -c1-7)"
+          SRC="docker.io/$U/openzoo-box"
+
+          n=$(ls -1 /tmp/digests | wc -l)
+          echo "digests collected: $n"
+          [ "$n" -ge 2 ] || { echo "FAIL: expected 2 digests, got $n"; exit 1; }
+
+          refs=""
+          for f in /tmp/digests/*; do refs="$refs $SRC@sha256:$(basename "$f")"; done
+
+          # openzoo-box first, from the raw per-arch digests.
+          args="-t $SRC:latest -t $SRC:$SHA"
+          if [ "$T" != "latest" ]; then args="$args -t $SRC:$T"; fi
+          # shellcheck disable=SC2086
+          docker buildx imagetools create $args $refs
+
+          # grokui is the same image under a second name. Copy the finished
+          # manifest rather than re-stitching digests: same namespace, so this
+          # is a manifest write, not a rebuild or a re-upload of layers.
+          G="docker.io/$U/grokui"
+          gargs="-t $G:latest -t $G:$SHA"
+          if [ "$T" != "latest" ]; then gargs="$gargs -t $G:$T"; fi
+          # shellcheck disable=SC2086
+          docker buildx imagetools create $gargs "$SRC:latest"
 
       - name: Verify both arches are in the manifest
         run: |
           set -eu
           U="${{ secrets.DOCKERHUB_USERNAME }}"
-          out=$(docker buildx imagetools inspect "docker.io/$U/grokui:latest")
-          echo "$out"
-          echo "$out" | grep -q 'linux/amd64' || { echo 'FAIL: no amd64 in manifest'; exit 1; }
-          echo "$out" | grep -q 'linux/arm64' || { echo 'FAIL: no arm64 in manifest'; exit 1; }
-          echo 'OK: multi-arch manifest published'
+          for repo in openzoo-box grokui; do
+            out=$(docker buildx imagetools inspect "docker.io/$U/$repo:latest")
+            echo "--- $repo"; echo "$out"
+            echo "$out" | grep -q 'linux/amd64' || { echo "FAIL: no amd64 in $repo manifest"; exit 1; }
+            echo "$out" | grep -q 'linux/arm64' || { echo "FAIL: no arm64 in $repo manifest"; exit 1; }
+          done
+          echo 'OK: multi-arch manifests published'
 
       - name: Summary
         run: |
           U="${{ secrets.DOCKERHUB_USERNAME }}"
           {
-            echo "### Pushed to Docker Hub (Docker Build Cloud, native amd64 + arm64)"
+            echo "### Pushed to Docker Hub (native GitHub runners, amd64 + arm64)"
             echo '```'
             echo "$U/openzoo-box:latest"
             echo "$U/grokui:latest"
             echo "  + :${{ steps.oz.outputs.tag }} and :sha-$(echo ${{ github.sha }} | cut -c1-7)"
             echo '```'
+            echo "Built without Docker Build Cloud — minutes exhausted."
           } >> "$GITHUB_STEP_SUMMARY"
