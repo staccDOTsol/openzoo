@@ -22,12 +22,22 @@ for (const name of fs.readdirSync(destDir)) {
   fs.rmSync(path.join(destDir, name), { recursive: true, force: true });
 }
 fs.cpSync(srcDir, destDir, { recursive: true });
+// Packed Contents/Resources/app/lib sits under grokui-app (CJS). Without a
+// package.json INSIDE lib/, livestatus.js is CommonJS and grokui.mjs dies
+// with "Named export 'RACE_MIN_SCORE' not found". Do not set type:module
+// on grokui-app/package.json — main.js is require().
+fs.writeFileSync(path.join(destDir, 'package.json'), '{\n  "type": "module"\n}\n');
 const copied = fs.readdirSync(destDir);
 if (!copied.includes('grokui.mjs')) {
   console.error('[bundle-grokui] dest is missing grokui.mjs after copy');
   process.exit(1);
 }
-console.log(`[bundle-grokui] ${srcDir} -> ${destDir} (${copied.length} files)`);
+const destPkg = JSON.parse(fs.readFileSync(path.join(destDir, 'package.json'), 'utf8'));
+if (destPkg.type !== 'module') {
+  console.error('[bundle-grokui] dest lib/package.json type is not module');
+  process.exit(1);
+}
+console.log(`[bundle-grokui] ${srcDir} -> ${destDir} (${copied.length} files, type=module)`);
 
 const walker = path.join(__dirname, '..', '..', 'scripts', 'assert-esm-relatives.mjs');
 const entry = path.join(destDir, 'grokui.mjs');
@@ -36,4 +46,10 @@ if (r.stdout) process.stdout.write(r.stdout);
 if (r.status !== 0) {
   process.stderr.write(r.stderr || '[bundle-grokui] assert-esm-relatives failed\n');
   process.exit(r.status || 1);
+}
+const esm = spawnSync(process.execPath, [path.join(__dirname, '..', '..', 'scripts', 'assert-packed-grokui-esm.mjs'), destDir], { encoding: 'utf8' });
+if (esm.stdout) process.stdout.write(esm.stdout);
+if (esm.status !== 0) {
+  process.stderr.write(esm.stderr || '[bundle-grokui] packed lib ESM assert failed\n');
+  process.exit(esm.status || 1);
 }

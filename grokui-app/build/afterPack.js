@@ -137,6 +137,13 @@ function packedAppDir(context) {
 // Copy the ENTIRE directory into Contents/Resources/app/lib (or
 // resources/app/lib) so electron-builder's files glob cannot drop a
 // newly imported sibling.
+function writeLibEsmPackage(dest) {
+  // Same file bundle-grokui.js writes. Repo lib/package.json is copied too,
+  // but write it here so a stale copy or a missing source file cannot ship
+  // another CJS lib/*.js tree (1.5.86 / 1.5.87).
+  fs.writeFileSync(path.join(dest, 'package.json'), '{\n  "type": "module"\n}\n');
+}
+
 function copyRepoLib(appDir, projectDir) {
   const src = path.join(projectDir, '..', 'lib');
   const dest = path.join(appDir, 'lib');
@@ -145,6 +152,7 @@ function copyRepoLib(appDir, projectDir) {
   }
   fs.rmSync(dest, { recursive: true, force: true });
   fs.cpSync(src, dest, { recursive: true });
+  writeLibEsmPackage(dest);
   console.log(`[afterPack] copied repo lib -> ${dest} (${fs.readdirSync(dest).length} files)`);
 }
 
@@ -159,6 +167,13 @@ function assertPackedGrokuiLib(appDir) {
   } catch (e) {
     const detail = [e.stderr, e.stdout, e.message].filter(Boolean).join('\n');
     throw new Error(`[afterPack] packed grokui.mjs relatives missing:\n${detail}`);
+  }
+  const esm = path.join(__dirname, '..', '..', 'scripts', 'assert-packed-grokui-esm.mjs');
+  try {
+    execFileSync(process.execPath, [esm, path.join(appDir, 'lib')], { encoding: 'utf8' });
+  } catch (e) {
+    const detail = [e.stderr, e.stdout, e.message].filter(Boolean).join('\n');
+    throw new Error(`[afterPack] packed lib is not ESM (named imports from .js would fail):\n${detail}`);
   }
 }
 
@@ -217,6 +232,7 @@ exports.assertCopiedOpenzoo = assertCopiedOpenzoo;
 exports.publishedOpenzooVersion = publishedOpenzooVersion;
 exports.packedAppDir = packedAppDir;
 exports.copyRepoLib = copyRepoLib;
+exports.writeLibEsmPackage = writeLibEsmPackage;
 exports.assertPackedGrokuiLib = assertPackedGrokuiLib;
 
 exports.default = async function afterPack(context) {

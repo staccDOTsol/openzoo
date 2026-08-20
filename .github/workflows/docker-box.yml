@@ -123,9 +123,9 @@ jobs:
           docker run --rm -d --name ozbox -p 4173:4173 -p 8402:8402 openzoo-box:smoke
           ok=0
           for i in $(seq 1 30); do
-            if docker logs ozbox 2>&1 | grep -q 'ERR_MODULE_NOT_FOUND'; then
+            if docker logs ozbox 2>&1 | grep -qE 'ERR_MODULE_NOT_FOUND|is a CommonJS module'; then
               echo '--- container logs ---'; docker logs ozbox 2>&1 | tail -40
-              echo 'FAIL: grokui MODULE_NOT_FOUND'; docker rm -f ozbox; exit 1
+              echo 'FAIL: grokui MODULE_NOT_FOUND or CJS named-export'; docker rm -f ozbox; exit 1
             fi
             if curl -fsS -o /tmp/g.html http://127.0.0.1:4173/; then ok=1; break; fi
             sleep 1

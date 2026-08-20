@@ -21,7 +21,9 @@ test('box image copies the whole grokui lib tree, not two files', () => {
   assert.match(dockerfile, /cp -a \/opt\/openzoo\/lib\/\. \/opt\/grokui\//);
   assert.doesNotMatch(dockerfile, /cp \/opt\/openzoo\/lib\/grokui\.mjs \/opt\/openzoo\/lib\/podagent\.mjs/);
   assert.match(dockerfile, /test -f \/opt\/grokui\/livestatus\.js/);
+  assert.match(dockerfile, /test -f \/opt\/grokui\/package\.json/);
   assert.match(dockerfile, /assert-esm-relatives\.mjs \/opt\/grokui\/grokui\.mjs/);
+  assert.match(dockerfile, /assert-packed-grokui-esm\.mjs \/opt\/grokui/);
   // Bake must not curl :4173. window-before-sidecar is desktop; here grokui
   // must actually load, which the smoke test (and the resolve gate) prove.
   assert.doesNotMatch(dockerfile, /curl[^\n]*4173/);
@@ -39,6 +41,7 @@ test('box-boot runs grokui from the complete clone, not a stripped .grokui', () 
 
 test('docker-box smoke fails fast on MODULE_NOT_FOUND', () => {
   assert.match(workflow, /ERR_MODULE_NOT_FOUND/);
+  assert.match(workflow, /is a CommonJS module/);
   assert.match(workflow, /FAIL: grokui MODULE_NOT_FOUND/);
   assert.match(workflow, /test -f \/opt\/grokui\/livestatus\.js/);
 });

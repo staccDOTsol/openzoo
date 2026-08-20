@@ -65,6 +65,8 @@ RUN set -eu; \
     cp -a /opt/openzoo/lib/. /opt/grokui/; \
     echo "${TAG}" >/opt/openzoo/.oz-tag; \
     test -f /opt/grokui/livestatus.js; \
+    test -f /opt/grokui/package.json; \
+    grep -q '"type": "module"' /opt/grokui/package.json; \
     head -c 80 /opt/grokui/grokui.mjs | grep -qE '^(//|import )'
 
 # Bake-time resolve gate. node --check is syntax only and would not have
@@ -72,7 +74,9 @@ RUN set -eu; \
 # load; the smoke test proves that. This gate fails the image if any
 # relative from './…' in grokui.mjs (recursively) is missing on disk.
 COPY scripts/assert-esm-relatives.mjs /tmp/assert-esm-relatives.mjs
+COPY scripts/assert-packed-grokui-esm.mjs /tmp/assert-packed-grokui-esm.mjs
 RUN node /tmp/assert-esm-relatives.mjs /opt/grokui/grokui.mjs
+RUN node /tmp/assert-packed-grokui-esm.mjs /opt/grokui
 
 WORKDIR /workspace
 EXPOSE 8080 4173 8402
