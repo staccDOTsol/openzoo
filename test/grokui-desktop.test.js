@@ -639,6 +639,7 @@ test('afterPack overlays sidecar spill/runguard into node_modules/openzoo and bi
     assert.equal(afterPack.OPENZOO_SIDECAR_OVERLAY.includes(rel), true, rel);
   }
   assert.equal(afterPack.OPENZOO_SIDECAR_OVERLAY.includes('lib/proxy.js'), true);
+  assert.equal(afterPack.OPENZOO_SIDECAR_OVERLAY.includes('lib/relay.js'), true);
   assert.equal(afterPack.OPENZOO_SIDECAR_OVERLAY.includes('lib/modelroute.js'), true);
 
   const staged = mkdtempSync(path.join(tmpdir(), 'oz-overlay-nm-'));

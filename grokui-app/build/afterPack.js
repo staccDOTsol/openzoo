@@ -97,6 +97,7 @@ const OPENZOO_SIDECAR_OVERLAY = [
   'lib/modelroute.js',
   'lib/models.js',
   'lib/proxy.js',
+  'lib/relay.js',
   'lib/modelroute/catalog.json',
   'lib/modelroute/router.json',
   'lib/modelroute/outcomes.json',
