@@ -22,6 +22,7 @@ const REQUIRED = [
   'lib/runguard.js',
   'lib/racesettle.js',
   'lib/hrr.js',
+  'lib/retrieve.js',
   'lib/livestatus.js',
   'lib/think.js',
 ];
