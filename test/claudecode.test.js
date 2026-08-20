@@ -6,7 +6,7 @@ import path from 'node:path';
 import {
   claudePrintArgs, foldClaudeEvent, toolStatusLine, paymentFailText,
   AUTO_CLAUDE_SYSTEM, CLAUDE_MISSING, spawnClaudePrint, setClaudeRunnerForTest,
-  runClaudeCode,
+  runClaudeCode, sanitizeClaudeCanvas, looksBinaryCanvas, canvasHttpErrorLine,
 } from '../lib/claudecode.js';
 import { claudeZooEnv } from '../lib/launch.js';
 
@@ -71,6 +71,55 @@ test('foldClaudeEvent maps stream-json, not RUN:/WRITE: text', () => {
   assert.match(pay.paymentFailed, /wallet is empty/);
   assert.match(paymentFailText('openzoo wallet underfunded: need more'), /underfunded|empty/);
   assert.equal(paymentFailText('ok'), '');
+
+  const toolStart = foldClaudeEvent({
+    type: 'stream_event', session_id: 'abc',
+    event: {
+      type: 'content_block_start',
+      content_block: { type: 'tool_use', name: 'Read', input: { file_path: 'foo.js' } },
+    },
+  });
+  assert.equal(toolStart.kind, 'tool');
+  assert.equal(toolStart.name, 'Read');
+  assert.equal(toolStatusLine(toolStart.name, toolStart.input), 'Read foo.js');
+
+  const toolResult = foldClaudeEvent({
+    type: 'user', session_id: 'abc',
+    message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'file body' }] },
+  });
+  assert.equal(toolResult.kind, 'tool_result');
+
+  const thinkStart = foldClaudeEvent({
+    type: 'stream_event', session_id: 'abc',
+    event: { type: 'content_block_start', content_block: { type: 'thinking', thinking: '' } },
+  });
+  assert.equal(thinkStart.kind, 'think');
+
+  const bad = foldClaudeEvent({
+    type: 'result', is_error: true, session_id: 'abc',
+    result: 'API Error: 400 ' + '\uFFFD'.repeat(8) + 'gzip',
+  });
+  assert.equal(bad.text, 'upstream HTTP 400');
+  assert.equal(bad.error, true);
+});
+
+test('sanitizeClaudeCanvas never paints dumps, reminders, or binary 400s', () => {
+  assert.equal(sanitizeClaudeCanvas('hello'), 'hello');
+  assert.equal(sanitizeClaudeCanvas('API Error: 400 {"type":"error"}', { error: true }), 'upstream HTTP 400');
+  assert.equal(canvasHttpErrorLine('API Error: 400 ' + '\uFFFD'.repeat(12)), 'upstream HTTP 400');
+  assert.equal(looksBinaryCanvas('\uFFFD\uFFFD\uFFFD'), true);
+  assert.equal(looksBinaryCanvas(Buffer.from([0x1f, 0x8b, 0x08, 0x00])), true);
+  assert.equal(
+    sanitizeClaudeCanvas('ok\n<system-reminder>do not leak</system-reminder>\nmore'),
+    'ok\n\nmore',
+  );
+  assert.doesNotMatch(
+    sanitizeClaudeCanvas('visible\ncurrentDir: /tmp/secret\nmore'),
+    /currentDir/,
+  );
+  assert.doesNotMatch(sanitizeClaudeCanvas('RUN: mkdir -p foo\nWRITE: a.txt'), /RUN:|WRITE:/);
+  assert.equal(sanitizeClaudeCanvas('{"type":"tool_use","file_path":"/tmp/x"}'), '');
+  assert.doesNotMatch(sanitizeClaudeCanvas('SPAWN: kid | go'), /SPAWN:/);
 });
 
 test('spawnClaudePrint reads NDJSON from a fake claude binary', async () => {
@@ -101,6 +150,30 @@ emit({ type: 'result', subtype: 'success', result: 'Created note.md', session_id
   assert.match(r.text, /Created note.md/);
   assert.ok(events.some((e) => e.kind === 'assistant' && e.tools?.[0]?.name === 'Write'));
   assert.ok(events.some((e) => e.kind === 'assistant' && e.thinking === 'write it'));
+});
+
+test('spawnClaudePrint folds a binary API Error 400 to one short line', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-fake-claude-400-'));
+  const cli = path.join(dir, 'claude');
+  writeFileSync(cli, `#!/usr/bin/env node
+process.stdout.write('API Error: 400 ');
+process.stdout.write(Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0xff, 0xfe, 0x00, 0x00]));
+process.stderr.write(Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0x00]));
+process.exit(1);
+`);
+  chmodSync(cli, 0o755);
+  const events = [];
+  const r = await spawnClaudePrint({
+    cli,
+    args: ['--print', '--output-format', 'stream-json', 'go'],
+    cwd: dir,
+    env: process.env,
+    onEvent: (ev) => events.push(ev),
+  });
+  assert.equal(r.error, true);
+  assert.equal(r.text, 'upstream HTTP 400');
+  assert.doesNotMatch(r.text, /\uFFFD/);
+  assert.doesNotMatch(r.stderr || '', /\uFFFD/);
 });
 
 test('runClaudeCode override and missing CLI', async () => {
