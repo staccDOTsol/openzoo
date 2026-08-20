@@ -506,6 +506,38 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
     const vis = visibleHistory(auto.history);
     assert.equal(vis.some((h) => h.who === 'user' && h.text === 'do the job even if 500'), true);
     assert.equal(vis.some((h) => isHarnessUserText(h.text)), false);
+    assert.ok((auto.messages || []).some((m) => m.role === 'user' && m.content === 'do the job even if 500'));
+
+    let autoEntered = false;
+    let releaseAuto;
+    const autoHang = new Promise((resolve) => { releaseAuto = resolve; });
+    setClaudeRunnerForTest(() => {
+      autoEntered = true;
+      const live = JSON.parse(readFileSync(store, 'utf8')).find((x) => x.id === autoHangThread.id);
+      assert.equal(live.history[0].who, 'user');
+      assert.equal(live.history[0].text, 'keep me through pty spawn');
+      assert.ok((live.messages || []).some((m) => m.role === 'user' && String(m.content).includes('keep me through pty spawn')));
+      assert.equal(live.history.some((h) => h.text === AUTO_RACE_RETRY || h.text === AUTO_CONTINUE), false);
+      return autoHang.then(() => ({ text: 'claude later', sessionId: 'sess-auto' }));
+    });
+    const autoHangThread = newThread('auto-hang', null);
+    autoHangThread.runMode = 'auto';
+    const autoP = runTurn(autoHangThread.id, 'keep me through pty spawn');
+    await Promise.resolve();
+    assert.equal(autoEntered, true);
+    assert.equal(autoHangThread.history[0].text, 'keep me through pty spawn');
+    const diskAuto = JSON.parse(readFileSync(store, 'utf8')).find((x) => x.id === autoHangThread.id);
+    assert.equal(diskAuto.history[0].text, 'keep me through pty spawn');
+    releaseAuto();
+    await autoP;
+    const afterHop = autoHangThread.history.filter((h) => h.who === 'user');
+    assert.equal(afterHop.length, 1);
+    assert.equal(afterHop[0].text, 'keep me through pty spawn');
+
+    await runTurn(autoHangThread.id, AUTO_CONTINUE);
+    const stillUsers = autoHangThread.history.filter((h) => h.who === 'user');
+    assert.equal(stillUsers.length, 1);
+    assert.equal(stillUsers[0].text, 'keep me through pty spawn');
 
     const listed = await (await fetch('http://127.0.0.1:' + uiPort + '/threads', {
       method: 'POST', headers: { 'content-type': 'application/json' },

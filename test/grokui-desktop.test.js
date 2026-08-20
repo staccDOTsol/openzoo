@@ -1172,11 +1172,20 @@ test('user turns persist to the thread store before the model call', () => {
   assert.match(grokui, /function persistUserTurn/);
   assert.match(grokui, /function visibleHistory/);
   assert.match(grokui, /function isVisibleHistoryEntry/);
+  assert.match(fnBody(grokui, 'saveThreads'), /fsyncSync/);
   const run = fnBody(grokui, 'runTurn');
   const persistAt = run.indexOf('persistUserTurn(t, userText, images)');
   const thinkAt = run.indexOf("t.status = 'thinking'");
   assert.ok(persistAt >= 0 && thinkAt > persistAt, 'persist before thinking / model await');
   assert.doesNotMatch(run, /t\.history\.push\(images && images\.length \? \{ who: 'user'/);
+  const autoAt = run.indexOf('Orange Auto is interactive');
+  assert.ok(autoAt >= 0);
+  const autoSlice = run.slice(autoAt);
+  const claudeAt = autoSlice.indexOf('runAutoClaudeTurn');
+  assert.ok(claudeAt > 0);
+  const beforeClaude = autoSlice.slice(0, claudeAt);
+  assert.match(beforeClaude, /persistUserTurn\(t, userText, images\)/);
+  assert.match(beforeClaude, /saveThreads\(\)/);
   const driveStart = grokui.indexOf("req.url === '/drive'");
   const driveEnd = grokui.indexOf('res.writeHead(200, { \'content-type\': \'text/html\' })', driveStart);
   const drive = grokui.slice(driveStart, driveEnd);
@@ -1205,5 +1214,13 @@ test('compose box keeps the draft until persist; AUTO continue is never a user b
   assert.match(appHtml, /if \(h\.who === 'user' && isHarnessUserText\(h\.text\)\) continue/);
   assert.match(appHtml, /s\.indexOf\('AUTO is still on '/);
   assert.doesNotMatch(appHtml, /AUTO is still on — do not stop/);
+  assert.match(appHtml, /function rememberUserTurn/);
+  assert.match(appHtml, /function recalledUserTurn/);
+  assert.match(appHtml, /function ensureLiveBotRow/);
+  assert.match(appHtml, /openzoo\.userTurn\./);
+  const paintStart = appHtml.indexOf('function paintStream()');
+  const paintFn = appHtml.slice(paintStart, appHtml.indexOf('function connectStream', paintStart));
+  assert.doesNotMatch(paintFn, /if \(!b\) \{ render\(\); return; \}/);
+  assert.match(paintFn, /ensureLiveBotRow/);
 });
 
