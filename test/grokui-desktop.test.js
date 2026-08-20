@@ -257,15 +257,20 @@ test('HUD and wallet show prepaid credit, not only session spend', () => {
   assert.match(proxy, /creditUsd, chainUsd/);
 });
 
-test('HUD embers when session cogs exceed paid; cogs is used racers', () => {
+test('HUD embers when session cogs exceed paid; launched racers stay billed', () => {
   assert.match(grokui, /cogsOver/);
   assert.match(grokui, /cogs above paid/);
-  assert.match(grokui, /used racers, not the N\+judge ceiling/);
+  assert.match(grokui, /you pay for every entrant we actually launched/);
+  assert.match(grokui, /failures still cost us/);
+  assert.doesNotMatch(grokui, /unused grant-back should have kept used cogs/);
   const proxy = readFileSync(path.join(root, 'lib', 'proxy.js'), 'utf8');
   assert.match(proxy, /receiptUsedCogs/);
   const settle = readFileSync(path.join(root, 'lib', 'racesettle.js'), 'utf8');
   assert.match(settle, /race_unused/);
   assert.match(settle, /receiptUsedCogs/);
+  assert.match(settle, /not a user refund/);
+  const brain = readFileSync(path.join(root, 'lib', 'podagent.mjs'), 'utf8');
+  assert.match(brain, /does not grant unused or failed racers back/);
 });
 
 test('a thinking turn paints live status, not mute dots', () => {
