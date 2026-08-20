@@ -24,8 +24,10 @@ test('the Electron app does not keep a drifting grokui.mjs', () => {
   assert.match(main, /path\.join\(__dirname, '\.\.', 'lib', 'grokui\.mjs'\)/);
   assert.match(appPkg.scripts['dist:mac'], /bundle-grokui/);
   assert.match(appPkg.scripts.start, /bundle-grokui/);
-  const fromLib = (appPkg.build.files || []).some((f) => f && f.from === '../lib');
-  assert.equal(fromLib, true);
+  // Packaged files are the bundled grokui-app/lib copy (bundle-grokui.js
+  // writes it at start/pack). Do not require a second { from: '../lib' }
+  // electron-builder extra that would ship the whole proxy tree.
+  assert.equal((appPkg.build.files || []).includes('lib/**/*'), true);
 });
 
 test('header always ships the spend dials and wallet', () => {
@@ -48,6 +50,22 @@ test('copy/paste: Edit menu roles, Electron clipboard, selectable addresses', ()
   assert.match(grokui, /local burner on this machine/);
 });
 
+test('selecting text copies it and toasts copied', () => {
+  // Select → clipboard → toast. Not ⌘C, not a tiny button, not window.alert.
+  assert.match(grokui, /id="copiedToast"/);
+  assert.match(grokui, /function copySettledSelection/);
+  assert.match(grokui, /function showCopiedToast/);
+  assert.match(grokui, /function selectedText/);
+  assert.match(grokui, /scheduleCopySelection/);
+  assert.match(grokui, /selectionchange/);
+  assert.match(grokui, /pointerup/);
+  assert.match(grokui, /el\.classList\.remove\('show'\); \}, 1200\)/);
+  assert.match(grokui, /if \(!text\) return/);
+  assert.match(grokui, /el\.type === 'password'/);
+  assert.match(grokui, /restoreSelection/);
+  assert.doesNotMatch(grokui, /window\.alert\s*\(/);
+});
+
 test('auto keeps going instead of parking on a continue note', () => {
   assert.match(grokui, /OZ_AUTO_MAX_STEPS \|\| 500/);
   assert.doesNotMatch(grokui, /OZ_AUTO_MAX_STEPS \|\| 8\b/);
@@ -65,6 +83,6 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.83');
+  assert.equal(ozPkg.version, '0.48.84');
   assert.equal(appPkg.version, '1.5.50');
 });
