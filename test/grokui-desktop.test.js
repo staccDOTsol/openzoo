@@ -400,6 +400,15 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.match(grokui, /t\.runMode === 'auto'/);
   assert.match(grokui, /usedClaude = true/);
   assert.match(grokui, /runClaudeCode\(/);
+  assert.match(grokui, /function runClaudeCodeBounded/);
+  assert.match(fnBody(grokui, 'runAutoClaudeTurn'), /runClaudeCodeBounded\(/);
+  assert.match(fnBody(grokui, 'runClaudeCodeBounded'), /new AbortController/);
+  assert.match(fnBody(grokui, 'runClaudeCodeBounded'), /do not abort turnAbort|ptyAbort/);
+  assert.match(fnBody(grokui, 'runClaudeCodeBounded'), /\(no response\)/);
+  assert.match(grokui, /OZ_AUTO_CLAUDE_PTY_MS \|\| 3000/);
+  assert.match(fnBody(grokui, 'runTurn'), /Promise\.race\(/);
+  assert.match(fnBody(grokui, 'runTurn'), /ENSURE_HARNESS_SEND_MS/);
+  assert.match(grokui, /ENSURE_HARNESS_SEND_MS = 2500/);
   assert.match(grokui, /Claude Code via OpenZoo/);
   assert.doesNotMatch(grokui, /say "continue" to keep going/);
   assert.match(grokui, /const AUTO_CONTINUE/);
@@ -477,6 +486,8 @@ test('install docs ship Mac nvm+openzoo claude and Windows nvm-windows, not offi
   assert.match(notes, /Linux/);
   assert.match(notes, /AppImage/);
   assert.match(notes, /openzoo-claude/);
+  assert.match(notes, /Hung PTY Auto falls through to completions in 3s/);
+  assert.match(notes, /do not ship a PTY that eats the send/);
   assert.match(notes, /first (?:launch|run)|~\/\.local\/bin/i);
   assert.doesNotMatch(notes, /npx -y openzoo-claude/);
   for (const src of [readme, notes]) {
