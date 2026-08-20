@@ -57,7 +57,7 @@ test('bundle-grokui copies the entire repo lib, not a filename whitelist', () =>
   });
   assert.equal(r.status, 0, r.stderr || r.stdout);
   const dest = path.join(root, 'grokui-app', 'lib');
-  for (const f of ['grokui.mjs', 'info.js', 'hrr.js', 'spill.js', 'subscription.js', 'livestatus.js', 'podagent.mjs', 'worktree.mjs', 'package.json']) {
+  for (const f of ['grokui.mjs', 'grokui-subagents.js', 'info.js', 'hrr.js', 'spill.js', 'subscription.js', 'livestatus.js', 'podagent.mjs', 'worktree.mjs', 'package.json']) {
     assert.equal(existsSync(path.join(dest, f)), true, f);
   }
   const destPkg = JSON.parse(readFileSync(path.join(dest, 'package.json'), 'utf8'));
