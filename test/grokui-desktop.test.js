@@ -1009,6 +1009,25 @@ test('canvas folds reasoning behind a collapsed thinking row, not the Auto chip'
   assert.doesNotMatch(appHtml, /class="ttrail"/);
 });
 
+test('paintStream snapshots near-bottom before growing the live bubble', () => {
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  const start = appHtml.indexOf('function pinLogBottom()');
+  const paint = appHtml.indexOf('function paintStream()', start);
+  const end = appHtml.indexOf('function connectStream(', paint);
+  assert.ok(start >= 0 && paint > start && end > paint, 'pinLogBottom/paintStream bounds');
+  const helpers = appHtml.slice(start, paint);
+  const fn = appHtml.slice(paint, end);
+  const snap = fn.indexOf('const wasNearBottom = log.scrollHeight - log.scrollTop - log.clientHeight');
+  const writeText = fn.indexOf('b.textContent = parts.visible');
+  const writeHtml = fn.indexOf('b.innerHTML = liveBubbleHtml()');
+  assert.ok(snap >= 0, 'snapshots wasNearBottom before mutating the bubble');
+  assert.ok(writeText > snap, 'textContent write is after the snapshot');
+  assert.ok(writeHtml > snap, 'innerHTML write is after the snapshot');
+  assert.match(fn, /if \(wasNearBottom \|\| followLive\) pinLogBottom\(\)/);
+  assert.match(helpers, /requestAnimationFrame/);
+  assert.doesNotMatch(fn, /if \(log\.scrollHeight - log\.scrollTop - log\.clientHeight < 140\) log\.scrollTop = log\.scrollHeight/);
+});
+
 test('SYSTEM and Auto refuse shelling the :8402 proxy; site curls stay allowed', () => {
   assert.match(grokui, /const CHAT_NOT_PROXY/);
   assert.match(grokui, /You already ARE the chat/);
