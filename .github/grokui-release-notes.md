@@ -2,7 +2,7 @@ Silicon Mac: arm64.dmg
 Windows: exe
 Linux: AppImage
 
-9-account wrap. Old 5-account x402 wrap is rejected 0x6a.
+Race grid + classifier judging. Picker shows savings cut (1 model 0%, 4-racer −75%). Sitrep is a Pay-style drawer, not a chat dump.
 
 ## Arch
 
