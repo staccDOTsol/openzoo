@@ -260,6 +260,29 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.doesNotMatch(claude, /spawn\([^)]*curl/);
 });
 
+test('install docs ship Mac nvm+openzoo claude and Windows nvm-windows, not extra steps', () => {
+  const readme = readFileSync(path.join(root, 'README.md'), 'utf8');
+  const notes = readFileSync(path.join(root, '.github', 'grokui-release-notes.md'), 'utf8');
+  for (const src of [readme, notes]) {
+    assert.match(src, /curl -fsSL https:\/\/claude\.ai\/install\.sh \| bash/);
+    assert.match(src, /raw\.githubusercontent\.com\/nvm-sh\/nvm\/v0\.40\.7\/install\.sh/);
+    assert.match(src, /\. "\$HOME\/\.nvm\/nvm\.sh"/);
+    assert.match(src, /nvm install 24/);
+    assert.match(src, /npm i -g openzoo/);
+    assert.match(src, /export PATH="\$HOME\/\.local\/bin:\$PATH"/);
+    assert.match(src, /openzoo claude/);
+    assert.match(src, /coreybutler\/nvm-windows/);
+    assert.match(src, /nvm-setup\.exe/);
+    assert.match(src, /nvm use 24/);
+    assert.match(src, /will \*\*not\*\* run/);
+    assert.match(src, /No `source`, no `~\/\.zshrc`/);
+    assert.match(src, /(?:\*\*not\*\* need to authenticate Claude first|No Claude login first)/);
+  }
+  const win = readme.slice(readme.indexOf('Windows:'));
+  assert.doesNotMatch(win, /source ~\/\.zshrc/);
+  assert.doesNotMatch(win, /claude\.ai\/install\.sh/);
+});
+
 test('subagents get the root ask, recent turns, and a SEND brief refresh', () => {
   assert.match(grokui, /ROOT ASK/);
   assert.match(grokui, /RECENT PARENT TURNS/);
