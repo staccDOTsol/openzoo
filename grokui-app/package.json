@@ -24,12 +24,7 @@
       "main.js",
       "preload.js",
       "lib/**/*",
-      "build/**/*",
-      {
-        "from": "../lib",
-        "to": "lib",
-        "filter": ["grokui.mjs", "podagent.mjs"]
-      }
+      "build/**/*"
     ],
     "directories": {
       "output": "dist"
