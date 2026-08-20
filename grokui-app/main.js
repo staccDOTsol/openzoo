@@ -93,14 +93,36 @@ function buildAppMenu() {
 
 const PORT = process.env.OZ_GROKUI_PORT || 4173;
 let serverProc, proxyProc;
+let serverLog = '';
+let serverExit = null;
 
 function startServer() {
   // ELECTRON_RUN_AS_NODE makes the packaged Electron binary behave as plain
   // Node when spawned as a subprocess — without it, a packaged .app would try
   // to launch a second Electron GUI instance instead of running the script.
+  // Pipe stdout/stderr so a MODULE_NOT_FOUND (or any listen failure) can be
+  // shown in the window instead of leaving "starting…" up forever.
+  serverLog = '';
+  serverExit = null;
   serverProc = spawn(process.execPath, [grokuiScript()], {
-    stdio: 'inherit',
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    windowsHide: true,
+  });
+  const take = (buf) => {
+    const s = String(buf);
+    serverLog += s;
+    if (serverLog.length > 8000) serverLog = serverLog.slice(-8000);
+    try { process.stderr.write(s); } catch { /* ignore */ }
+  };
+  if (serverProc.stdout) serverProc.stdout.on('data', take);
+  if (serverProc.stderr) serverProc.stderr.on('data', take);
+  serverProc.on('error', (e) => {
+    serverLog += (e && e.stack) ? e.stack : String(e);
+    serverExit = { error: e };
+  });
+  serverProc.on('exit', (code, signal) => {
+    serverExit = { code, signal };
   });
 }
 
@@ -198,12 +220,16 @@ function portOccupied(port) {
   });
 }
 
-function waitFor(url, retries, intervalMs) {
+function waitFor(url, retries, intervalMs, died) {
   return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
     const attempt = (n) => {
+      if (done) return;
+      if (died && died()) { finish(false); return; }
       pingUrl(url).then((ok) => {
-        if (ok) resolve(true);
-        else if (n <= 0) resolve(false);
+        if (ok) finish(true);
+        else if (n <= 0) finish(false);
         else setTimeout(() => attempt(n - 1), intervalMs);
       });
     };
@@ -265,6 +291,35 @@ function startingPage() {
   );
 }
 
+function failedPage(detail) {
+  const msg = String(detail || 'grokui failed to start').slice(0, 4000);
+  const escaped = msg.replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+  return 'data:text/html;charset=utf-8,' + encodeURIComponent(
+    '<!doctype html><html><head><meta charset="utf-8"><title>openzoo</title>' +
+    '<style>html,body{margin:0;min-height:100%;background:#000;color:#c8c8c8;' +
+    'font:14px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;' +
+    'padding:48px 28px}pre{white-space:pre-wrap;word-break:break-word;color:#f0c0c0}</style></head>' +
+    '<body><div>openzoo could not start the UI on :' + PORT + '</div>' +
+    '<pre>' + escaped + '</pre></body></html>'
+  );
+}
+
+function serverFailDetail() {
+  const parts = [];
+  if (serverExit && serverExit.error) parts.push(String(serverExit.error.stack || serverExit.error));
+  else if (serverExit) {
+    parts.push(serverExit.code == null
+      ? `grokui.mjs exited ${serverExit.signal}`
+      : `grokui.mjs exited with code ${serverExit.code}`);
+  } else {
+    parts.push(`grokui never answered http://localhost:${PORT}/threads`);
+  }
+  if (serverLog.trim()) parts.push(serverLog.trim());
+  return parts.join('\n\n');
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 980,
@@ -292,9 +347,10 @@ async function loadAppWhenReady(win) {
   // starting… forever. ensureProxy still runs (reuse a healthy sidecar,
   // spawn if none) but must not gate loadURL. Chat pays later, after paint.
   void ensureProxy();
-  const ok = await waitFor(`http://localhost:${PORT}/threads`, 80, 250);
+  const ok = await waitFor(`http://localhost:${PORT}/threads`, 80, 250, () => Boolean(serverExit));
   if (win.isDestroyed()) return;
   if (ok) win.loadURL(`http://localhost:${PORT}`);
+  else win.loadURL(failedPage(serverFailDetail()));
 }
 
 // Unsigned builds can't use Electron's full auto-updater (it requires signed

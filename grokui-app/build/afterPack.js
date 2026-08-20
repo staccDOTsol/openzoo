@@ -126,14 +126,48 @@ function prune(nm) {
   console.log(`[afterPack] pruned ${removed} unreachable files/dirs from the production tree`);
 }
 
+function packedAppDir(context) {
+  return context.electronPlatformName === 'darwin'
+    ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources', 'app')
+    : path.join(context.appOutDir, 'resources', 'app');
+}
+
+// The live UI is repo lib/. A filename whitelist in bundle-grokui.js is
+// how 1.5.86 shipped grokui.mjs without info.js and sat on "starting…".
+// Copy the ENTIRE directory into Contents/Resources/app/lib (or
+// resources/app/lib) so electron-builder's files glob cannot drop a
+// newly imported sibling.
+function copyRepoLib(appDir, projectDir) {
+  const src = path.join(projectDir, '..', 'lib');
+  const dest = path.join(appDir, 'lib');
+  if (!fs.existsSync(src) || !fs.statSync(src).isDirectory()) {
+    throw new Error(`[afterPack] repo lib missing at ${src}`);
+  }
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.cpSync(src, dest, { recursive: true });
+  console.log(`[afterPack] copied repo lib -> ${dest} (${fs.readdirSync(dest).length} files)`);
+}
+
+function assertPackedGrokuiLib(appDir) {
+  const entry = path.join(appDir, 'lib', 'grokui.mjs');
+  if (!fs.existsSync(entry)) {
+    throw new Error(`[afterPack] packed tree missing ${entry}`);
+  }
+  const walker = path.join(__dirname, '..', '..', 'scripts', 'assert-esm-relatives.mjs');
+  try {
+    execFileSync(process.execPath, [walker, entry], { encoding: 'utf8' });
+  } catch (e) {
+    const detail = [e.stderr, e.stdout, e.message].filter(Boolean).join('\n');
+    throw new Error(`[afterPack] packed grokui.mjs relatives missing:\n${detail}`);
+  }
+}
+
 function copyNodeModules(context) {
   const src = prodModules(context.packager.projectDir);
   if (!fs.existsSync(src)) {
     throw new Error('[afterPack] production node_modules missing — refusing to pack without openzoo');
   }
-  const appDir = context.electronPlatformName === 'darwin'
-    ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources', 'app')
-    : path.join(context.appOutDir, 'resources', 'app');
+  const appDir = packedAppDir(context);
   const dest = path.join(appDir, 'node_modules');
   fs.rmSync(dest, { recursive: true, force: true });
   fs.cpSync(src, dest, { recursive: true, dereference: true });
@@ -181,8 +215,14 @@ function copyNodeModules(context) {
 
 exports.assertCopiedOpenzoo = assertCopiedOpenzoo;
 exports.publishedOpenzooVersion = publishedOpenzooVersion;
+exports.packedAppDir = packedAppDir;
+exports.copyRepoLib = copyRepoLib;
+exports.assertPackedGrokuiLib = assertPackedGrokuiLib;
 
 exports.default = async function afterPack(context) {
+  const appDir = packedAppDir(context);
+  copyRepoLib(appDir, context.packager.projectDir);
+  assertPackedGrokuiLib(appDir);
   copyNodeModules(context);
   if (context.electronPlatformName !== 'darwin') return;
   const app = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);

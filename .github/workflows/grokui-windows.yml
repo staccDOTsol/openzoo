@@ -49,6 +49,10 @@ jobs:
         shell: bash
         run: npm run dist:win
 
+      - name: Packed grokui.mjs relatives
+        shell: bash
+        run: node scripts/assert-packed-grokui-lib.mjs grokui-app/dist
+
       - name: Verify output
         shell: bash
         run: |
