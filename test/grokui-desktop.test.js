@@ -44,6 +44,8 @@ test('cost HUD sits below the wrapping header, not on top of the dials', () => {
 
 test('header always ships the spend dials and wallet', () => {
   assert.match(grokui, /id="tierSel"/);
+  assert.match(grokui, /value="grok4.6"/);
+  assert.match(grokui, />grok 4.6</);
   assert.match(grokui, /id="raceSel"/);
   assert.match(grokui, /id="walletBtn"/);
   assert.match(grokui, /id="headerDials"/);
@@ -106,8 +108,8 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.98');
-  assert.equal(appPkg.version, '1.5.76');
+  assert.equal(ozPkg.version, '0.48.99');
+  assert.equal(appPkg.version, '1.5.77');
 });
 
 test('pay modal lists the card subscribe lane before wallet/x402', () => {
