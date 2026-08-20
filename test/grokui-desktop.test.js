@@ -94,6 +94,7 @@ test('auto keeps going instead of parking on a continue note', () => {
   assert.doesNotMatch(grokui, /say "continue" to keep going/);
   assert.match(grokui, /const AUTO_CONTINUE/);
   assert.match(grokui, /const AUTO_RACE_RETRY/);
+  assert.match(grokui, /const AUTO_EMPTY_RETRY/);
   assert.match(grokui, /STALLED_OFFER/);
   assert.match(grokui, /function isDoneReply/);
   assert.match(grokui, /function isTransientModelFail/);
