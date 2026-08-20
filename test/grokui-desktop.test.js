@@ -390,11 +390,19 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.match(launch, /delete env\.ANTHROPIC_API_KEY/);
   assert.match(launch, /ANTHROPIC_AUTH_TOKEN/);
   const claude = readFileSync(path.join(root, 'lib', 'claudecode.js'), 'utf8');
-  assert.match(claude, /--output-format/);
-  assert.match(claude, /stream-json/);
+  assert.doesNotMatch(claude, /export function claudePrintArgs/);
+  assert.doesNotMatch(claude, /'--print'/);
+  assert.doesNotMatch(claude, /'--output-format'/);
+  assert.doesNotMatch(claude, /'stream-json'/);
+  assert.match(claude, /export function claudeInteractiveArgs/);
+  assert.match(claude, /spawnClaudePty/);
   assert.match(claude, /bypassPermissions/);
   assert.match(claude, /Do not curl localhost:8402\/v1\/chat\/completions/);
   assert.doesNotMatch(claude, /spawn\([^)]*curl/);
+  assert.match(grokui, /function isGrokuiOwnedSlash/);
+  assert.match(grokui, /CLAUDE_SLASH_IN_AUTO/);
+  assert.match(grokui, /closeClaudeSession/);
+  assert.match(autoFn, /sessionKey: t\.id/);
 });
 
 test('install docs ship Mac nvm+openzoo claude and Windows nvm-windows, not extra steps', () => {
