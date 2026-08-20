@@ -103,6 +103,11 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
   // Repeat SPAWN is a wake, not another CONTEXT REFRESH.
   assert.match(grokui, /wakeOnPing\(existing\)/);
   assert.doesNotMatch(grokui, /runTurn\(existing\.id, childKickoff/);
+  // Kids must not inherit p.dir (testingcluade). Isolation is prepareChildDir.
+  assert.doesNotMatch(grokui, /\.\.\.\(p\?\.dir \? \{ dir: p\.dir \} : \{\}\)/);
+  assert.match(grokui, /function attachChildDir/);
+  assert.match(grokui, /prepareChildDir/);
+  assert.doesNotMatch(grokui, /type  \/dir <path>  if you need one/);
 });
 
 test('openzoo and grokui-app versions bump together', () => {
