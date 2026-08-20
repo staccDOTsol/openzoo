@@ -1,5 +1,9 @@
 node_modules/
+__pycache__/
 *.log
 grokui-app/dist/
 lib/proxy.js.bak
 .openzoo/
+# machine-local modelroute posteriors — mergeable, never commit
+**/modelroute-outcomes.json
+vendor/modelroute/outcomes.json
