@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 process.env.OZ_AGENT_PORTS = '0';
+
+const podagentSrc = readFileSync(fileURLToPath(new URL('../lib/podagent.mjs', import.meta.url)), 'utf8');
 
 const {
   TIERS, TIER_NAMES, TIER_ALIASES, normalizeTier, tierModels,
@@ -33,6 +37,12 @@ test('TIER_ALIASES + normalizeTier map grok spellings onto grok4.6', () => {
   assert.equal(normalizeTier(''), null);
   assert.equal(normalizeTier('frontier'), null);
   assert.equal(normalizeTier('opus'), null);
+});
+
+test('TIERS grok4.6 key is quoted — bare grok4.6: is SyntaxError', () => {
+  assert.match(podagentSrc, /'grok4\.6': \[/);
+  assert.match(podagentSrc, /'grok4\.6': 'grok4\.6'/);
+  assert.doesNotMatch(podagentSrc, /(?:^|[^\w'"])grok4\.6:\s*\[/m);
 });
 
 test('TIERS.grok4.6 is four grok chat models, 4.6 first — no imagine/stt/tts/video', () => {
