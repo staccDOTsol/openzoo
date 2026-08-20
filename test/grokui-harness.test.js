@@ -110,13 +110,14 @@ test('parseRun, think-tag strip, inDir, MCP-as-bash refuse', async () => {
     const refused = await tryDirective('RUN: get_skill\\nproofnetwork-contract\\nMCP: http://127.0.0.1:9', t.id);
     assert.match(refused, /MCP: <url>/);
     assert.match(refused, /get_skill/);
-    assert.doesNotMatch(refused, /command not found/);
+    assert.doesNotMatch(refused, /\\(exit \\d+\\)/);
+    assert.doesNotMatch(refused, /^\\$ /);
 
     const mcpKeep = await tryDirective('MCP: not-a-url', t.id);
     assert.doesNotMatch(mcpKeep, /not a shell command/);
     assert.match(mcpKeep, /MCP/);
 
-    console.log(JSON.stringify({ ok: true, listed, refused: refused.slice(0, 80) }));
+    console.log(JSON.stringify({ ok: true, listedHasReadme: /readme\\.txt/.test(listed), refusedMcp: /MCP: <url>/.test(refused) }));
     process.exit(0);
   `);
   const out = await runChild(script);
@@ -124,6 +125,6 @@ test('parseRun, think-tag strip, inDir, MCP-as-bash refuse', async () => {
   assert.ok(line, 'child printed a JSON result: ' + out);
   const r = JSON.parse(line);
   assert.equal(r.ok, true);
-  assert.match(r.listed, /readme\.txt/);
-  assert.match(r.refused, /MCP:/);
+  assert.equal(r.listedHasReadme, true);
+  assert.equal(r.refusedMcp, true);
 });
