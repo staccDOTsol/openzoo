@@ -103,8 +103,8 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.89');
-  assert.equal(appPkg.version, '1.5.67');
+  assert.equal(ozPkg.version, '0.48.90');
+  assert.equal(appPkg.version, '1.5.68');
 });
 
 test('HUD and wallet show prepaid credit, not only session spend', () => {
@@ -128,6 +128,18 @@ test('a thinking turn paints live status, not mute dots', () => {
   assert.match(brain, /STREAM_IDLE/);
   assert.match(brain, /formatPayStatus/);
   assert.match(brain, /startModelWait/);
+});
+
+test('harness strips think tags, refuses MCP-as-bash, and does not join absolute dirs', () => {
+  assert.match(grokui, /function stripThinkTags/);
+  assert.match(grokui, /function looksLikeMcpAsBash/);
+  assert.match(grokui, /function inDir/);
+  assert.match(grokui, /function listDir/);
+  assert.match(grokui, /MCP_AS_BASH_REFUSE/);
+  assert.match(grokui, /path\.isAbsolute\(raw\) \? path\.resolve\(raw\) : path\.resolve\(root, raw\)/);
+  assert.match(grokui, /get_skill, proofnetwork-\*, publish-update/);
+  assert.match(grokui, /MCP: <url> \| <tool> \| \{"arg": "value"\}/);
+  assert.doesNotMatch(grokui, /id="assetsBtn"/);
 });
 
 test('ensureProxy reuses a healthy :8402 and does not spawn over it', () => {
