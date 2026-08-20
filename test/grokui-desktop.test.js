@@ -381,6 +381,10 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.doesNotMatch(autoFn, /enqueueAutoHop\(/);
   assert.doesNotMatch(autoFn, /AUTO_DIRECTIVE/);
   assert.doesNotMatch(autoFn, /fetch\([^)]*chat\/completions/);
+  assert.match(autoFn, /type: 'tool'/);
+  assert.match(autoFn, /sanitizeClaudeCanvas/);
+  assert.match(autoFn, /keepFold/);
+  assert.match(grokui, /sanitizeClaudeCanvas/);
   const launch = readFileSync(path.join(root, 'lib', 'launch.js'), 'utf8');
   assert.match(launch, /export function claudeZooEnv/);
   assert.match(launch, /delete env\.ANTHROPIC_API_KEY/);
@@ -988,13 +992,21 @@ test('canvas folds reasoning behind a collapsed thinking row, not the Auto chip'
   assert.match(appHtml, /className = 'thinkchip'/);
   assert.match(appHtml, /liveThinkOpen/);
   assert.match(appHtml, /ev\.type === 'think'/);
-  assert.match(appHtml, /body\.textContent = liveThinkOpen \? think : ''/);
+  assert.match(appHtml, /body\.textContent = liveThinkOpen \? text : ''/);
   assert.match(appHtml, /Not the Auto run-mode chip/);
   assert.doesNotMatch(appHtml, /class="thinkchip modebtn/);
   assert.doesNotMatch(appHtml, /id="modeAuto".*thinkfold/);
-  // Live bubble must not dump raw CoT: paint the visible split, not streamBuf.
-  assert.match(appHtml, /b\.textContent = parts\.visible/);
+  // Live Auto: thinking… chip stays visible even before the first token.
+  assert.match(appHtml, /fold\.hidden = false/);
+  assert.match(appHtml, /function foldBodyText/);
+  assert.match(appHtml, /ev\.type === 'tool'/);
+  assert.match(appHtml, /streamTools/);
+  assert.match(appHtml, /function scrubBotText/);
+  assert.match(appHtml, /upstream HTTP /);
+  // Live bubble is model text only — no RUN/WRITE trails, no mute CoT dump.
+  assert.match(appHtml, /b\.textContent = scrubBotText\(parts\.visible\)/);
   assert.doesNotMatch(appHtml, /b\.textContent = streamBuf;/);
+  assert.doesNotMatch(appHtml, /class="ttrail"/);
 });
 
 test('SYSTEM and Auto refuse shelling the :8402 proxy; site curls stay allowed', () => {

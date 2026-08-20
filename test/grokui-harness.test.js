@@ -281,8 +281,11 @@ test('AUTO is Claude Code once; ask still parks pendingRun; ping wakes', async (
     assert.equal(auto.status, 'idle');
     assert.equal(auto.claudeSessionId, 'sess-auto');
     assert.match(auto.history.map((h) => h.text).join('\\n'), /Wrote hello.txt/);
+    assert.ok(painted.some((e) => e.type === 'think'), 'thinking… row must paint while Claude is alive');
     assert.match(painted.filter((e) => e.type === 'think').map((e) => e.delta).join(''), /I will write/);
-    assert.ok(painted.some((e) => e.type === 'status' && /Write hello\\.txt/.test(e.detail)));
+    assert.ok(painted.some((e) => e.type === 'tool' && /Write hello\\.txt/.test(e.detail)));
+    assert.ok(!painted.some((e) => e.type === 'status' && /Write hello/.test(e.detail || '')));
+    assert.doesNotMatch(auto.history.map((h) => h.text).join('\\n'), /file_path|tool_use|system-reminder/);
     assert.doesNotMatch(painted.map((e) => e.text || e.detail || '').join('\\n'), /chat\\/completions/);
     const { readFileSync } = await import('node:fs');
     assert.equal(readFileSync(path.join(${JSON.stringify(dir)}, 'hello.txt'), 'utf8'), 'from claude write');
@@ -298,6 +301,29 @@ test('AUTO is Claude Code once; ask still parks pendingRun; ping wakes', async (
     await runTurn(payBot.id, 'do work');
     assert.match(payBot.history[payBot.history.length - 1].text, /wallet is empty/);
     assert.equal(payBot.status, 'idle');
+
+    const errBot = newThread('err-400', null);
+    errBot.runMode = 'auto';
+    const errPainted = [];
+    setClaudeRunnerForTest(async ({ onEvent }) => {
+      onEvent?.({ kind: 'init', sessionId: 'sess-400', model: 'openzoo-claude' });
+      onEvent?.({ kind: 'think', text: '' });
+      onEvent?.({ kind: 'tool', name: 'Read', input: { file_path: 'secret.bin' } });
+      onEvent?.({ kind: 'partial' });
+      return {
+        text: 'API Error: 400 ' + '\\uFFFD'.repeat(20) + 'gzip-body',
+        sessionId: 'sess-400',
+        error: true,
+        paymentFailed: '',
+      };
+    });
+    await runTurn(errBot.id, 'do work', (ev) => errPainted.push(ev));
+    assert.equal(errBot.history[errBot.history.length - 1].text, 'upstream HTTP 400');
+    assert.doesNotMatch(errBot.history.map((h) => h.text).join('\\n'), /gzip-body|API Error|\\uFFFD/);
+    assert.ok(errPainted.some((e) => e.type === 'think'));
+    assert.ok(errPainted.some((e) => e.type === 'tool' && /Read secret\\.bin/.test(e.detail)));
+    assert.match(errBot.history[errBot.history.length - 1].thinking || '', /Read secret\\.bin/);
+    assert.equal(errBot.status, 'idle');
 
     const askBot = newThread('ask-keep', null);
     askBot.runMode = 'ask';
