@@ -283,6 +283,8 @@ test('HUD embers when session cogs exceed paid; launched racers stay billed', ()
   assert.match(settle, /race_unused/);
   assert.match(settle, /receiptUsedCogs/);
   assert.match(settle, /not a user refund/);
+  assert.match(settle, /function recutRaceByHud/);
+  assert.match(settle, /RACE_HUD_TARGET/);
   const brain = readFileSync(path.join(root, 'lib', 'podagent.mjs'), 'utf8');
   assert.match(brain, /does not grant unused or failed racers back/);
 });
@@ -336,6 +338,7 @@ test('in-flight race paints a spectator grid and a classifier beat, not mute sta
   assert.match(grokui, /function raceIsLive/);
   assert.match(grokui, /r\.racers\.length >= 2/);
   assert.match(grokui, /class="racegrid n'/);
+  assert.match(grokui, /race\.recut \? ' · recut'/);
   assert.match(grokui, /class="racejudge/);
   assert.match(grokui, /looking at the '/);
   assert.match(grokui, /goes to '/);

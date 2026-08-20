@@ -202,7 +202,7 @@ test('shortModelName drops the org prefix; clipRacePreview keeps an opening, not
 test('createRaceFeed spectator snapshot: Y cells, abandon after X, then judging/winner', () => {
   const snaps = [];
   const feed = createRaceFeed(() => {}, () => {}, 2, (s) => snaps.push(s));
-  feed.start(['z-ai/glm-4.7', 'deepseek/deepseek-v4-flash', 'qwen/qwen3', 'mistralai/mistral-large']);
+  feed.start(['z-ai/glm-4.7', 'deepseek/deepseek-v4-flash', 'qwen/qwen3', 'mistralai/mistral-large'], { recut: 'savings' });
   assert.equal(snaps[0].launched, 4);
   assert.equal(snaps[0].need, 2);
   assert.equal(snaps[0].phase, 'racing');
@@ -232,6 +232,7 @@ test('createRaceFeed spectator snapshot: Y cells, abandon after X, then judging/
 
   feed.judge();
   assert.equal(snaps.at(-1).phase, 'judging');
+  assert.equal(snaps[0].recut, 'savings');
   feed.settle({ model: 'deepseek/deepseek-v4-flash', text: 'the winner' });
   const won = snaps.at(-1);
   assert.equal(won.phase, 'winner');

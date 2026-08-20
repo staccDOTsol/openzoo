@@ -7,7 +7,8 @@ process.env.OZ_AGENT_PORTS = '0';
 const { brainRace } = await import('../lib/podagent.mjs');
 const {
   receiptUsedCogs, meterRaceReceipt, capRaceByCredit, doorAcceptsRace,
-  resetGatewayRaceProbe, RACE_NO_CREDIT,
+  resetGatewayRaceProbe, RACE_NO_CREDIT, recutRaceByHud, sessionDollarX,
+  RACE_HUD_TARGET,
 } = await import('../lib/racesettle.js');
 
 function sleep(ms) {
@@ -456,6 +457,68 @@ test('race_unused is not a user refund; HUD cogs stay house cost', () => {
   const failedMeter = meterRaceReceipt(failed);
   assert.equal(failedMeter.spentUsd, 0.40);
   assert.equal(failedMeter.cogsUsd, 0.40);
+});
+
+test('sessionDollarX is the HUD green x (direct/spent)', () => {
+  assert.equal(sessionDollarX({ spentUsd: 6.57, directUsd: 13.70 }).toFixed(2), '2.09');
+  assert.equal(sessionDollarX({ dollarX: 2.09 }), 2.09);
+  assert.equal(sessionDollarX({}), null);
+});
+
+test('recutRaceByHud: 2.09x on 4 racers drops to 1 — the 4-racer tax', () => {
+  assert.equal(RACE_HUD_TARGET, 5);
+  const thin = recutRaceByHud({ y: 4, need: 2, dollarX: 2.09, tier: 'medium' });
+  assert.equal(thin.y, 1);
+  assert.equal(thin.need, 1);
+  assert.equal(thin.tier, 'medium');
+  assert.equal(thin.recut, true);
+  assert.equal(thin.reason, 'savings');
+
+  const ok = recutRaceByHud({ y: 4, need: 2, dollarX: 6.0, tier: 'medium' });
+  assert.equal(ok.recut, false);
+  assert.equal(ok.y, 4);
+  assert.equal(ok.need, 2);
+
+  const mid = recutRaceByHud({ y: 4, need: 2, dollarX: 4.0, tier: 'medium' });
+  assert.equal(mid.y, 3);
+  assert.equal(mid.need, 2);
+  assert.equal(mid.recut, true);
+
+  const worse = recutRaceByHud({ y: 4, need: 2, dollarX: 1.1, tier: 'expensive' });
+  assert.equal(worse.y, 1);
+  assert.equal(worse.tier, 'medium');
+  assert.equal(worse.recut, true);
+
+  assert.equal(recutRaceByHud({ y: 4, need: 2 }).recut, false);
+});
+
+test('thin green HUD recuts a best-2-of-4 launch so classify never sees 4 bills', async () => {
+  let launched = 0;
+  const classified = [];
+  const statuses = [];
+  const text = await brainRace(
+    [{ role: 'user', content: 'q' }],
+    () => {},
+    null,
+    ['a', 'b', 'c', 'd'],
+    2,
+    undefined,
+    (s) => statuses.push(s),
+    {
+      dollarX: 2.09,
+      tier: 'medium',
+      stream: async (_m, onDelta, _c, model) => {
+        launched += 1;
+        onDelta(model + '-only');
+        return model + '-only';
+      },
+      classify: async (_m, c) => { classified.push(c.model); return 9; },
+    },
+  );
+  assert.equal(launched, 1);
+  assert.equal(classified.length, 0);
+  assert.equal(text, 'a-only');
+  assert.ok(statuses.some((s) => /recut to 1 — savings/.test(s)));
 });
 
 test('capRaceByCredit shrinks or refuses instead of firing 4 groks on $0', () => {
