@@ -17,12 +17,16 @@ import {
   isRetryableStatus,
   outcomeFromResponse,
   isAutoModel,
+  isUnservableRouteId,
+  isPricedTokenPair,
   BIND_ABOVE_TOKENS,
   BIND_SLICE_TOKENS,
   resetModelrouteSingletons,
   artifactDir,
   shippedOutcomesPath,
   getOutcomes,
+  getCatalog,
+  autoHasPricedModels,
 } from '../lib/modelroute.js';
 import { resolveModel, rewriteChatModel, publishModelList } from '../lib/models.js';
 
@@ -191,6 +195,36 @@ test('NaN / negative prices are uncostable, never cheaper than free', () => {
   assert.deepEqual(feas, [true, false, false]);
 });
 
+test(':batch / ~latest / $0 are unservable even when a price is present', () => {
+  assert.equal(isUnservableRouteId('anthropic/claude-fable-5:batch'), true);
+  assert.equal(isUnservableRouteId('~anthropic/claude-opus-latest'), true);
+  assert.equal(isUnservableRouteId('openzoo-claude-fable-5'), true);
+  assert.equal(isUnservableRouteId('openzoo/auto'), false);
+  assert.equal(isUnservableRouteId('x-ai/grok-4.6'), false);
+  assert.equal(isPricedTokenPair(0, 1), false);
+  assert.equal(isPricedTokenPair(1, 0), false);
+  assert.equal(isPricedTokenPair(-3, -3), false);
+  assert.equal(isPricedTokenPair(1, 2), true);
+  const catalog = {
+    stamp: 'batch',
+    ids: ['paid/ok', 'paid/ok:batch', '~paid/latest', 'free/ok'],
+    ctx: [200000, 200000, 200000, 200000],
+    categories: ['programming'],
+    price_in: [0.5, 0.25, 0.5, 0],
+    price_out: [1.0, 0.5, 1.0, 0],
+    modality: [1, 1, 1, 1],
+    tools: [true, true, true, true],
+    jsonmode: [true, true, true, true],
+    reasoning: [true, true, true, true],
+    ranks: [[1], [1], [1], [1]],
+  };
+  const cat = new Catalog(null, catalog);
+  const cons = { needs_image: false, needs_tools: false, needs_json: false, min_context: 100 };
+  assert.deepEqual(cat.feasible(cons, false), [true, false, false, false]);
+  assert.deepEqual(cat.feasible(cons, false, ['paid/ok']), [true, false, false, false]);
+  assert.deepEqual(cat.feasible(cons, false, ['paid/ok:batch']), [false, false, false, false]);
+});
+
 test('bind_ctx is not a routing window; bind_first uses the leCore slice', () => {
   const catalog = {
     stamp: 'bind',
@@ -244,10 +278,10 @@ test('runtime loads lib/modelroute catalog, router, and shipped outcomes', () =>
     assert.ok(existsSync(path.join(dir, 'router.json')));
     const shipped = JSON.parse(readFileSync(shippedOutcomesPath(), 'utf8'));
     const n = Object.values(shipped).reduce((a, p) => a + (p[1] || 0), 0);
-    assert.equal(Object.keys(shipped).length, 341);
-    assert.equal(n, 3832);
+    assert.equal(Object.keys(shipped).length, 391);
+    assert.equal(n, 4367);
     const out = getOutcomes();
-    assert.equal(Object.keys(out.shipped).length, 341);
+    assert.equal(Object.keys(out.shipped).length, 391);
     const [p, obs] = out.posterior('agentic', 'anthropic/claude-sonnet-5', 0.45);
     assert.equal(obs, 9);
     assert.ok(p > 0.45, `measured posterior should beat the prior, got ${p}`);
@@ -327,11 +361,49 @@ test('resolveModel / rewriteChatModel leave openzoo/auto alone', () => {
 });
 
 test('published catalog includes openzoo/auto as Auto', () => {
-  const published = publishModelList({ object: 'list', data: [{ id: 'x-ai/grok-4.6', object: 'model' }] });
+  const published = publishModelList({
+    object: 'list',
+    data: [{ id: 'x-ai/grok-4.6', object: 'model', pricing: { prompt: 1e-6, completion: 2e-6 } }],
+  });
   const auto = published.data.find((m) => m.id === 'openzoo/auto');
   assert.ok(auto);
   assert.equal(auto.display_name, 'Auto');
   assert.equal(auto.owned_by, 'openzoo');
+  assert.equal(published.data.some((m) => m.id === 'openzoo-grok-4.6'), false);
+});
+
+test('Auto shortlist is a subset of quoteable catalog ids — never :batch or unpriced', () => {
+  resetModelrouteSingletons();
+  const cat = getCatalog();
+  assert.equal(autoHasPricedModels(cat), true);
+  const r = route('hi', {
+    catalog: cat,
+    classifier: undefined,
+    outcomes: new Outcomes(null),
+    allow_free: false,
+  });
+  assert.ok(r.model);
+  assert.equal(isUnservableRouteId(r.model), false);
+  const i = cat.ids.indexOf(r.model);
+  assert.ok(i >= 0);
+  assert.equal(isPricedTokenPair(cat.price_in[i], cat.price_out[i]), true);
+  for (const s of r.shortlist) {
+    assert.equal(isUnservableRouteId(s.model), false, s.model);
+    const j = cat.ids.indexOf(s.model);
+    assert.equal(isPricedTokenPair(cat.price_in[j], cat.price_out[j]), true, s.model);
+  }
+  const quoteable = new Set(cat.ids.filter((id, idx) => (
+    !isUnservableRouteId(id) && isPricedTokenPair(cat.price_in[idx], cat.price_out[idx])
+  )));
+  const allow = [...quoteable].slice(0, 40);
+  const clipped = route('hi', {
+    catalog: cat,
+    outcomes: new Outcomes(null),
+    allow_free: false,
+    allow_ids: allow,
+  });
+  assert.ok(allow.includes(clipped.model), clipped.model);
+  for (const s of clipped.shortlist) assert.ok(allow.includes(s.model), s.model);
 });
 
 test('routeChatBody uses the last user turn and prior context', () => {
@@ -367,6 +439,7 @@ test('sidecar wires /route, openzoo/auto rewrite, fallback, and outcomes', () =>
   assert.match(src, /recordRouteOutcome/);
   assert.match(src, /allow_free: false/);
   assert.match(src, /bindable: true/);
+  assert.match(src, /allow_ids: ids/);
   const libPkg = JSON.parse(readFileSync(path.join(root, 'lib', 'package.json'), 'utf8'));
   assert.equal(libPkg.type, 'module');
 });

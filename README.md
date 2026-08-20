@@ -25,6 +25,8 @@ paid $0.002137 (9.5× cheaper than direct) · rail solana · tx 5Kd…
 
 **Claude Code / grokui Auto** — `openzoo claude` sets the Anthropic API key + base URL to the local OpenZoo proxy (x402 pay-per-call). You do **not** need to authenticate Claude first. grokui orange Auto is this harness, not a `RUN:` text parser. PATH `~/.local/bin` is required on Mac so `claude` is found.
 
+`GET /v1/models` is the live OpenRouter catalog **after** dropping `:batch`, `$0` / missing prices, and `openzoo-*` twins. Claude Code's `/model` picker (Anthropic-shaped GET) is a short list: current Opus/Sonnet/Haiku-class + a few real gateway models + `openzoo/auto`.
+
 Mac:
 
 ```
@@ -58,6 +60,19 @@ nvm install 24
 nvm use 24
 npm i -g openzoo
 openzoo claude
+```
+
+Leave a healthy `:8402` sidecar alone. Manual equivalent / check that the list is quoteable:
+
+```bash
+unset ANTHROPIC_API_KEY
+export ANTHROPIC_BASE_URL=http://localhost:8402/v1
+export ANTHROPIC_AUTH_TOKEN=sk-openzoo
+export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
+curl -s "$ANTHROPIC_BASE_URL/models" | jq '[.data[].id] | map(select(test(":batch") or startswith("openzoo-")))'
+# -> []   (no :batch, no openzoo-* clones)
+curl -s -H 'anthropic-version: 2023-06-01' "$ANTHROPIC_BASE_URL/models" | jq '[.data[].id]'
+# -> short picker (opus/sonnet/haiku + a few gateway ids + openzoo/auto)
 ```
 
 **Any OpenAI-env tool:**

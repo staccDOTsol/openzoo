@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveModel, isTinyClassify, pickClassifierModel, raiseReasoningMaxTokens, rewriteChatModel, REASONING_MODEL_RE, displayNameFor, publishModelList, anthropicModelList, modelsListForRequest, anthropicNativeAlias, ANTHROPIC_NATIVE_ALIASES, isHarnessAliasId } from '../lib/models.js';
+import { resolveModel, isTinyClassify, pickClassifierModel, raiseReasoningMaxTokens, rewriteChatModel, REASONING_MODEL_RE, displayNameFor, publishModelList, anthropicModelList, modelsListForRequest, anthropicNativeAlias, ANTHROPIC_NATIVE_ALIASES, isHarnessAliasId, isQuoteableModel, pickClaudePickerRows, quoteableRows } from '../lib/models.js';
 import { applyClaudeCodeCatalogEnv, claudeZooEnv, resolveClaudeCli, claudeCodeBinDirs } from '../lib/launch.js';
 import { anthropicToOpenAI } from '../lib/anthropic.js';
 
@@ -101,20 +101,28 @@ test('OPENZOO_DEFAULT_MODEL=opus-5 does not swallow an explicit catalog pick', (
   }
 });
 
+function pricedRow(id, prompt = 1e-6, completion = 2e-6) {
+  return { id, object: 'model', pricing: { prompt, completion, unit: 'USD' } };
+}
+
 test('every shipped alias id resolves against the live-shaped catalog', async () => {
   const { ALIAS_IDS, augmentModelList } = await import('../lib/models.js');
   for (const id of ALIAS_IDS) {
     assert.ok(resolveModel(id, CATALOG), `alias ${id} did not resolve`);
   }
-  const merged = augmentModelList({ object: 'list', data: CATALOG.map((id) => ({ id })) });
-  // real models + one openzoo-<short> twin each + harness aliases + openzoo/auto
-  assert.equal(merged.data.length, CATALOG.length * 2 + ALIAS_IDS.length + 1);
+  const rows = CATALOG.map((id) => (
+    id.includes(':free') ? { id, pricing: { prompt: 0, completion: 0 } } : pricedRow(id)
+  ));
+  const merged = augmentModelList({ object: 'list', data: rows });
+  const ids = merged.data.map((m) => m.id);
+  const quoteable = CATALOG.filter((id) => !id.includes(':batch') && !id.includes(':free'));
+  // quoteable real models + harness aliases + openzoo/auto — no openzoo-* twins
+  assert.equal(merged.data.length, quoteable.length + ALIAS_IDS.length + 1);
   assert.ok(merged.data.some((m) => m.id === 'openzoo/auto'));
-  // every twin points at a real model and is prefixed
-  const twins = merged.data.filter((m) => m.id.startsWith('openzoo-'));
-  assert.equal(twins.length, CATALOG.length);
-  for (const t of twins) assert.ok(CATALOG.includes(t.served_by), `${t.id} -> ${t.served_by}`);
-  // IDEMPOTENT: re-running must not double-add (no openzoo-openzoo-*)
+  assert.equal(ids.filter((id) => id.startsWith('openzoo-')).length, 0);
+  assert.equal(ids.filter((id) => id.includes(':batch')).length, 0);
+  assert.ok(!ids.includes('liquid/lfm-2.5-2.6b:free'));
+  for (const id of quoteable) assert.ok(ids.includes(id), `missing ${id}`);
   const again = augmentModelList(merged);
   assert.equal(again.data.length, merged.data.length);
   assert.equal(again.data.filter((m) => m.id.startsWith('openzoo-openzoo')).length, 0);
@@ -132,12 +140,11 @@ test('an openzoo-* twin resolves EXACTLY to the model it was minted from', async
   const C = ['anthropic/claude-opus-5', 'anthropic/claude-opus-5-fast',
              'anthropic/claude-sonnet-5', 'anthropic/claude-sonnet-5:batch',
              'deepseek/deepseek-v4-pro-0813'];
-  const merged = augmentModelList({ object: 'list', data: C.map((id) => ({ id })) });
-  for (const t of merged.data.filter((m) => m.id.startsWith('openzoo-'))) {
-    assert.equal(resolveModel(t.id, C), t.served_by, `${t.id} must land on its source`);
-  }
-  // ...and the env override must NOT hijack an explicit twin (it did: every
-  // picked model silently became the env one).
+  const merged = augmentModelList({ object: 'list', data: C.map((id) => pricedRow(id)) });
+  // Twins are no longer published (they cloned every id in Claude /model).
+  assert.equal(merged.data.filter((m) => m.id.startsWith('openzoo-')).length, 0);
+  assert.ok(!merged.data.some((m) => m.id.includes(':batch')));
+  // Incoming openzoo-* ids still resolve — launch.js may still send them.
   process.env.OPENZOO_DEFAULT_MODEL = 'deepseek/deepseek-v4-pro-0813';
   try {
     assert.equal(resolveModel('openzoo-claude-opus-5', C), 'anthropic/claude-opus-5');
@@ -434,6 +441,8 @@ const ZOO_CATALOG = [
   'bytedance-seed/seed-2.0-code',
   'qwen/qwen3.8-27b',
   'anthropic/claude-opus-5',
+  'anthropic/claude-haiku-4.5',
+  'anthropic/claude-fable-5',
   'openai/gpt-5.5',
   'anthropic/claude-sonnet-5',
   'x-ai/grok-4.6',
@@ -449,7 +458,19 @@ const ZOO_CATALOG = [
 ];
 
 function zooPayload() {
-  return { object: 'list', data: ZOO_CATALOG.map((id) => ({ id, object: 'model' })) };
+  return {
+    object: 'list',
+    data: [
+      ...ZOO_CATALOG.map((id) => pricedRow(id)),
+      pricedRow('anthropic/claude-opus-5:batch'),
+      pricedRow('anthropic/claude-fable-5:batch'),
+      pricedRow('openzoo-claude-fable-5'),
+      pricedRow('~anthropic/claude-opus-latest'),
+      { id: 'openrouter/auto', object: 'model', pricing: { prompt: -3, completion: -3, unit: 'USD' } },
+      { id: 'liquid/lfm-2.5-2.6b:free', object: 'model', pricing: { prompt: 0, completion: 0, unit: 'USD' } },
+      { id: 'google/lyria-3-pro-preview', object: 'model', pricing: { unit: 'megapixel', usd: 0.12 } },
+    ],
+  };
 }
 
 function fakeClaudeAliases(ids) {
@@ -460,7 +481,19 @@ function fakeClaudeAliases(ids) {
   });
 }
 
-test('publishModelList keeps the full zoo catalog, not a single opus-5', async () => {
+test('isQuoteableModel drops :batch, twins, $0, missing token price', () => {
+  assert.equal(isQuoteableModel(pricedRow('x-ai/grok-4.6')), true);
+  assert.equal(isQuoteableModel(pricedRow('anthropic/claude-fable-5:batch')), false);
+  assert.equal(isQuoteableModel(pricedRow('openzoo-claude-fable-5')), false);
+  assert.equal(isQuoteableModel(pricedRow('~anthropic/claude-opus-latest')), false);
+  assert.equal(isQuoteableModel({ id: 'openrouter/auto', pricing: { prompt: -3, completion: -3 } }), false);
+  assert.equal(isQuoteableModel({ id: 'liquid/lfm-2.5-2.6b:free', pricing: { prompt: 0, completion: 0 } }), false);
+  assert.equal(isQuoteableModel({ id: 'google/lyria-3-pro-preview', pricing: { unit: 'megapixel', usd: 0.12 } }), false);
+  assert.equal(isQuoteableModel({ id: 'x-ai/grok-4.6' }), false);
+  assert.equal(isQuoteableModel({ id: 'openzoo/auto' }), true);
+});
+
+test('publishModelList keeps quoteable zoo ids, not a single opus-5 and not clones', async () => {
   const { ALIAS_IDS } = await import('../lib/models.js');
   const published = publishModelList(zooPayload());
   const ids = published.data.map((m) => m.id);
@@ -472,25 +505,42 @@ test('publishModelList keeps the full zoo catalog, not a single opus-5', async (
   assert.ok(ids.includes('anthropic/claude-opus-5'));
   for (const id of ZOO_CATALOG) assert.ok(ids.includes(id), `missing ${id}`);
   assert.equal(ids.filter((id) => id === 'anthropic/claude-opus-5').length, 1);
+  assert.equal(ids.filter((id) => id.includes(':batch')).length, 0);
+  assert.equal(ids.filter((id) => id.startsWith('openzoo-')).length, 0);
+  assert.ok(!ids.includes('openzoo-claude-fable-5'));
+  assert.ok(!ids.includes('openrouter/auto'));
+  assert.ok(!ids.includes('liquid/lfm-2.5-2.6b:free'));
+  assert.ok(!ids.includes('~anthropic/claude-opus-latest'));
   assert.equal(fakeClaudeAliases(ids).length, 0, `must not mint claude-* for non-Anthropic animals: ${fakeClaudeAliases(ids)}`);
   assert.equal(published.data.find((m) => m.id === 'x-ai/grok-4.6').display_name, 'grok-4.6 (x-ai)');
   assert.equal(displayNameFor('anthropic/claude-opus-5'), 'claude-opus-5 (anthropic)');
-  // OpenAI clients still see object:list + aliases/twins
   assert.equal(published.object, 'list');
-  assert.ok(ids.some((id) => id.startsWith('openzoo-')));
+  assert.ok(ids.includes('openzoo/auto'));
   assert.ok(ALIAS_IDS.every((id) => ids.includes(id)));
   assert.ok(ids.includes('claude-opus-5'));
   assert.ok(ids.includes('claude-opus-5-fast'));
   assert.ok(ids.includes('claude-3-5-opus'));
 });
 
-test('anthropicModelList uses real zoo ids (Claude Code reads id + display_name)', () => {
+test('anthropicModelList is a short honest picker (Claude Code reads id + display_name)', () => {
   const shaped = anthropicModelList(zooPayload());
   const ids = shaped.data.map((m) => m.id);
   assert.ok(shaped.data.length > 1);
-  assert.ok(ids.includes('x-ai/grok-4.6'));
-  assert.ok(ids.includes('deepseek/deepseek-v4-pro-0813'));
+  assert.ok(shaped.data.length <= 12, `Claude picker should be short, got ${ids.join(', ')}`);
+  assert.ok(ids.includes('anthropic/claude-opus-5'));
   assert.ok(ids.includes('anthropic/claude-sonnet-5'));
+  assert.ok(ids.includes('anthropic/claude-haiku-4.5'));
+  assert.ok(ids.includes('anthropic/claude-fable-5'));
+  assert.ok(ids.includes('x-ai/grok-4.6'));
+  assert.ok(ids.includes('google/gemini-3.7-flash'));
+  assert.ok(ids.includes('deepseek/deepseek-v4-pro-0813'));
+  assert.ok(ids.includes('qwen/qwen3.8-2.4t-a95b'));
+  assert.ok(ids.includes('openzoo/auto'));
+  assert.ok(!ids.includes('anthropic/claude-opus-5:batch'));
+  assert.ok(!ids.includes('openzoo-claude-fable-5'));
+  assert.ok(!ids.includes('gpt-4o'));
+  assert.equal(ids.filter((id) => id.includes(':batch')).length, 0);
+  assert.equal(ids.filter((id) => id.startsWith('openzoo-')).length, 0);
   assert.equal(fakeClaudeAliases(ids).length, 0);
   for (const row of shaped.data) {
     assert.equal(row.type, 'model');
@@ -499,6 +549,8 @@ test('anthropicModelList uses real zoo ids (Claude Code reads id + display_name)
   const grok = shaped.data.find((m) => m.id === 'x-ai/grok-4.6');
   assert.equal(grok.display_name, 'grok-4.6 (x-ai)');
   assert.ok(!/^claude-/.test(grok.id));
+  const picked = pickClaudePickerRows(publishModelList(zooPayload(), { aliases: false }).data);
+  assert.deepEqual(picked.map((m) => m.id), ids);
 });
 
 test('applyClaudeCodeCatalogEnv opts Claude Code into GET /v1/models discovery', async () => {
@@ -559,9 +611,13 @@ test('GET /v1/models (OpenAI + Claude-shaped) returns the mocked zoo catalog, no
   assert.ok(ids.includes('anthropic/claude-opus-5'));
   assert.notEqual(ids.length, 1);
   assert.ok(!(ids.length === 1 && ids[0] === 'anthropic/claude-opus-5'));
+  assert.equal(ids.filter((id) => id.includes(':batch')).length, 0);
+  assert.equal(ids.filter((id) => id.startsWith('openzoo-')).length, 0);
   assert.equal(fakeClaudeAliases(ids).length, 0);
   assert.equal(openai.object, 'list');
   assert.ok(openai.data.find((m) => m.id === 'x-ai/grok-4.6')?.display_name);
+  assert.deepEqual(quoteableRows(zooPayload().data).map((m) => m.id).sort(),
+    ZOO_CATALOG.slice().sort());
 
   const shaped = modelsListForRequest(zooPayload(), {
     'anthropic-version': '2023-06-01',
@@ -570,7 +626,9 @@ test('GET /v1/models (OpenAI + Claude-shaped) returns the mocked zoo catalog, no
   const cids = shaped.data.map((m) => m.id);
   assert.ok(cids.includes('x-ai/grok-4.6'), 'Claude-shaped list must keep grok, not filter to claude-*');
   assert.ok(cids.includes('deepseek/deepseek-v4-pro-0813'));
+  assert.ok(cids.includes('openzoo/auto'));
   assert.ok(cids.length > 1);
+  assert.ok(cids.length <= 12);
   assert.equal(fakeClaudeAliases(cids).length, 0);
   assert.equal(shaped.data.find((m) => m.id === 'x-ai/grok-4.6').type, 'model');
 });
