@@ -1,9 +1,8 @@
 Silicon Mac: arm64.dmg
 Windows: exe
 Linux: AppImage
-https://github.com/staccDOTsol/openzoo/releases
 
-9-account wrap (program pulls deposit). Old 5-account x402 wrap is rejected 0x6a.
+9-account wrap. Old 5-account x402 wrap is rejected 0x6a.
 
 ## Arch
 
