@@ -106,8 +106,8 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.96');
-  assert.equal(appPkg.version, '1.5.74');
+  assert.equal(ozPkg.version, '0.48.97');
+  assert.equal(appPkg.version, '1.5.75');
 });
 
 test('pay modal lists the card subscribe lane before wallet/x402', () => {
@@ -254,6 +254,10 @@ test('a race streams the live racer and can replace the bubble once', () => {
   assert.doesNotMatch(brain, /Streaming is deliberately not forwarded/);
   const live = readFileSync(path.join(root, 'lib', 'livestatus.js'), 'utf8');
   assert.match(live, /racing \$\{b\}\/\$\{n\} back/);
+  assert.match(live, /RACE_EVERY_FAILED/);
+  assert.match(live, /fetch failed/);
+  const bundle = readFileSync(path.join(root, 'grokui-app', 'scripts', 'bundle-grokui.js'), 'utf8');
+  assert.match(bundle, /livestatus\.js/);
 });
 
 test('harness strips think tags, refuses MCP-as-bash, and does not join absolute dirs', () => {
