@@ -103,8 +103,31 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.92');
-  assert.equal(appPkg.version, '1.5.70');
+  assert.equal(ozPkg.version, '0.48.93');
+  assert.equal(appPkg.version, '1.5.71');
+});
+
+test('pay modal lists the card subscribe lane before wallet/x402', () => {
+  const start = grokui.indexOf('id="walletOverlay"');
+  const end = grokui.indexOf('id="main"', start);
+  const modal = grokui.slice(start, end);
+  const card = modal.indexOf('id="subLane"');
+  const x402 = modal.indexOf('id="walletBody"');
+  assert.ok(card >= 0, 'subscribe/card lane is in the pay modal');
+  assert.ok(x402 >= 0, 'wallet/x402 body is in the pay modal');
+  assert.ok(card < x402, 'card lane must appear before wallet/x402');
+  assert.match(modal, /<h3>Pay with a card<\/h3>/);
+  assert.doesNotMatch(modal, /<h3>Your wallet<\/h3>/);
+  assert.match(modal, /local burner on this machine/);
+  assert.match(modal, /Subscribe with a card/);
+});
+
+test('header pay button is not labeled only wallet', () => {
+  const m = grokui.match(/id="walletBtn"[^>]*>[\s\S]*?<\/button>/);
+  assert.ok(m, 'header pay control exists');
+  assert.doesNotMatch(m[0], />\s*wallet\s*</i);
+  assert.match(m[0], />pay</);
+  assert.match(m[0], /Pay with a card/);
 });
 
 test('wallet modal offers Stripe subscriptions next to x402', () => {
