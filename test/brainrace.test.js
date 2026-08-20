@@ -6,8 +6,8 @@ process.env.OZ_AGENT_PORTS = '0';
 
 const { brainRace } = await import('../lib/podagent.mjs');
 const {
-  receiptUsedCogs, capRaceByCredit, doorAcceptsRace, resetGatewayRaceProbe,
-  RACE_NO_CREDIT,
+  receiptUsedCogs, meterRaceReceipt, capRaceByCredit, doorAcceptsRace,
+  resetGatewayRaceProbe, RACE_NO_CREDIT,
 } = await import('../lib/racesettle.js');
 
 function sleep(ms) {
@@ -411,14 +411,19 @@ test('fetch-failed racer is retried once and can still fill X', async () => {
   assert.deepEqual(classified.slice().sort(), ['flaky', 'good']);
 });
 
-test('receipt cogs is used racers after unused refund — never N+judge ceiling', () => {
-  const ceiling = { billedUsd: 1.44, cogsUsd: 2.20, race_unused: { cogsUsd: 0.90 } };
-  const used = receiptUsedCogs(ceiling);
-  assert.ok(Math.abs(used - 1.3) < 1e-9);
-  assert.ok(used <= ceiling.billedUsd, 'cogs ≤ billed after unused refund');
-  // Already-net receipt: unused informational billed must not double-subtract spent
+test('race_unused is not a user refund; HUD cogs stay house cost', () => {
+  const receipt = { billedUsd: 1.44, cogsUsd: 2.20, race_unused: { billedUsd: 0.50, cogsUsd: 0.90 } };
+  assert.equal(receiptUsedCogs(receipt), 2.20);
+  const meter = meterRaceReceipt(receipt);
+  assert.equal(meter.spentUsd, 1.44);
+  assert.equal(meter.cogsUsd, 2.20);
+  assert.ok(meter.cogsUsd > meter.spentUsd, 'house losing → HUD embers');
+  // Already-net receipt: billed is what they paid; do not invent a grant-back
   assert.equal(receiptUsedCogs({ billedUsd: 1.00, cogsUsd: 0.70 }), 0.70);
-  assert.ok(receiptUsedCogs({ billedUsd: 1.00, cogsUsd: 0.70 }) <= 1.00);
+  const failed = { billedUsd: 0.40, cogsUsd: 0.40, race_unused: { billedUsd: 0.40, refundUsd: 0.40, cogsUsd: 0.40 } };
+  const failedMeter = meterRaceReceipt(failed);
+  assert.equal(failedMeter.spentUsd, 0.40);
+  assert.equal(failedMeter.cogsUsd, 0.40);
 });
 
 test('capRaceByCredit shrinks or refuses instead of firing 4 groks on $0', () => {
