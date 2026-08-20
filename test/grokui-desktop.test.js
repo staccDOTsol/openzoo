@@ -410,8 +410,8 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.match(claudeSrc, /export function waitIdle/);
   assert.match(claudeSrc, /WAIT_IDLE_HARD_MS = 90_000/);
   assert.match(claudeSrc, /spinner\/think|think \/ spinner/);
-  assert.match(fnBody(claudeSrc, 'waitIdle'), /tryEarly/);
-  assert.match(fnBody(claudeSrc, 'waitIdle'), /eventKeepsAlive/);
+  assert.match(claudeSrc, /const tryEarly =/);
+  assert.match(claudeSrc, /eventKeepsAlive/);
   assert.match(fnBody(grokui, 'runTurn'), /Promise\.race\(/);
   assert.match(fnBody(grokui, 'runTurn'), /ENSURE_HARNESS_SEND_MS/);
   assert.match(grokui, /ENSURE_HARNESS_SEND_MS = 2500/);
