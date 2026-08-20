@@ -341,7 +341,11 @@ function createWindow() {
     backgroundColor: '#000000',
     titleBarStyle: 'hiddenInset',
     title: 'openzoo',
-    webPreferences: { preload: path.join(__dirname, 'preload.js') },
+    paintWhenInitiallyHidden: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      backgroundThrottling: false,
+    },
   });
   // links in chat bubbles (target="_blank") open in the real browser, not a
   // second app window — Electron blocks window.open by default without this
@@ -424,12 +428,6 @@ async function checkForUpdates() {
     if (response === 0) shell.openExternal(j.html_url || 'https://github.com/staccDOTsol/openzoo/releases/latest');
   } catch { /* offline, rate-limited, or GitHub unreachable — not worth blocking on */ }
 }
-
-// Measured: Electron 32.3.3 openzoo Helper (Renderer) EXC_BREAKPOINT /
-// SIGTRAP in cppgc::internal::Fatal / V8 GC on macOS 26 (bundle 1.5.85).
-// Resize hits a compositor/GC path that aborts the renderer. Must run
-// before app.whenReady / BrowserWindow.
-app.disableHardwareAcceleration();
 
 app.whenReady().then(() => {
   buildAppMenu();

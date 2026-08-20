@@ -286,15 +286,14 @@ test('grokui-app depends on openzoo latest, not a 0.48 caret', () => {
   assert.equal(lock.packages[''].dependencies.openzoo, 'latest');
 });
 
-test('disableHardwareAcceleration runs before app.whenReady', () => {
-  // Measured IPS: Helper (Renderer) EXC_BREAKPOINT / SIGTRAP in V8 GC on
-  // Electron 32.3.3 / macOS 26. Must disable GPU before any BrowserWindow.
-  const dha = main.indexOf('app.disableHardwareAcceleration()');
-  const ready = main.indexOf('app.whenReady()');
-  const bw = main.indexOf('new BrowserWindow');
-  assert.ok(dha >= 0, 'app.disableHardwareAcceleration()');
-  assert.ok(ready > dha, 'disableHardwareAcceleration before whenReady');
-  assert.ok(bw > dha, 'disableHardwareAcceleration before BrowserWindow');
+test('GPU stays on — do not disableHardwareAcceleration', () => {
+  // Software raster made resize painfully slow. Mitigate the renderer
+  // SIGTRAP by respawn/reload, not by turning the GPU off.
+  assert.doesNotMatch(main, /disableHardwareAcceleration/);
+  assert.doesNotMatch(main, /disable-gpu['"`]/);
+  const body = fnBody(main, 'createWindow');
+  assert.match(body, /backgroundThrottling:\s*false/);
+  assert.match(body, /paintWhenInitiallyHidden:\s*true/);
 });
 
 test('darwin window-all-closed does not kill grokui or the sidecar', () => {
