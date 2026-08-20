@@ -224,3 +224,59 @@ test('/ping and PING: name wake idle descendants; PEEK stays a read', async () =
   assert.equal(r.ok, true);
   assert.equal(r.peekWakes, 0);
 });
+
+test('/tier grok 4.6 pins the grok4.6 band and spawn inherits it', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-tier-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 22000 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.HOME = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    const assert = (await import('node:assert/strict')).default;
+    const { handleSlash, newThread, childKickoff } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+    const { TIER_NAMES } = await import(${JSON.stringify(path.join(root, 'lib/podagent.mjs'))});
+
+    assert.deepEqual(TIER_NAMES, ['cheap', 'medium', 'expensive', 'grok4.6']);
+
+    const parent = newThread('tier-parent', null);
+    assert.equal(parent.tier, undefined);
+
+    const spaced = await handleSlash('/tier grok 4.6', parent);
+    assert.equal(parent.tier, 'grok4.6');
+    assert.match(spaced, /grok4\\.6/);
+    assert.doesNotMatch(spaced, /Unknown tier/);
+
+    parent.tier = 'medium';
+    const compact = await handleSlash('/tier grok4.6', parent);
+    assert.equal(parent.tier, 'grok4.6');
+    assert.match(compact, /grok4\\.6/);
+
+    const hyphen = await handleSlash('/tier grok-4.6', parent);
+    assert.equal(parent.tier, 'grok4.6');
+    assert.match(hyphen, /x-ai\\/grok-4\\.6/);
+
+    const unknown = await handleSlash('/tier opus', parent);
+    assert.equal(parent.tier, 'grok4.6');
+    assert.match(unknown, /Unknown tier/);
+
+    parent.race = 4;
+    parent.raceNeed = 2;
+    const child = newThread('tier-child', parent.id);
+    assert.equal(child.tier, 'grok4.6');
+    assert.equal(child.race, 4);
+    assert.equal(child.raceNeed, 2);
+    const brief = childKickoff(parent, 'tier-child', 'do the work');
+    assert.match(brief, /tier: grok4\\.6/);
+
+    console.log(JSON.stringify({ ok: true, tier: parent.tier, childTier: child.tier }));
+    process.exit(0);
+  `);
+  const out = await runChild(script);
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result: ' + out);
+  const r = JSON.parse(line);
+  assert.equal(r.ok, true);
+  assert.equal(r.tier, 'grok4.6');
+  assert.equal(r.childTier, 'grok4.6');
+});
