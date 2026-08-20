@@ -247,7 +247,7 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.doesNotMatch(autoFn, /tryDirective\(/);
   assert.doesNotMatch(autoFn, /enqueueAutoHop\(/);
   assert.doesNotMatch(autoFn, /AUTO_DIRECTIVE/);
-  assert.doesNotMatch(autoFn, /chat\/completions/);
+  assert.doesNotMatch(autoFn, /fetch\([^)]*chat\/completions/);
   const launch = readFileSync(path.join(root, 'lib', 'launch.js'), 'utf8');
   assert.match(launch, /export function claudeZooEnv/);
   assert.match(launch, /delete env\.ANTHROPIC_API_KEY/);
@@ -256,7 +256,8 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.match(claude, /--output-format/);
   assert.match(claude, /stream-json/);
   assert.match(claude, /bypassPermissions/);
-  assert.doesNotMatch(claude, /chat\/completions/);
+  assert.match(claude, /Do not curl localhost:8402\/v1\/chat\/completions/);
+  assert.doesNotMatch(claude, /spawn\([^)]*curl/);
 });
 
 test('subagents get the root ask, recent turns, and a SEND brief refresh', () => {

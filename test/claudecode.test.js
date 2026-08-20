@@ -19,8 +19,8 @@ test('claudePrintArgs is the official print loop, not a RUN: parser', () => {
   assert.ok(args.includes('bypassPermissions'));
   assert.ok(args.includes('--append-system-prompt'));
   assert.ok(args.includes(AUTO_CLAUDE_SYSTEM));
-  assert.doesNotMatch(AUTO_CLAUDE_SYSTEM, /curl localhost:8402\/v1\/chat\/completions/);
   assert.match(AUTO_CLAUDE_SYSTEM, /Do not curl localhost:8402\/v1\/chat\/completions/);
+  assert.doesNotMatch(AUTO_CLAUDE_SYSTEM, /RUN: curl/);
   assert.ok(args.includes('--resume'));
   assert.ok(args.includes('s1'));
   assert.ok(args.includes('write hello'));
