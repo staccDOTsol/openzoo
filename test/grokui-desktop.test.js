@@ -422,31 +422,45 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.match(autoFn, /sessionKey: t\.id/);
 });
 
-test('install docs ship Mac nvm+openzoo claude and Windows nvm-windows, not extra steps', () => {
+test('README still ships Mac nvm+openzoo claude and Windows nvm-windows, not extra steps', () => {
   const readme = readFileSync(path.join(root, 'README.md'), 'utf8');
-  const notes = readFileSync(path.join(root, '.github', 'grokui-release-notes.md'), 'utf8');
-  for (const src of [readme, notes]) {
-    assert.match(src, /curl -fsSL https:\/\/claude\.ai\/install\.sh \| bash/);
-    assert.match(src, /raw\.githubusercontent\.com\/nvm-sh\/nvm\/v0\.40\.7\/install\.sh/);
-    assert.match(src, /\. "\$HOME\/\.nvm\/nvm\.sh"/);
-    assert.match(src, /nvm install 24/);
-    assert.match(src, /npm i -g openzoo/);
-    assert.match(src, /export PATH="\$HOME\/\.local\/bin:\$PATH"/);
-    assert.match(src, /openzoo claude/);
-    assert.match(src, /irm https:\/\/claude\.ai\/install\.ps1 \| iex/);
-    assert.match(src, /curl -fsSL https:\/\/downloads\.claude\.ai\/install\.cmd -o install\.cmd && install\.cmd && del install\.cmd/);
-    assert.match(src, /coreybutler\/nvm-windows/);
-    assert.match(src, /nvm-setup\.exe/);
-    assert.match(src, /Then nvm-windows:/);
-    assert.match(src, /nvm use 24/);
-    assert.match(src, /Do not use the unix nvm curl on Windows/);
-    assert.match(src, /Do not source `~\/\.zshrc`/);
-    assert.match(src, /(?:\*\*not\*\* need to authenticate Claude first|No Claude login first)/);
-  }
+  assert.match(readme, /curl -fsSL https:\/\/claude\.ai\/install\.sh \| bash/);
+  assert.match(readme, /raw\.githubusercontent\.com\/nvm-sh\/nvm\/v0\.40\.7\/install\.sh/);
+  assert.match(readme, /\. "\$HOME\/\.nvm\/nvm\.sh"/);
+  assert.match(readme, /nvm install 24/);
+  assert.match(readme, /npm i -g openzoo/);
+  assert.match(readme, /export PATH="\$HOME\/\.local\/bin:\$PATH"/);
+  assert.match(readme, /openzoo claude/);
+  assert.match(readme, /irm https:\/\/claude\.ai\/install\.ps1 \| iex/);
+  assert.match(readme, /curl -fsSL https:\/\/downloads\.claude\.ai\/install\.cmd -o install\.cmd && install\.cmd && del install\.cmd/);
+  assert.match(readme, /coreybutler\/nvm-windows/);
+  assert.match(readme, /nvm-setup\.exe/);
+  assert.match(readme, /Then nvm-windows:/);
+  assert.match(readme, /nvm use 24/);
+  assert.match(readme, /Do not use the unix nvm curl on Windows/);
+  assert.match(readme, /Do not source `~\/\.zshrc`/);
+  assert.match(readme, /(?:\*\*not\*\* need to authenticate Claude first|No Claude login first)/);
   const win = readme.slice(readme.indexOf('Windows — official Claude install'));
   assert.doesNotMatch(win, /source ~\/\.zshrc/);
   assert.doesNotMatch(win, /claude\.ai\/install\.sh/);
   assert.doesNotMatch(win, /nvm-sh\/nvm/);
+});
+
+test('grokui release notes lead with desktop installers and current npm, not nvm homework', () => {
+  const notes = readFileSync(path.join(root, '.github', 'grokui-release-notes.md'), 'utf8');
+  const lead = notes.trimStart().split('\n').slice(0, 5).join('\n');
+  assert.match(lead, /arm64\.dmg/);
+  assert.match(lead, /exe/);
+  assert.match(lead, /AppImage/);
+  assert.match(notes, /openzoo\.Setup\.\*\.exe/);
+  assert.match(notes, /npx openzoo/);
+  assert.match(notes, /0\.49\.9/);
+  assert.match(notes, /npm i -g openzoo/);
+  assert.doesNotMatch(notes, /nvm-sh\/nvm/);
+  assert.doesNotMatch(notes, /claude\.ai\/install\.sh/);
+  assert.doesNotMatch(notes, /nvm install 24/);
+  assert.doesNotMatch(notes, /coreybutler\/nvm-windows/);
+  assert.doesNotMatch(notes, /1\.5\.97 recipe/);
 });
 
 test('subagents get the root ask, recent turns, and a SEND brief refresh', () => {
@@ -1149,11 +1163,39 @@ test('cut and release scripts keep openzoo latest or refuse', () => {
   assert.match(cut, /assert-packed-grokui-esm\.mjs/);
   assert.match(cut, /assert-overlaid-openzoo\.mjs/);
   assert.match(cut, /bundle-grokui\.js/);
+  assert.match(cut, /npm-publish\.yml/);
+  assert.match(cut, /do NOT npm-publish/);
   assert.match(rel, /assert-grokui-pin/);
   assert.match(rel, /assert-overlaid-openzoo/);
   const missing = spawnSync(process.execPath, [path.join(root, 'scripts', 'cut-grokui.mjs'), '--grokui', '1.5.84'], { encoding: 'utf8' });
   assert.notEqual(missing.status, 0);
   assert.match(missing.stderr, /refuse to cut/);
+});
+
+test('v* tags publish npm; grokui-v* workflows do not', () => {
+  const npmWf = readFileSync(path.join(root, '.github', 'workflows', 'npm-publish.yml'), 'utf8');
+  const onBlock = npmWf.slice(npmWf.indexOf('\non:'), npmWf.indexOf('\njobs:'));
+  assert.match(onBlock, /tags:\s*\[['"]v\*['"]\]/);
+  assert.doesNotMatch(onBlock, /grokui-v\*/);
+  assert.match(npmWf, /npm publish --access public/);
+  assert.match(npmWf, /createGunzip|gunzipAsync/);
+  assert.match(npmWf, /test\/relay\.test\.js/);
+  assert.doesNotMatch(npmWf, /electron-builder/);
+  for (const name of ['grokui-linux.yml', 'grokui-macos.yml', 'grokui-windows.yml']) {
+    const src = readFileSync(path.join(root, '.github', 'workflows', name), 'utf8');
+    assert.doesNotMatch(src, /npm publish/);
+  }
+});
+
+test('npm package is newer than 0.49.8 and ships gzip relay in lib/', () => {
+  const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const [maj, min, pat] = String(pkg.version).split('.').map(Number);
+  assert.ok(maj > 0 || min > 49 || (min === 49 && pat > 8), `openzoo ${pkg.version} is not after 0.49.8`);
+  assert.ok(pkg.files.includes('lib'));
+  const relay = readFileSync(path.join(root, 'lib', 'relay.js'), 'utf8');
+  assert.match(relay, /createGunzip/);
+  assert.match(relay, /gunzipAsync/);
+  assert.match(relay, /Content-Encoding/);
 });
 
 test('the box image does not bake or decrypt encrypted ProofFront', () => {
