@@ -120,7 +120,11 @@ function startServer() {
   serverExit = null;
   serverProc = spawn(process.execPath, [grokuiScript()], {
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '1',
+      OZ_PACKED_RESOURCES: process.resourcesPath || path.join(__dirname),
+    },
     windowsHide: true,
   });
   const take = (buf) => {

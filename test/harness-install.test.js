@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +8,7 @@ import {
   detectHarness, ensureHarness, ensureLocalNodeNpx, electronAsNodeSpec,
   HARNESS_STATUS, localBinDir, npmInstallArgs, OPENZOO_CLAUDE_SPEC,
   setHarnessInstallRunnerForTest, setHarnessStateForTest, shouldSkipHarnessAutostart,
-  writeUnixShim,
+  writeUnixShim, copyPackedHarness,
 } from '../lib/harness-install.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -123,7 +123,10 @@ test('ensureHarness skip + injected runner never dumps npx recipe', async () => 
       force: true,
       home,
       env: { PATH: binPath(home), HOME: home },
-      resolveClaude: () => path.join(localBinDir(home), 'openzoo-claude'),
+      resolveClaude: () => {
+        const p = path.join(localBinDir(home), 'openzoo-claude');
+        return existsSync(p) ? p : null;
+      },
     });
     assert.equal(ran, 1);
     assert.equal(r.ok, true);
@@ -137,3 +140,33 @@ test('ensureHarness skip + injected runner never dumps npx recipe', async () => 
 function binPath(home) {
   return localBinDir(home);
 }
+
+test('copyPackedHarness prefers packed extraResources over npm install -g', () => {
+  const home = tmp();
+  const packedRoot = tmp();
+  try {
+    const pkg = path.join(packedRoot, 'openzoo-claude');
+    mkdirSync(path.join(pkg, 'v2', 'src'), { recursive: true });
+    writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({
+      name: 'openzoo-claude', version: '2.0.2',
+      bin: { 'openzoo-claude': 'v2/src/index.mjs' },
+    }));
+    writeFileSync(path.join(pkg, 'v2', 'src', 'index.mjs'), 'export {}\n');
+    const r = copyPackedHarness({
+      home,
+      env: { OZ_PACKED_RESOURCES: packedRoot, PATH: '/no/such' },
+      platform: 'linux',
+      electronPath: '/tmp/fake-electron',
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.via, 'packed');
+    const shim = readFileSync(path.join(localBinDir(home), 'openzoo-claude'), 'utf8');
+    assert.match(shim, /ELECTRON_RUN_AS_NODE/);
+    assert.match(shim, /openzoo-claude/);
+    assert.doesNotMatch(shim, /npx -y openzoo-claude/);
+    assert.doesNotMatch(JSON.stringify(r), /npm install -g/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(packedRoot, { recursive: true, force: true });
+  }
+});

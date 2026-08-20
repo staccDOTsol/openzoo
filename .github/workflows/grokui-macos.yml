@@ -130,6 +130,9 @@ jobs:
       - name: Packed sidecar lib loads livestatus (think.js present)
         shell: bash
         run: node scripts/assert-packed-openzoo-lib.mjs grokui-app/dist
+      - name: Packed node-pty + openzoo-claude for this arch
+        shell: bash
+        run: node scripts/assert-packed-node-pty.mjs grokui-app/dist
 
       - name: Verify signature
         shell: bash

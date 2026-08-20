@@ -1,5 +1,7 @@
 Silicon Mac users download the arm64.dmg, Windows the exe, Linux the AppImage.
 
+1.6.5: First boot already has node + openzoo-claude + node-pty/conpty; Auto never dumps an install recipe; waitIdle 90s so a send completes; sidecar stays up. Every artifact (arm64.dmg, Intel dmg, Setup exe, Setup arm64 exe, AppImage, arm64 AppImage) packs host Node / Electron-as-node, `openzoo-claude`, and `node-pty` rebuilt for that Electron ABI — Windows ships the conpty backend inside the exe. Auto never paints "install node-pty" / npx / `--print cannot grow` on the canvas.
+
 1.6.4: Auto PTY waitIdle so a send completes on Claude Code. Orange Auto is `openzoo-claude` on a PTY (never official Anthropic `claude`): `~/.local/bin` + nvm 24 on PATH, zoo env `:8402`, no `ANTHROPIC_API_KEY`. `waitIdle` hard-caps ~90s — spinner / think / keepFold events must not reset that wall clock — and finishes early when visible assistant text AND idle/result. Do not skip the PTY. Do not invent `(no response)` after 3s so Ask/completions steal the send. Sidecar stays up after launch.
 
 1.6.3: tagged on main at the #79 merge (`retrieval_dispatch`). Leave that tag alone.

@@ -23,7 +23,7 @@ paid $0.002137 (9.5× cheaper than direct) · rail solana · tx 5Kd…
 
 **Cursor** (Settings → Models → OpenAI API): set *Override OpenAI Base URL* to `http://localhost:8402/v1`, API key `sk-openzoo`. (Cursor Hobby can't BYOK; Pro can.)
 
-**openzoo-claude / grokui Auto** — grokui first launch installs `openzoo-claude` (plus `node` / `npx`) into `~/.local/bin`. `openzoo claude` boots `:8402` if needed and execs `openzoo-claude`. Zoo env is `ANTHROPIC_BASE_URL=http://localhost:8402/v1`, `ANTHROPIC_API_KEY` unset, `ANTHROPIC_AUTH_TOKEN` from `~/.openzoo/subscription.json` or `sk-openzoo`. You do **not** need Anthropic's bun `claude` or `claude.ai/install.sh`. grokui orange Auto is this harness, not a `RUN:` text parser.
+**openzoo-claude / grokui Auto** — the grokui dmg/exe/AppImage already ships node (or Electron-as-node), `openzoo-claude`, and `node-pty` (Windows conpty included). First boot copies those packed bits into `~/.local/bin` offline. `openzoo claude` boots `:8402` if needed and execs `openzoo-claude`. Zoo env is `ANTHROPIC_BASE_URL=http://localhost:8402/v1`, `ANTHROPIC_API_KEY` unset, `ANTHROPIC_AUTH_TOKEN` from `~/.openzoo/subscription.json` or `sk-openzoo`. You do **not** need Anthropic's bun `claude` or `claude.ai/install.sh`. grokui orange Auto is this harness, not a `RUN:` text parser.
 
 `GET /v1/models` is the live OpenRouter catalog **after** dropping `:batch`, `$0` / missing prices, and `openzoo-*` twins. The `/model` picker (Anthropic-shaped GET) is a short list: current Opus/Sonnet/Haiku-class + a few real gateway models + `openzoo/auto`.
 

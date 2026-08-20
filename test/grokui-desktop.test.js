@@ -15,16 +15,25 @@ const preload = readFileSync(path.join(root, 'grokui-app', 'preload.js'), 'utf8'
 const appPkg = require('../grokui-app/package.json');
 const ozPkg = require('../package.json');
 
-test('grokui app version is 1.6.4 so the next tag sorts above 1.5.99', () => {
-  assert.equal(appPkg.version, '1.6.4');
+test('grokui app version is 1.6.5 so the next tag sorts above 1.5.99', () => {
+  assert.equal(appPkg.version, '1.6.5');
   const harness = readFileSync(path.join(root, 'lib', 'harness-install.js'), 'utf8');
   assert.match(harness, /OPENZOO_CLAUDE_SPEC/);
   assert.match(harness, /ELECTRON_RUN_AS_NODE/);
   assert.match(harness, /localBinDir/);
+  assert.match(harness, /copyPackedHarness/);
   assert.doesNotMatch(harness, /claude\.ai\/install/);
   assert.match(grokui, /ensureHarness/);
   assert.match(grokui, /shouldSkipHarnessAutostart/);
-  assert.doesNotMatch(readFileSync(path.join(root, 'lib', 'claudecode.js'), 'utf8'), /npx -y openzoo-claude/);
+  const claude = readFileSync(path.join(root, 'lib', 'claudecode.js'), 'utf8');
+  assert.doesNotMatch(claude, /npx -y openzoo-claude/);
+  assert.doesNotMatch(claude, /PTY_WINDOWS/);
+  assert.doesNotMatch(claude, /install node-pty/);
+  assert.doesNotMatch(claude, /--print cannot grow/);
+  assert.equal(appPkg.build.npmRebuild, true);
+  assert.equal(appPkg.build.includeSubNodeModules, true);
+  assert.ok(appPkg.dependencies['node-pty']);
+  assert.ok(appPkg.dependencies['openzoo-claude']);
 });
 
 test('the Electron app does not keep a drifting grokui.mjs', () => {
@@ -493,6 +502,7 @@ test('install docs ship Mac nvm+openzoo claude and Windows nvm-windows, not offi
   assert.match(notes, /AppImage/);
   assert.match(notes, /openzoo-claude/);
   assert.match(notes, /^Silicon Mac users download the arm64\.dmg, Windows the exe, Linux the AppImage\./m);
+  assert.match(notes, /1\.6\.5:.*first boot already has/i);
   assert.match(notes, /1\.6\.4:.*waitIdle.*send completes on Claude Code/s);
   assert.match(notes, /Hung PTY Auto falls through to completions in 3s/);
   assert.match(notes, /do not ship a PTY that eats the send/);
@@ -745,6 +755,42 @@ test('afterPack fails the pack when copied openzoo is not npm latest', () => {
   assert.match(src, /assertPackedGrokuiLib/);
   assert.match(src, /assert-esm-relatives\.mjs/);
   assert.match(src, /assert-packed-grokui-esm\.mjs/);
+  assert.match(src, /assertPackedNodePty/);
+  assert.match(src, /assertPackedOpenzooClaude/);
+  assert.match(src, /ensurePackedPtyAndClaude/);
+});
+
+test('afterPack pack gate fails when node-pty or its native .node is missing', () => {
+  const afterPack = require('../grokui-app/build/afterPack.js');
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-packed-pty-'));
+  try {
+    mkdirSync(path.join(dir, 'node_modules'), { recursive: true });
+    assert.throws(() => afterPack.assertPackedNodePty(dir, {}), /node-pty/);
+    mkdirSync(path.join(dir, 'node_modules', 'node-pty'));
+    writeFileSync(path.join(dir, 'node_modules', 'node-pty', 'package.json'), JSON.stringify({
+      name: 'node-pty', version: '1.1.0', main: 'lib/index.js',
+    }));
+    mkdirSync(path.join(dir, 'node_modules', 'node-pty', 'lib'), { recursive: true });
+    writeFileSync(path.join(dir, 'node_modules', 'node-pty', 'lib', 'index.js'), 'exports.spawn = () => {};\n');
+    assert.throws(() => afterPack.assertPackedNodePty(dir, {}), /\.node/);
+    mkdirSync(path.join(dir, 'node_modules', 'node-pty', 'build', 'Release'), { recursive: true });
+    writeFileSync(path.join(dir, 'node_modules', 'node-pty', 'build', 'Release', 'pty.node'), Buffer.from([0]));
+    assert.doesNotThrow(() => afterPack.assertPackedNodePty(dir, { arch: 'x64' }));
+    assert.throws(() => afterPack.assertPackedOpenzooClaude(dir), /openzoo-claude/);
+    mkdirSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src'), { recursive: true });
+    writeFileSync(path.join(dir, 'node_modules', 'openzoo-claude', 'package.json'), JSON.stringify({
+      name: 'openzoo-claude', version: '2.0.2',
+      bin: { 'openzoo-claude': 'v2/src/index.mjs' },
+    }));
+    writeFileSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src', 'index.mjs'), 'export {}\n');
+    assert.doesNotThrow(() => afterPack.assertPackedOpenzooClaude(dir));
+    const gate = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-packed-node-pty.mjs')], {
+      encoding: 'utf8',
+    });
+    assert.equal(gate.status, 0, gate.stderr || gate.stdout);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('afterPack copies the whole repo lib and fails if a relative is missing', () => {
@@ -845,6 +891,7 @@ test('desktop pack CI walks packed grokui.mjs relatives', () => {
     assert.match(yml, /assert-packed-grokui-lib\.mjs/);
     assert.match(yml, /assert-overlaid-openzoo\.mjs/);
     assert.match(yml, /assert-packed-openzoo-lib\.mjs/);
+    assert.match(yml, /assert-packed-node-pty\.mjs/);
     assert.match(yml, /assert-app-html-script\.mjs/);
   }
   const packed = readFileSync(path.join(root, 'scripts', 'assert-packed-grokui-lib.mjs'), 'utf8');

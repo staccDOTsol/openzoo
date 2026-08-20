@@ -712,6 +712,7 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
     assert.ok(realPty.history.some((h) => h.who === 'user' && h.text === 'hi'), 'persist the user turn');
     assert.equal(realPty.history.filter((h) => h.who === 'bot').pop().text, 'Claude Code finished the send');
     assert.doesNotMatch(realPty.history.map((h) => h.text).join('\\n'), /\\(no response\\)/);
+    assert.doesNotMatch(realPty.history.map((h) => h.text).join('\\n'), /install node-pty|conpty|PTY_WINDOWS|--print cannot grow/);
     assert.equal(realPty.status, 'idle');
     assert.notEqual(realPty.liveStatus, 'waiting on model…');
 

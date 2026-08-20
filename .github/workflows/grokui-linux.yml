@@ -60,6 +60,8 @@ jobs:
         run: node scripts/assert-overlaid-openzoo.mjs grokui-app/dist
       - name: Packed sidecar lib loads livestatus (think.js present)
         run: node scripts/assert-packed-openzoo-lib.mjs grokui-app/dist
+      - name: Packed node-pty + openzoo-claude for this arch
+        run: node scripts/assert-packed-node-pty.mjs grokui-app/dist
 
       - name: Verify output
         run: |
