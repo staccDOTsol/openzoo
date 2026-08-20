@@ -7,7 +7,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   agentSlug, parsePrRef, extractPrFromSpawn, fetchSpecsForOrigin,
-  git, prepareChildDir, finishChildDir, isolatedWorktreesHome,
+  git, gitBinary, bundledGitPath, prepareChildDir, finishChildDir,
+  isolatedWorktreesHome, githubPullApiUrl, gitlabMrApiUrl,
 } from '../lib/worktree.mjs';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -45,6 +46,59 @@ function commitAll(dir, msg) {
   git(['add', '-A'], dir);
   git(['commit', '-m', msg], dir);
 }
+
+test('git() uses dugite bundled binary, not PATH git', () => {
+  const bundled = bundledGitPath();
+  assert.ok(bundled, 'dugite embedded git must be installed');
+  assert.match(bundled, /dugite/);
+  assert.ok(existsSync(bundled));
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-wt-bin-'));
+  const prev = process.env.PATH;
+  process.env.PATH = '';
+  try {
+    git(['--version'], dir);
+    assert.equal(gitBinary(), bundled);
+    assert.match(gitBinary(), /dugite/);
+    assert.ok(path.isAbsolute(gitBinary()));
+    assert.notEqual(gitBinary(), 'git');
+  } finally {
+    process.env.PATH = prev;
+  }
+});
+
+test('GitHub/GitLab API URLs for PR heads when fetch ref is remote', () => {
+  assert.equal(
+    githubPullApiUrl('https://github.com/example/repo.git', 7),
+    'https://api.github.com/repos/example/repo/pulls/7',
+  );
+  assert.equal(
+    githubPullApiUrl('git@github.com:example/repo.git', 7),
+    'https://api.github.com/repos/example/repo/pulls/7',
+  );
+  assert.equal(githubPullApiUrl('/tmp/local.git', 7), null);
+  assert.equal(
+    gitlabMrApiUrl('https://gitlab.com/group/proj.git', 3),
+    'https://gitlab.com/api/v4/projects/group%2Fproj/merge_requests/3',
+  );
+});
+
+test('prepareChildDir works with an empty PATH (Finder has no ~/.zshrc git)', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-wt-nopath-'));
+  const repo = path.join(dir, 'repo');
+  const prev = process.env.PATH;
+  process.env.PATH = '/no/such/git/bin';
+  try {
+    initRepo(repo);
+    writeFileSync(path.join(repo, 'marker.txt'), 'parent');
+    commitAll(repo, 'init');
+    const a = prepareChildDir({ dir: repo }, 'alice', 'do a');
+    assert.match(a.path, /\.openzoo\/worktrees\/alice$/);
+    assert.equal(a.branch, 'worktree-alice');
+    assert.match(gitBinary(), /dugite/);
+  } finally {
+    process.env.PATH = prev;
+  }
+});
 
 test('parsePrRef and fetchSpecsForOrigin match Claude --worktree', () => {
   assert.equal(agentSlug('Game Builder'), 'game-builder');

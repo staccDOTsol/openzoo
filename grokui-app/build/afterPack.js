@@ -45,8 +45,27 @@ function prodModules(projectDir) {
   // resolve on its own — the win job died with `spawnSync npm ENOENT`.
   execFileSync('npm install --omit=dev --ignore-scripts --no-audit --no-fund',
     { cwd: staging, stdio: 'inherit', shell: true });
+  // --ignore-scripts skips dugite's postinstall, which downloads the
+  // embedded git. Finder-launched grokui has no ~/.zshrc PATH, so without
+  // this binary `git worktree add` dies. Download it explicitly.
+  ensureDugiteGit(stagedNM);
   prune(stagedNM);
   return stagedNM;
+}
+
+function ensureDugiteGit(stagedNM) {
+  const dugite = path.join(stagedNM, 'dugite');
+  const gitBin = process.platform === 'win32'
+    ? path.join(dugite, 'git', 'cmd', 'git.exe')
+    : path.join(dugite, 'git', 'bin', 'git');
+  if (fs.existsSync(gitBin)) return;
+  const dl = path.join(dugite, 'script', 'download-git.js');
+  if (!fs.existsSync(dl)) {
+    console.warn('[afterPack] dugite missing — packaged SPAWN cannot worktree without PATH git');
+    return;
+  }
+  console.log('[afterPack] downloading dugite embedded git (postinstall was skipped)');
+  execFileSync(process.execPath, [dl], { cwd: dugite, stdio: 'inherit' });
 }
 
 // Drop what is never loaded at runtime. This is not about disk — it is about

@@ -115,6 +115,18 @@ test('openzoo and grokui-app versions bump together', () => {
   assert.equal(appPkg.version, '1.5.76');
 });
 
+test('desktop grokui ships dugite so Finder has git without PATH', () => {
+  assert.ok(ozPkg.dependencies.dugite, 'openzoo depends on dugite');
+  assert.ok(appPkg.dependencies.dugite, 'packaged grokui-app depends on dugite');
+  const afterPack = readFileSync(path.join(root, 'grokui-app', 'build', 'afterPack.js'), 'utf8');
+  assert.match(afterPack, /ensureDugiteGit/);
+  assert.match(afterPack, /download-git\.js/);
+  const wt = readFileSync(path.join(root, 'lib', 'worktree.mjs'), 'utf8');
+  assert.match(wt, /from 'dugite'/);
+  assert.match(wt, /setupEnvironment/);
+  assert.match(wt, /bundledGitPath/);
+});
+
 test('pay modal lists the card subscribe lane before wallet/x402', () => {
   const start = grokui.indexOf('id="walletOverlay"');
   const end = grokui.indexOf('id="main"', start);
