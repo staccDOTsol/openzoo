@@ -240,8 +240,8 @@ test('AUTO keeps going after RUN and race-fail; DONE and pendingRun park', async
     const { RACE_EVERY_FAILED } = await import(${JSON.stringify(path.join(root, 'lib/livestatus.js'))});
     const {
       newThread, runTurn, setBrainAskForTest, setRunTurnForTest,
-      handleSlash, AUTO_RACE_RETRY, shouldKeepAuto,
-      isDoneReply, isTransientModelFail,
+      handleSlash, AUTO_RACE_RETRY, AUTO_EMPTY_RETRY, shouldKeepAuto,
+      isDoneReply, isTransientModelFail, isEmptyToolResult,
     } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
 
     async function drain(pred) {
@@ -261,6 +261,8 @@ test('AUTO keeps going after RUN and race-fail; DONE and pendingRun park', async
     auto.runMode = 'auto';
     assert.equal(shouldKeepAuto(auto, RACE_EVERY_FAILED), true);
     assert.equal(shouldKeepAuto(auto, 'DONE: shipped'), false);
+    assert.equal(isEmptyToolResult('(command output)\\n(no output)'), true);
+    assert.equal(shouldKeepAuto(auto, 'DONE: shipped', '(command output)\\n(no output)'), true);
     auto.pendingRun = { runId: 'x', command: 'echo', cwd: ${JSON.stringify(dir)} };
     assert.equal(shouldKeepAuto(auto, 'RUN: ls'), false);
     delete auto.pendingRun;
@@ -268,7 +270,7 @@ test('AUTO keeps going after RUN and race-fail; DONE and pendingRun park', async
     const hops = [];
     setBrainAskForTest(({ userText }) => {
       hops.push(String(userText || ''));
-      if (hops.length === 1) return 'RUN: mkdir -p oz-auto-keep';
+      if (hops.length === 1) return 'RUN: echo oz-auto-keep';
       if (/^\\(command output\\)/.test(userText)) return RACE_EVERY_FAILED;
       return 'DONE: after race fail';
     });
@@ -338,4 +340,82 @@ test('AUTO keeps going after RUN and race-fail; DONE and pendingRun park', async
   assert.ok(r.hops >= 3);
   assert.equal(r.doneHops, 1);
   assert.equal(r.askHops, 1);
+});
+
+test('AUTO empty command output retries and does not idle', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-auto-empty-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 25000 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.HOME = ${JSON.stringify(dir)};
+    process.env.OZ_WORKSPACE_DIR = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    process.env.OZ_AUTO_MAX_STEPS = '8';
+    process.env.OZ_AUTO_EMPTY_RETRIES = '0';
+    const assert = (await import('node:assert/strict')).default;
+    const {
+      newThread, runTurn, setBrainAskForTest,
+      AUTO_EMPTY_RETRY, shouldKeepAuto, isEmptyToolResult,
+    } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+
+    async function drain(pred) {
+      const start = Date.now();
+      while (Date.now() - start < 4000) {
+        if (pred()) return;
+        await new Promise((r) => setTimeout(r, 15));
+      }
+    }
+
+    assert.equal(isEmptyToolResult('(command output)\\n(no output)'), true);
+    assert.equal(isEmptyToolResult('(command output)\\n   \\n'), true);
+    assert.equal(isEmptyToolResult('(command output) (no output)'), true);
+    assert.equal(isEmptyToolResult(''), true);
+    assert.equal(isEmptyToolResult('(command output)\\nlisted files'), false);
+    assert.equal(isEmptyToolResult(AUTO_EMPTY_RETRY), false);
+
+    const wrap = newThread('empty-wrap', null);
+    wrap.runMode = 'auto';
+    assert.equal(shouldKeepAuto(wrap, 'DONE: looks empty', '(command output)\\n(no output)'), true);
+    const wrapHops = [];
+    setBrainAskForTest(({ userText }) => {
+      wrapHops.push(String(userText || ''));
+      return 'DONE: looks empty';
+    });
+    await runTurn(wrap.id, '(command output)\\n(no output)');
+    await drain(() => wrapHops.length >= 2);
+    assert.ok(wrapHops.length >= 2, 'empty wrap must schedule another hop, got ' + wrapHops.length + ' ' + JSON.stringify(wrapHops));
+    assert.equal(wrapHops[0], '(command output)\\n(no output)');
+    assert.equal(wrapHops[1], AUTO_EMPTY_RETRY);
+    await drain(() => wrap.status === 'idle');
+    assert.equal(wrapHops.length, 2, 'DONE after AUTO_EMPTY_RETRY may park');
+    assert.equal(wrap.status, 'idle');
+
+    const runBot = newThread('empty-run', null);
+    runBot.runMode = 'auto';
+    const runHops = [];
+    setBrainAskForTest(({ userText }) => {
+      runHops.push(String(userText || ''));
+      if (runHops.length === 1) return 'RUN: mkdir -p oz-auto-empty';
+      if (userText === AUTO_EMPTY_RETRY) return 'DONE: after empty mkdir';
+      return 'DONE: unexpected ' + userText;
+    });
+    await runTurn(runBot.id, 'build it');
+    await drain(() => runHops.length >= 2 && runBot.status === 'idle');
+    assert.ok(runHops.length >= 2, 'empty RUN stdout must kick AUTO_EMPTY_RETRY, got ' + runHops.length + ' ' + JSON.stringify(runHops));
+    assert.equal(runHops[1], AUTO_EMPTY_RETRY);
+    assert.doesNotMatch(runHops[1], /\\(command output\\)/);
+
+    console.log(JSON.stringify({
+      ok: true, wrapHops: wrapHops.length, runHops: runHops.length,
+    }));
+    process.exit(0);
+  `);
+  const out = await runChild(script);
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result: ' + out);
+  const r = JSON.parse(line);
+  assert.equal(r.ok, true);
+  assert.ok(r.wrapHops >= 2);
+  assert.ok(r.runHops >= 2);
 });
