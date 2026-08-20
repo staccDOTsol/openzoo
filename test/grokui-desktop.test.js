@@ -443,10 +443,27 @@ test('grokui chat does not dump raw 0x6a wrap simulation logs', () => {
 test('ensureProxy reuses a healthy :8402 and does not spawn over it', () => {
   assert.match(main, /function portOccupied/);
   assert.match(main, /Reuse only a healthy :8402/);
-  assert.match(main, /if \(await pingUrl\('http:\/\/127\.0\.0\.1:8402\/v1\/session'\)\) return/);
   // Occupied-port + hung session is NOT reuse — ping must time out.
   assert.match(main, /not reusing a wedged proxy/);
   assert.match(main, /Ping must time out/);
+  // Occupied+healthy is not enough: compare listener version to shipped openzoo.
+  assert.doesNotMatch(main, /if \(await pingUrl\('http:\/\/127\.0\.0\.1:8402\/v1\/session'\)\) return/);
+  assert.match(main, /sidecarIsAttachable\(\{ listenerVersion, expectedVersion \}\)/);
+  assert.match(main, /function expectedOpenzooVersion/);
+  assert.match(main, /path\.join\(__dirname, '\.\.', 'package\.json'\)/);
+  assert.match(main, /path\.join\(__dirname, 'node_modules', 'openzoo', 'package\.json'\)/);
+  assert.match(main, /expected\/shipped version/);
+  assert.match(main, /stale sidecar/);
+  assert.match(main, /not attaching; grokui will spawn the matching one/);
+  assert.match(main, /refusing to attach/);
+  assert.match(main, /displaceStaleListener/);
+  assert.match(main, /spawn\(process\.execPath, \[bin\]/);
+  assert.match(main, /ELECTRON_RUN_AS_NODE: '1'/);
+  assert.match(main, /node_modules', 'openzoo', 'bin', 'openzoo\.js'/);
+  assert.doesNotMatch(main, /npx openzoo@latest/);
+  const proxy = readFileSync(path.join(root, 'lib', 'proxy.js'), 'utf8');
+  const session = proxy.slice(proxy.indexOf("=== '/v1/session'"), proxy.indexOf("=== '/v1/wallet'"));
+  assert.match(session, /version,/);
 });
 
 test('cut and release scripts keep openzoo latest or refuse', () => {

@@ -1,9 +1,10 @@
 const { app, BrowserWindow, dialog, ipcMain, shell, clipboard, Menu } = require('electron');
-const { spawn } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
 const net = require('node:net');
+const { sidecarIsAttachable } = require('./sidecar-version');
 
 // One source of truth: the live UI is repo lib/grokui.mjs. A packaged build
 // copies that file next to this script; a checkout prefers the repo copy so
@@ -114,6 +115,81 @@ function pingUrl(url) {
   });
 }
 
+// Fetch GET /v1/session JSON. Occupied ≠ healthy: timeout / 5xx / error is
+// null (wedged). A <500 body with no parseable version is still "healthy"
+// but older than expected (0.49.3 answers this ping with no version field).
+function fetchSessionJson(url) {
+  return new Promise((resolve) => {
+    const req = http.get(url, { timeout: 1500 }, (res) => {
+      if (!res.statusCode || res.statusCode >= 500) {
+        res.resume();
+        resolve(null);
+        return;
+      }
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
+        catch { resolve({}); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
+
+// The openzoo version this grokui-app shipped with — checkout package.json
+// when name === 'openzoo', else the packaged node_modules copy. Not the npm range.
+function expectedOpenzooVersion() {
+  const candidates = [
+    path.join(__dirname, '..', 'package.json'),
+    path.join(__dirname, 'node_modules', 'openzoo', 'package.json'),
+  ];
+  for (const p of candidates) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+      if (pkg.name === 'openzoo' && pkg.version) return String(pkg.version);
+    } catch { /* try next */ }
+  }
+  return null;
+}
+
+function listenPidsOn(port) {
+  try {
+    if (process.platform === 'win32') {
+      const out = execFileSync('netstat', ['-ano', '-p', 'TCP'], { encoding: 'utf8', timeout: 3000 });
+      const pids = new Set();
+      const re = new RegExp(`:${port}(?:\\s|$)`);
+      for (const line of out.split(/\r?\n/)) {
+        if (!/LISTEN/i.test(line) || !re.test(line)) continue;
+        const pid = Number(line.trim().split(/\s+/).pop());
+        if (Number.isInteger(pid) && pid > 0 && pid !== process.pid) pids.add(pid);
+      }
+      return [...pids];
+    }
+    const out = execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], {
+      encoding: 'utf8',
+      timeout: 2000,
+    });
+    return [...new Set(out.split(/\s+/).map(Number).filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid))];
+  } catch {
+    return [];
+  }
+}
+
+async function displaceStaleListener(port) {
+  const pids = listenPidsOn(port);
+  if (!pids.length) return false;
+  for (const pid of pids) {
+    try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
+  }
+  for (let i = 0; i < 50; i++) {
+    if (!(await portOccupied(port))) return true;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return !(await portOccupied(port));
+}
+
 function portOccupied(port) {
   return new Promise((resolve) => {
     const s = net.connect({ port, host: '127.0.0.1' }, () => { s.end(); resolve(true); });
@@ -143,8 +219,23 @@ async function ensureProxy() {
   // that LISTENs and does not answer GET /v1/session is wedged. Treating
   // "port occupied" as reuse is worse than a crash (completions then throw
   // undici `fetch failed` forever). Ping must time out; occupied ≠ healthy.
-  if (await pingUrl('http://127.0.0.1:8402/v1/session')) return;
-  if (await portOccupied(8402)) {
+  // Occupied+healthy is not enough: compare the listener's openzoo version
+  // to grokui-app's expected/shipped version. A leftover npx cache of 0.49.3
+  // answers GET /v1/session just fine. Do not blindly return on a session ping.
+  const session = await fetchSessionJson('http://127.0.0.1:8402/v1/session');
+  if (session) {
+    const expectedVersion = expectedOpenzooVersion();
+    const listenerVersion = session.version;
+    if (sidecarIsAttachable({ listenerVersion, expectedVersion })) return;
+    console.error(
+      `[openzoo] :8402 is a stale sidecar (openzoo ${listenerVersion || 'unknown'} < ${expectedVersion}) — not attaching; grokui will spawn the matching one`,
+    );
+    const displaced = await displaceStaleListener(8402);
+    if (!displaced) {
+      console.error('[openzoo] failed to displace stale :8402 — refusing to attach');
+      return;
+    }
+  } else if (await portOccupied(8402)) {
     console.error('[openzoo] :8402 is listening but /v1/session did not answer — not reusing a wedged proxy');
     return;
   }
