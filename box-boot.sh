@@ -71,8 +71,15 @@ if [ ! -f /workspace/.oz-app/.seeded ]; then
     log "seed FAILED — box-server will retry it (and may stall :8080 while it does)"
   fi
 fi
+# Do not cherry-pick grokui.mjs + podagent.mjs into /workspace/.grokui.
+# grokui.mjs now has a growing relative-import graph (livestatus.js, …);
+# a two-file copy then MODULE_NOT_FOUND at boot. Run from the baked clone
+# (or the staged .oz-app copy of it), which already has the whole lib tree
+# plus node_modules (worktree.mjs imports dugite).
 mkdir -p /workspace/.grokui
-cp /opt/grokui/grokui.mjs /opt/grokui/podagent.mjs /workspace/.grokui/ 2>/dev/null || true
+if [ -d /opt/grokui ]; then
+  cp -a /opt/grokui/. /workspace/.grokui/ 2>/dev/null || true
+fi
 cp /opt/openzoo/.oz-tag /workspace/.oz-tag 2>/dev/null || true
 
 # ---- 3. box-server on :8080 (upload/files/health), injected as base64 --------
@@ -109,7 +116,7 @@ fi
 # state lives in /root/.openzoo. Running from the image is faster to boot,
 # cannot half-succeed, and is identical on every restart.
 OZ_ENTRY=/opt/openzoo/bin/openzoo.js
-UI_ENTRY=/opt/grokui/grokui.mjs
+UI_ENTRY=/opt/openzoo/lib/grokui.mjs
 log "running ${OZ_ENTRY} ($(cat /opt/openzoo/.oz-tag 2>/dev/null || echo unknown)) from the image"
 
 # Publish the baked tag where the box UI looks for it. box-server.mjs reads
@@ -130,8 +137,7 @@ if [ "${OZ_STAGE_WORKSPACE:-0}" = "1" ]; then
     rm -rf "$OZ_DIR"; mkdir -p "$OZ_DIR"
     cp -a /opt/openzoo/. "$OZ_DIR/" && touch "$OZ_DIR/.copy-complete" && log "staged to $OZ_DIR"
   fi
-  cp /opt/grokui/grokui.mjs /opt/grokui/podagent.mjs "$GROKUI_DIR/" 2>/dev/null || true
-  [ -f "$OZ_DIR/.copy-complete" ] && OZ_ENTRY="$OZ_DIR/bin/openzoo.js" && UI_ENTRY="$GROKUI_DIR/grokui.mjs"
+  [ -f "$OZ_DIR/.copy-complete" ] && OZ_ENTRY="$OZ_DIR/bin/openzoo.js" && UI_ENTRY="$OZ_DIR/lib/grokui.mjs"
 fi
 
 # ---- 5. supervise: RESTART a dead service, don't kill the box ---------------

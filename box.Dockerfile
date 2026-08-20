@@ -41,6 +41,9 @@ RUN apt-get update \
 
 # Resolve "latest" to the newest version tag (grokui-v* preferred, else v*).
 # Clone that tag. Never alpine. Never raw.githubusercontent (429).
+# Copy the WHOLE lib tree into /opt/grokui — cherry-picking grokui.mjs +
+# podagent.mjs omitted livestatus.js and the rest of grokui.mjs's relatives
+# (ERR_MODULE_NOT_FOUND on grokui-v1.5.85 amd64 smoke).
 RUN set -eu; \
     TAG="${OZ_TAG}"; \
     if [ "$TAG" = "latest" ] || [ -z "$TAG" ]; then \
@@ -59,9 +62,17 @@ RUN set -eu; \
     test -f /opt/openzoo/lib/grokui.mjs; \
     test -f /opt/openzoo/lib/podagent.mjs; \
     mkdir -p /opt/grokui; \
-    cp /opt/openzoo/lib/grokui.mjs /opt/openzoo/lib/podagent.mjs /opt/grokui/; \
+    cp -a /opt/openzoo/lib/. /opt/grokui/; \
     echo "${TAG}" >/opt/openzoo/.oz-tag; \
+    test -f /opt/grokui/livestatus.js; \
     head -c 80 /opt/grokui/grokui.mjs | grep -qE '^(//|import )'
+
+# Bake-time resolve gate. node --check is syntax only and would not have
+# caught the two-file copy. Do not wait on :4173 here — grokui must actually
+# load; the smoke test proves that. This gate fails the image if any
+# relative from './…' in grokui.mjs (recursively) is missing on disk.
+COPY scripts/assert-esm-relatives.mjs /tmp/assert-esm-relatives.mjs
+RUN node /tmp/assert-esm-relatives.mjs /opt/grokui/grokui.mjs
 
 WORKDIR /workspace
 EXPOSE 8080 4173 8402

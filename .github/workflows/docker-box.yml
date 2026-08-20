@@ -110,6 +110,8 @@ jobs:
             || { echo 'FAIL: /opt/openzoo/node_modules missing'; exit 1; }
           docker run --rm openzoo-box:smoke sh -c 'head -c 3 /opt/grokui/grokui.mjs | grep -q 429' \
             && { echo 'FAIL: baked grokui.mjs is a 429 corpse'; exit 1; } || true
+          docker run --rm openzoo-box:smoke test -f /opt/grokui/livestatus.js \
+            || { echo 'FAIL: /opt/grokui/livestatus.js missing'; exit 1; }
           # The dev toolchain is the point of the image; without it a bot hits
           # `python3: not found` and looks broken when the box is at fault.
           for b in bash gcc make python3 pip3 git jq rg; do
@@ -121,6 +123,10 @@ jobs:
           docker run --rm -d --name ozbox -p 4173:4173 -p 8402:8402 openzoo-box:smoke
           ok=0
           for i in $(seq 1 30); do
+            if docker logs ozbox 2>&1 | grep -q 'ERR_MODULE_NOT_FOUND'; then
+              echo '--- container logs ---'; docker logs ozbox 2>&1 | tail -40
+              echo 'FAIL: grokui MODULE_NOT_FOUND'; docker rm -f ozbox; exit 1
+            fi
             if curl -fsS -o /tmp/g.html http://127.0.0.1:4173/; then ok=1; break; fi
             sleep 1
           done
