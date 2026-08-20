@@ -120,6 +120,20 @@ test('sitrep is a plus-menu button that opens a wallet-style drawer, not a chat 
   assert.doesNotMatch(grokui, /task: '\/sitrep'/);
   assert.doesNotMatch(grokui, /sitrepRow\('subscription'/);
   assert.doesNotMatch(grokui, /sitrep.*npmrc/i);
+  assert.match(grokui, /formatSavingLabel\(you\)/);
+  assert.match(grokui, /' spilled'/);
+  assert.match(grokui, /' session'/);
+});
+
+test('HUD sitrep and /cost paint Nx spilled vs Nx session, never unlabeled Nx', () => {
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.match(appHtml, /formatSavingLabel/);
+  assert.match(appHtml, /savedEl\.textContent = sav\.text/);
+  assert.doesNotMatch(appHtml, /savedEl\.textContent = \([^)]+\) \+ 'x'/);
+  assert.match(grokui, /function formatSavingLabel/);
+  assert.match(grokui, /num \+ \(spilled \? ' spilled' : ' session'\)/);
+  assert.match(grokui, /multiple        \$\{sav\.text\}/);
+  assert.match(grokui, /HUD is spilled-call x when any call bound/);
 });
 
 test('served APP_HTML <script> is valid JS (node --check)', () => {
