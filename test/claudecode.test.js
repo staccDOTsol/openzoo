@@ -17,6 +17,8 @@ test('claudePrintArgs is the official print loop, not a RUN: parser', () => {
   assert.ok(args.includes('stream-json'));
   assert.ok(args.includes('--permission-mode'));
   assert.ok(args.includes('bypassPermissions'));
+  // grokui Auto keeps bypass. Terminal `openzoo claude` does not inject it —
+  // that path still hits Claude Code's classifier, which the sidecar aliases.
   assert.ok(args.includes('--append-system-prompt'));
   assert.ok(args.includes(AUTO_CLAUDE_SYSTEM));
   assert.match(AUTO_CLAUDE_SYSTEM, /Do not curl localhost:8402\/v1\/chat\/completions/);
