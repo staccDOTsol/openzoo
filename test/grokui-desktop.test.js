@@ -104,6 +104,7 @@ test('auto keeps going instead of parking on a continue note', () => {
   assert.match(grokui, /queueAutoHop\(t, threadId, AUTO_CONTINUE/);
   assert.match(grokui, /every model failed/);
   assert.match(grokui, /retrying race/);
+  assert.match(grokui, /threads.get\(threadId\)\?\.turnSeq \|\| 0/);
 });
 
 test('subagents get the root ask, recent turns, and a SEND brief refresh', () => {
