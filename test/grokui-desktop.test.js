@@ -31,6 +31,8 @@ test('the Electron app does not keep a drifting grokui.mjs', () => {
   // tree at Contents/Resources/app/lib (or resources/app/lib). A filename
   // whitelist omitted info.js and :4173 never bound (1.5.86).
   assert.equal((appPkg.build.files || []).includes('lib/**/*'), true);
+  assert.equal((appPkg.build.files || []).includes('sidecar-heal.js'), true);
+  assert.equal((appPkg.build.files || []).includes('sidecar-version.js'), true);
 });
 
 test('bundle-grokui copies the entire repo lib, not a filename whitelist', () => {
@@ -116,6 +118,7 @@ test('sitrep is a plus-menu button that opens a wallet-style drawer, not a chat 
   assert.match(grokui, /sitrepRow\('race'/);
   assert.match(grokui, /sitrepRow\('paid calls'/);
   assert.match(grokui, /sitrepRow\('prepaid', \(Number\(you\.creditUsd\) > 0\) \? 'yes' : 'no'\)/);
+  assert.match(grokui, /sitrepRow\('proxy', proxyDown \? 'unreachable' : 'ok'/);
   assert.doesNotMatch(grokui, /formatSitrep/);
   assert.doesNotMatch(grokui, /task: '\/sitrep'/);
   assert.doesNotMatch(grokui, /sitrepRow\('subscription'/);
@@ -134,6 +137,20 @@ test('HUD sitrep and /cost paint Nx spilled vs Nx session, never unlabeled Nx', 
   assert.match(grokui, /num \+ \(spilled \? ' spilled' : ' session'\)/);
   assert.match(grokui, /multiple        \$\{sav\.text\}/);
   assert.match(grokui, /HUD is spilled-call x when any call bound/);
+});
+
+test('sitrep and HUD paint proxy unreachable, not a fake $0 session, until health returns', () => {
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.match(grokui, /proxyReachable: false/);
+  assert.match(grokui, /r\.status === 402/);
+  assert.match(grokui, /http:\/\/127\.0\.0\.1:8402\/v1\/models/);
+  assert.match(appHtml, /you\.proxyReachable === false/);
+  assert.match(appHtml, /hYouSpent'\)\.textContent = 'proxy unreachable'/);
+  assert.match(appHtml, /paidEl\.textContent = 'proxy unreachable'/);
+  assert.match(appHtml, /sitrepRow\('paid', proxyDown \? 'proxy unreachable'/);
+  assert.match(appHtml, /setHudTick\(proxyDown \? 2000 : 30000\)/);
+  assert.match(grokui, /Sitrep — mode \$\{mode\} · \$\{tier\} · proxy unreachable\./);
+  assert.doesNotMatch(appHtml, /if \(isEmptyWalletPayment\(text\)\) openWallet/);
 });
 
 test('always-on dock HUD is a sidebar footer, not over chat or #bar', () => {
@@ -478,13 +495,15 @@ test('darwin window-all-closed does not kill grokui or the sidecar', () => {
   assert.ok(start >= 0 && end > start, 'window-all-closed and before-quit');
   const closed = main.slice(start, end);
   assert.doesNotMatch(closed, /serverProc.*\.kill\(/);
+  assert.doesNotMatch(closed, /healer\.stop\(/);
   assert.doesNotMatch(closed, /proxyProc.*\.kill\(/);
   assert.match(closed, /process\.platform !== 'darwin'/);
   assert.match(closed, /app\.quit\(\)/);
   const beforeQuit = main.slice(end, end + 280);
   assert.match(beforeQuit, /quitting = true/);
   assert.match(beforeQuit, /serverProc\.kill\(/);
-  assert.match(beforeQuit, /proxyProc\.kill\(/);
+  assert.match(beforeQuit, /healer\.stop\(/);
+  assert.doesNotMatch(beforeQuit, /reloadOpenWindows/);
 });
 
 test('grokui respawns if it exits while the app is still running', () => {
@@ -545,7 +564,7 @@ test('loadAppWhenReady does not await ensureProxy or a 402 before grokui', () =>
   assert.doesNotMatch(body, /await waitFor\(`http:\/\/127\.0\.0\.1:8402/);
   assert.match(body, /loadLiveOrFailed/);
   assert.match(fnBody(main, 'loadLiveOrFailed'), /\/threads/);
-  assert.match(main, /Reuse only a healthy :8402/);
+  assert.match(main, /void ensureProxy\(\)/);
 });
 
 test('loadAppWhenReady paints the server error instead of sitting on starting…', () => {
@@ -1076,30 +1095,42 @@ test('grokui chat does not dump raw 0x6a wrap simulation logs', () => {
   assert.match(brain, /sanitizeProxiedError\(j\?\.error\?\.message\)/);
 });
 
-test('ensureProxy reuses a healthy :8402 and does not spawn over it', () => {
-  assert.match(main, /function portOccupied/);
-  assert.match(main, /Reuse only a healthy :8402/);
+test('ensureProxy reuses a healthy :8402 and autoheals a dead packed sidecar', () => {
+  const heal = readFileSync(path.join(root, 'grokui-app', 'sidecar-heal.js'), 'utf8');
+  const src = main + '\n' + heal;
+  assert.match(src, /function portOccupied/);
+  assert.match(src, /Reuse only a healthy :8402/);
   // Occupied-port + hung session is NOT reuse — ping must time out.
-  assert.match(main, /not reusing a wedged proxy/);
-  assert.match(main, /Ping must time out/);
+  assert.match(src, /not reusing a wedged proxy/);
+  assert.match(src, /Ping must time out/);
   // Occupied+healthy is not enough: compare listener version to shipped openzoo.
   assert.doesNotMatch(main, /if \(await pingUrl\('http:\/\/127\.0\.0\.1:8402\/v1\/session'\)\) return/);
-  assert.match(main, /sidecarIsAttachable\(\{ listenerVersion, expectedVersion \}\)/);
+  assert.match(src, /sidecarIsAttachable\(\{ listenerVersion:/);
   assert.match(main, /function expectedOpenzooVersion/);
   assert.match(main, /path\.join\(__dirname, '\.\.', 'package\.json'\)/);
   assert.match(main, /path\.join\(__dirname, 'node_modules', 'openzoo', 'package\.json'\)/);
-  assert.match(main, /expected\/shipped version/);
-  assert.match(main, /stale sidecar/);
-  assert.match(main, /not attaching; grokui will spawn the matching one/);
-  assert.match(main, /refusing to attach/);
-  assert.match(main, /displaceStaleListener/);
-  assert.match(main, /spawn\(process\.execPath, \[bin\]/);
-  assert.match(main, /ELECTRON_RUN_AS_NODE: '1'/);
-  assert.match(main, /node_modules', 'openzoo', 'bin', 'openzoo\.js'/);
-  assert.doesNotMatch(main, /npx openzoo@latest/);
+  assert.match(src, /expected\/shipped version/);
+  assert.match(src, /stale sidecar/);
+  assert.match(src, /not attaching; grokui will spawn the matching one/);
+  assert.match(src, /refusing to attach/);
+  assert.match(src, /displaceStaleListener/);
+  assert.match(src, /spawn\(execPath, \[binPath\]/);
+  assert.match(src, /ELECTRON_RUN_AS_NODE: '1'/);
+  assert.match(src, /OPENZOO_SILENT: '1'/);
+  assert.match(src, /stdio: 'ignore'/);
+  assert.match(src, /node_modules', 'openzoo', 'bin', 'openzoo\.js'/);
+  assert.doesNotMatch(src, /npx openzoo@latest/);
+  assert.match(src, /sidecar exited/);
+  assert.match(src, /respawning/);
+  assert.doesNotMatch(heal, /reloadOpenWindows/);
+  assert.doesNotMatch(heal, /app\.quit\(/);
+  assert.match(main, /createSidecarHealer/);
+  assert.match(main, /paymentRequired/);
+  assert.match(main, /Do not reload/);
   const proxy = readFileSync(path.join(root, 'lib', 'proxy.js'), 'utf8');
   const session = proxy.slice(proxy.indexOf("=== '/v1/session'"), proxy.indexOf("=== '/v1/wallet'"));
   assert.match(session, /version,/);
+  assert.match(proxy, /OPENZOO_SILENT === '1'/);
 });
 
 test('cut and release scripts keep openzoo latest or refuse', () => {

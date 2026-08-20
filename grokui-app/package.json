@@ -23,6 +23,7 @@
     "files": [
       "main.js",
       "sidecar-version.js",
+      "sidecar-heal.js",
       "preload.js",
       "lib/**/*",
       "build/**/*"
