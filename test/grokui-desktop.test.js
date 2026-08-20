@@ -407,11 +407,19 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.match(launch, /delete env\.ANTHROPIC_API_KEY/);
   assert.match(launch, /ANTHROPIC_AUTH_TOKEN/);
   const claude = readFileSync(path.join(root, 'lib', 'claudecode.js'), 'utf8');
-  assert.match(claude, /--output-format/);
-  assert.match(claude, /stream-json/);
+  assert.doesNotMatch(claude, /export function claudePrintArgs/);
+  assert.doesNotMatch(claude, /'--print'/);
+  assert.doesNotMatch(claude, /'--output-format'/);
+  assert.doesNotMatch(claude, /'stream-json'/);
+  assert.match(claude, /export function claudeInteractiveArgs/);
+  assert.match(claude, /spawnClaudePty/);
   assert.match(claude, /bypassPermissions/);
   assert.match(claude, /Do not curl localhost:8402\/v1\/chat\/completions/);
   assert.doesNotMatch(claude, /spawn\([^)]*curl/);
+  assert.match(grokui, /function isGrokuiOwnedSlash/);
+  assert.match(grokui, /CLAUDE_SLASH_IN_AUTO/);
+  assert.match(grokui, /closeClaudeSession/);
+  assert.match(autoFn, /sessionKey: t\.id/);
 });
 
 test('install docs ship Mac nvm+openzoo claude and Windows nvm-windows, not extra steps', () => {
@@ -1038,7 +1046,7 @@ test('paintStream snapshots near-bottom before growing the live bubble', () => {
   const helpers = appHtml.slice(start, paint);
   const fn = appHtml.slice(paint, end);
   const snap = fn.indexOf('const wasNearBottom = log.scrollHeight - log.scrollTop - log.clientHeight');
-  const writeText = fn.indexOf('b.textContent = parts.visible');
+  const writeText = fn.indexOf('b.textContent = scrubBotText(parts.visible)');
   const writeHtml = fn.indexOf('b.innerHTML = liveBubbleHtml()');
   assert.ok(snap >= 0, 'snapshots wasNearBottom before mutating the bubble');
   assert.ok(writeText > snap, 'textContent write is after the snapshot');

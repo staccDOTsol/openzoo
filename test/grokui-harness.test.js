@@ -245,10 +245,21 @@ test('AUTO is Claude Code once; ask still parks pendingRun; ping wakes', async (
     const { RACE_EVERY_FAILED } = await import(${JSON.stringify(path.join(root, 'lib/livestatus.js'))});
     const {
       newThread, runTurn, setBrainAskForTest, setRunTurnForTest, setClaudeRunnerForTest,
-      handleSlash, shouldKeepAuto,
+      handleSlash, isGrokuiOwnedSlash, shouldKeepAuto,
       isDoneReply, isTransientModelFail, isEmptyToolResult,
       isPaymentFailed, isEmptyWalletPayment,
     } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+
+    assert.equal(isGrokuiOwnedSlash('/mode auto', 'auto'), true);
+    assert.equal(isGrokuiOwnedSlash('/tier cheap', 'auto'), true);
+    assert.equal(isGrokuiOwnedSlash('/help', 'auto'), true);
+    assert.equal(isGrokuiOwnedSlash('/dir /tmp', 'auto'), true);
+    assert.equal(isGrokuiOwnedSlash('/agents', 'auto'), false);
+    assert.equal(isGrokuiOwnedSlash('/tasks', 'auto'), false);
+    assert.equal(isGrokuiOwnedSlash('/context', 'auto'), false);
+    assert.equal(isGrokuiOwnedSlash('/model opus', 'auto'), false);
+    assert.equal(isGrokuiOwnedSlash('/model opus', 'ask'), true);
+    assert.equal(isGrokuiOwnedSlash('/cost', 'auto'), true);
 
     assert.equal(isDoneReply('DONE: shipped'), true);
     assert.equal(isTransientModelFail(RACE_EVERY_FAILED), true);
