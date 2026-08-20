@@ -194,7 +194,10 @@ async function send() {
     const x = d.x402 || {};
     state.calls += 1;
     if (typeof x.billedUsd === "number") state.spent += x.billedUsd;
-    if (typeof x.savesVsDirect === "number" && x.savesVsDirect > 0) state.saved += x.savesVsDirect;
+    if (typeof x.savedUsd === "number" && x.savedUsd > 0) state.saved += x.savedUsd;
+    else if (typeof x.directUsd === "number" && typeof x.billedUsd === "number") {
+      state.saved += Math.max(0, x.directUsd - x.billedUsd);
+    }
     const bits = [];
     if (typeof x.billedUsd === "number") bits.push(`$${x.billedUsd.toFixed(4)}`);
     if (x.lecore?.engaged) bits.push(`🧠 ${x.lecore.recalled ?? "?"} slices`);

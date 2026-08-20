@@ -22,7 +22,8 @@ dashboard, no API key to obtain.
 Two things sit behind it:
 
 - **The zoo** (`x402-tokens`, a gateway in front of OpenRouter) — ~435 models,
-  priced live, 3× markup on the raw provider cost.
+  priced live at OpenRouter rates. If the caller saves vs sending the body
+  direct, zoo takes 33% of the savings. There is no 3× markup.
 - **leCore HRR** — a holographic-memory sidecar that sits *in front of every
   model*. Big request bodies are carved and bound to it before the model sees
   them, and the model then reads only the retrieved passages.
@@ -142,7 +143,7 @@ Keep the four-item nav. Suggested page order:
 2. **The 60-second demo** — the 8.7MB numbers above, as a receipt-style block.
 3. **Wire it up** — the four code cards (proxy, MCP, Cursor json, env vars).
    Add the public-URL card for cloud IDEs.
-4. **What it costs** — 3× markup, per-request, three chains, no subscription.
+4. **What it costs** — OpenRouter prices (33% of savings vs direct when any), per-request, three chains, no subscription.
    Show a real receipt line:
    `paid $0.086130 · rail solana · tx dTmnxEhv…` .
 5. **Benchmarks** — link out, with the honest framing from §5.
@@ -152,7 +153,7 @@ Keep the four-item nav. Suggested page order:
 ## 7. Facts you may cite (all verified)
 
 - `openzoo@0.12.0` on npm; source github.com/staccDOTsol/openzoo
-- ~435 models; gateway `x402-tokens.fly.dev`; 3× markup on provider cost
+- ~435 models; gateway `x402-tokens.fly.dev`; wallet path is OpenRouter prices, plus 33% of savings vs direct when any (no 3× markup)
 - Rails live and settling: **Solana** (default), **Base**, **Robinhood Chain**
 - Accepted unwrapped tokens: USDC/TOKEN (Solana), USDC (Base), USDG + ODDBALLER
   / IOU / ROBINHOODS (Robinhood Chain). Users never handle wrapped assets — the

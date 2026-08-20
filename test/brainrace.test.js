@@ -6,7 +6,7 @@ process.env.OZ_AGENT_PORTS = '0';
 
 const { brainRace } = await import('../lib/podagent.mjs');
 const {
-  receiptUsedCogs, meterRaceReceipt, capRaceByCredit, doorAcceptsRace,
+  receiptUsedCogs, receiptDirectUsd, meterRaceReceipt, capRaceByCredit, doorAcceptsRace,
   resetGatewayRaceProbe, RACE_NO_CREDIT, recutRaceByHud, sessionDollarX,
   RACE_HUD_TARGET,
 } = await import('../lib/racesettle.js');
@@ -457,6 +457,15 @@ test('race_unused is not a user refund; HUD cogs stay house cost', () => {
   const failedMeter = meterRaceReceipt(failed);
   assert.equal(failedMeter.spentUsd, 0.40);
   assert.equal(failedMeter.cogsUsd, 0.40);
+  // No 3× fallback: billed is the OpenRouter price, not billed/3
+  assert.equal(receiptUsedCogs({ billedUsd: 0.90 }), 0.90);
+  assert.equal(receiptUsedCogs({ billedUsd: 0.90, markup: 3 }), 0.90);
+  assert.equal(receiptDirectUsd({ billedUsd: 1.00, savedUsd: 2.00 }), 3.00);
+  assert.equal(receiptDirectUsd({ billedUsd: 1.00, directUsd: 4.00, savedUsd: 2.00 }), 4.00);
+  const atCost = meterRaceReceipt({ billedUsd: 0.90, directUsd: 0.90, savedUsd: 0 });
+  assert.equal(atCost.spentUsd, 0.90);
+  assert.equal(atCost.cogsUsd, 0.90);
+  assert.equal(atCost.directUsd, 0.90);
 });
 
 test('sessionDollarX is the HUD green x (direct/spent)', () => {

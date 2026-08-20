@@ -148,13 +148,28 @@ test('buildEvmPayment signs an EIP-3009 authorization with raw units (no decimal
 });
 
 test('receiptLine covers both pricing bases and names the rail', () => {
-  const markup = pickAccept(fixture, 'yUSDCx');
-  const line = receiptLine(markup, { transaction: 'SIG123' });
-  assert.match(line, /^paid \$0\.0000\d+ \(markup 3×, short body\) · rail solana · tx SIG123$/);
+  const quote = pickAccept(fixture, 'yUSDCx');
+  const line = receiptLine(quote, { transaction: 'SIG123' });
+  assert.match(line, /^paid \$0\.0000\d+ \(at OpenRouter price — nothing to compress; bind a corpus to save\) · rail solana · tx SIG123$/);
+  assert.doesNotMatch(line, /markup 3/);
+  assert.doesNotMatch(line, /3×/);
+
+  const leftoverMarkup = {
+    ...quote,
+    extra: { ...quote.extra, markup: 3, directUsd: undefined, savedUsd: undefined, savesVsDirect: undefined },
+  };
+  assert.doesNotMatch(receiptLine(leftoverMarkup, null), /markup 3/);
 
   const counterfactual = {
-    ...markup,
-    extra: { ...markup.extra, pricing: 'counterfactual', billedUsd: 0.0021, directUsd: 0.0199, savesVsDirect: 9.48, markup: undefined },
+    ...quote,
+    extra: {
+      ...quote.extra,
+      pricing: 'counterfactual',
+      billedUsd: 0.0021,
+      directUsd: 0.0199,
+      savedUsd: 0.0178,
+      savesVsDirect: 9.48,
+    },
   };
   assert.match(receiptLine(counterfactual, null), /9\.5× cheaper than direct/);
 });
