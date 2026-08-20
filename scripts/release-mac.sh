@@ -148,6 +148,8 @@ if [ -d "$APP" ]; then
   spctl -a -vvv -t install "$APP" 2>&1 | sed 's/^/    /' || true
   xcrun stapler validate "$APP" 2>&1 | tail -1 | sed 's/^/    /' || true
 fi
+node "$REPO_ROOT/scripts/assert-packed-grokui-lib.mjs" dist \
+  || die "packed grokui.mjs relatives missing"
 for d in "${DMGS[@]}"; do printf '    %s  %s\n' "$(du -h "$d" | cut -f1)" "$d"; done
 
 # ---- publish ----------------------------------------------------------------

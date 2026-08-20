@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,10 +26,46 @@ test('the Electron app does not keep a drifting grokui.mjs', () => {
   assert.match(main, /path\.join\(__dirname, '\.\.', 'lib', 'grokui\.mjs'\)/);
   assert.match(appPkg.scripts['dist:mac'], /bundle-grokui/);
   assert.match(appPkg.scripts.start, /bundle-grokui/);
-  // Packaged files are the bundled grokui-app/lib copy (bundle-grokui.js
-  // writes it at start/pack). Do not require a second { from: '../lib' }
-  // electron-builder extra that would ship the whole proxy tree.
+  // bundle-grokui.js copies the ENTIRE repo lib/ into grokui-app/lib;
+  // electron-builder files: lib/**/* plus afterPack copyRepoLib put that
+  // tree at Contents/Resources/app/lib (or resources/app/lib). A filename
+  // whitelist omitted info.js and :4173 never bound (1.5.86).
   assert.equal((appPkg.build.files || []).includes('lib/**/*'), true);
+});
+
+test('bundle-grokui copies the entire repo lib, not a filename whitelist', () => {
+  const bundle = readFileSync(path.join(root, 'grokui-app', 'scripts', 'bundle-grokui.js'), 'utf8');
+  assert.match(bundle, /cpSync\(srcDir, destDir/);
+  assert.doesNotMatch(bundle, /for \(const f of \[/);
+  assert.doesNotMatch(bundle, /'grokui\.mjs', 'podagent\.mjs'/);
+  const r = spawnSync(process.execPath, [path.join(root, 'grokui-app', 'scripts', 'bundle-grokui.js')], {
+    encoding: 'utf8',
+  });
+  assert.equal(r.status, 0, r.stderr || r.stdout);
+  const dest = path.join(root, 'grokui-app', 'lib');
+  for (const f of ['grokui.mjs', 'info.js', 'hrr.js', 'spill.js', 'subscription.js', 'livestatus.js', 'podagent.mjs', 'worktree.mjs']) {
+    assert.equal(existsSync(path.join(dest, f)), true, f);
+  }
+  const walk = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-esm-relatives.mjs'), path.join(dest, 'grokui.mjs')], {
+    encoding: 'utf8',
+  });
+  assert.equal(walk.status, 0, walk.stderr || walk.stdout);
+});
+
+test('the 1.5.86 grokui-app lib whitelist is missing grokui.mjs relatives', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-app-lib-'));
+  try {
+    for (const f of ['grokui.mjs', 'podagent.mjs', 'livestatus.js', 'worktree.mjs', 'racesettle.js']) {
+      cpSync(path.join(root, 'lib', f), path.join(dir, f));
+    }
+    const r = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-esm-relatives.mjs'), path.join(dir, 'grokui.mjs')], {
+      encoding: 'utf8',
+    });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /info\.js/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('cost HUD sits below the wrapping header, not on top of the dials', () => {
@@ -63,7 +100,9 @@ test('sitrep is a plus-menu button that opens a wallet-style drawer, not a chat 
   assert.match(grokui, /function openSitrep/);
   assert.doesNotMatch(grokui, /function runSitrep/);
   assert.match(grokui, /name: '\/sitrep'/);
-  assert.match(grokui, /\^\\\/sitrep\\b/);
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.doesNotMatch(appHtml, /\/\^\\\/sitrep\\b/);
+  assert.match(appHtml, /sitrepHead === '\/sitrep'/);
   assert.match(grokui, /Drawer-only\. Never dump sitrep into the transcript/);
   assert.match(grokui, /if \(c\.name === '\/sitrep'\)/);
   assert.match(grokui, /sitrepRow\('race'/);
@@ -73,6 +112,31 @@ test('sitrep is a plus-menu button that opens a wallet-style drawer, not a chat 
   assert.doesNotMatch(grokui, /task: '\/sitrep'/);
   assert.doesNotMatch(grokui, /sitrepRow\('subscription'/);
   assert.doesNotMatch(grokui, /sitrep.*npmrc/i);
+});
+
+test('served APP_HTML <script> is valid JS (node --check)', () => {
+  const start = grokui.indexOf('const APP_HTML = `');
+  const end = grokui.indexOf('`;\n\nconst server = http.createServer', start);
+  assert.ok(start >= 0 && end > start, 'APP_HTML template bounds');
+  const literal = grokui.slice(start + 'const APP_HTML = '.length, end + 1);
+  // APP_HTML interpolates SUBSCRIPTIONS_PAGE into an href. Stub it so we
+  // can evaluate the template and --check the script the browser actually gets.
+  const html = Function('SUBSCRIPTIONS_PAGE', 'return ' + literal)('https://example.test/subscriptions');
+  const open = html.indexOf('<script>');
+  const close = html.indexOf('</script>', open);
+  assert.ok(open >= 0 && close > open, 'served HTML has a script');
+  const script = html.slice(open + '<script>'.length, close);
+  assert.doesNotMatch(script, /\/\^\/sitrep/);
+  assert.match(script, /sitrepHead === '\/sitrep'/);
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-apphtml-'));
+  try {
+    const file = path.join(dir, 'apphtml.js');
+    writeFileSync(file, script);
+    const r = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr || r.stdout);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('race picker paints the savings cut on every choice, including 1-model', () => {
@@ -203,6 +267,18 @@ test('loadAppWhenReady does not await ensureProxy or a 402 before grokui', () =>
   assert.match(main, /Reuse only a healthy :8402/);
 });
 
+test('loadAppWhenReady paints the server error instead of sitting on starting…', () => {
+  assert.match(main, /function failedPage/);
+  assert.match(main, /function serverFailDetail/);
+  const body = fnBody(main, 'loadAppWhenReady');
+  assert.match(body, /failedPage\(serverFailDetail\(\)\)/);
+  assert.match(body, /serverExit/);
+  assert.doesNotMatch(body, /await\s+ensureProxy/);
+  assert.match(main, /serverProc\.on\('exit'/);
+  assert.match(main, /serverLog/);
+  assert.match(fnBody(main, 'startServer'), /stdio:\s*\[\s*'ignore',\s*'pipe',\s*'pipe'\s*\]/);
+});
+
 test('GET /v1/models is unpaid — never client.fetch wrap-walk', () => {
   const proxy = readFileSync(path.join(root, 'lib', 'proxy.js'), 'utf8');
   const start = proxy.indexOf("path === '/v1/models'");
@@ -249,6 +325,51 @@ test('afterPack fails the pack when copied openzoo is not npm latest', () => {
   assert.match(src, /npm view openzoo version/);
   assert.match(src, /npm install openzoo@latest/);
   assert.match(src, /resources',\s*'app'/);
+  assert.match(src, /copyRepoLib/);
+  assert.match(src, /assertPackedGrokuiLib/);
+  assert.match(src, /assert-esm-relatives\.mjs/);
+});
+
+test('afterPack copies the whole repo lib and fails if a relative is missing', () => {
+  const afterPack = require('../grokui-app/build/afterPack.js');
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-packed-lib-'));
+  afterPack.copyRepoLib(dir, path.join(root, 'grokui-app'));
+  assert.equal(existsSync(path.join(dir, 'lib', 'info.js')), true);
+  assert.equal(existsSync(path.join(dir, 'lib', 'hrr.js')), true);
+  assert.equal(existsSync(path.join(dir, 'lib', 'spill.js')), true);
+  assert.equal(existsSync(path.join(dir, 'lib', 'subscription.js')), true);
+  assert.doesNotThrow(() => afterPack.assertPackedGrokuiLib(dir));
+  rmSync(path.join(dir, 'lib', 'info.js'));
+  assert.throws(() => afterPack.assertPackedGrokuiLib(dir), /info\.js|missing relative/);
+});
+
+test('desktop pack CI walks packed grokui.mjs relatives', () => {
+  for (const name of ['grokui-macos.yml', 'grokui-linux.yml', 'grokui-windows.yml']) {
+    const yml = readFileSync(path.join(root, '.github', 'workflows', name), 'utf8');
+    assert.match(yml, /assert-packed-grokui-lib\.mjs/);
+  }
+  const ignore = readFileSync(path.join(root, 'grokui-app', '.gitignore'), 'utf8');
+  assert.match(ignore, /^lib\/$/m);
+  assert.doesNotMatch(ignore, /lib\/grokui\.mjs/);
+  const rel = readFileSync(path.join(root, 'scripts', 'release-mac.sh'), 'utf8');
+  assert.match(rel, /assert-packed-grokui-lib/);
+});
+
+test('assert-packed-grokui-lib fails a 1.5.86-shaped packed tree', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-packed-walk-'));
+  try {
+    mkdirSync(path.join(dir, 'lib'));
+    for (const f of ['grokui.mjs', 'podagent.mjs', 'livestatus.js', 'worktree.mjs', 'racesettle.js']) {
+      cpSync(path.join(root, 'lib', f), path.join(dir, 'lib', f));
+    }
+    const r = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-packed-grokui-lib.mjs'), dir], {
+      encoding: 'utf8',
+    });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /info\.js|FAIL: packed relatives missing/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('desktop grokui ships dugite so Finder has git without PATH', () => {
@@ -440,9 +561,6 @@ test('a race streams the live racer and can replace the bubble once', () => {
   assert.match(live, /fetch failed/);
   assert.match(live, /function shortModelName/);
   assert.match(live, /phase = 'judging'/);
-  const bundle = readFileSync(path.join(root, 'grokui-app', 'scripts', 'bundle-grokui.js'), 'utf8');
-  assert.match(bundle, /livestatus\.js/);
-  assert.match(bundle, /racesettle\.js/);
 });
 
 test('in-flight race paints a spectator grid and a classifier beat, not mute status', () => {
@@ -516,7 +634,6 @@ test('cut and release scripts keep openzoo latest or refuse', () => {
   assert.match(cut, /dependencies\.openzoo = 'latest'/);
   assert.match(cut, /refuse to cut/);
   assert.match(rel, /assert-grokui-pin/);
-  const { spawnSync } = require('node:child_process');
   const missing = spawnSync(process.execPath, [path.join(root, 'scripts', 'cut-grokui.mjs'), '--grokui', '1.5.84'], { encoding: 'utf8' });
   assert.notEqual(missing.status, 0);
   assert.match(missing.stderr, /refuse to cut/);

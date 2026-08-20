@@ -119,6 +119,10 @@ jobs:
           echo "open-file limit: $(ulimit -n)"
           npm run dist:mac
 
+      - name: Packed grokui.mjs relatives
+        shell: bash
+        run: node scripts/assert-packed-grokui-lib.mjs grokui-app/dist
+
       - name: Verify signature
         shell: bash
         run: |

@@ -52,6 +52,9 @@ jobs:
         working-directory: grokui-app
         run: npm run dist:linux
 
+      - name: Packed grokui.mjs relatives
+        run: node scripts/assert-packed-grokui-lib.mjs grokui-app/dist
+
       - name: Verify output
         run: |
           set -eu
