@@ -106,8 +106,8 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.94');
-  assert.equal(appPkg.version, '1.5.72');
+  assert.equal(ozPkg.version, '0.48.95');
+  assert.equal(appPkg.version, '1.5.73');
 });
 
 test('pay modal lists the card subscribe lane before wallet/x402', () => {
@@ -239,6 +239,19 @@ test('a thinking turn paints live status, not mute dots', () => {
   assert.match(brain, /STREAM_IDLE/);
   assert.match(brain, /formatPayStatus/);
   assert.match(brain, /startModelWait/);
+});
+
+test('a race streams the live racer and can replace the bubble once', () => {
+  assert.match(grokui, /ev\.replace/);
+  assert.match(grokui, /brainRace\(callMsgs, emit, t\.contextId, models, need, undefined, emitStatus\)/);
+  assert.match(grokui, /function kickTurn/);
+  assert.match(grokui, /emitToThread\(threadId, ev\)/);
+  const brain = readFileSync(path.join(root, 'lib', 'podagent.mjs'), 'utf8');
+  assert.match(brain, /createRaceFeed/);
+  assert.match(brain, /classifyRaceAnswer/);
+  assert.doesNotMatch(brain, /Streaming is deliberately not forwarded/);
+  const live = readFileSync(path.join(root, 'lib', 'livestatus.js'), 'utf8');
+  assert.match(live, /racing \$\{b\}\/\$\{n\} back/);
 });
 
 test('harness strips think tags, refuses MCP-as-bash, and does not join absolute dirs', () => {

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   clipStatusArg, peekDirectiveStatus, formatModelWait, formatPayStatus,
+  formatRaceStatus, parseClassifyScore, pickRaceWinner, createRaceFeed,
   startModelWait, readWithIdleTimeout, STREAM_IDLE_MS, STALE_THINKING_MS,
 } from '../lib/livestatus.js';
 
@@ -55,6 +56,63 @@ test('a quiet reader fails STREAM_IDLE so the UI cannot sit on … forever', asy
     () => readWithIdleTimeout(reader, 30),
     (e) => e.code === 'STREAM_IDLE',
   );
+});
+
+test('race status counts completions toward X, not mute waiting', () => {
+  assert.equal(formatRaceStatus(0, 2), 'racing 0/2 back…');
+  assert.equal(formatRaceStatus(1, 2), 'racing 1/2 back…');
+  assert.equal(formatRaceStatus(2, 2), 'racing 2/2 back…');
+  assert.equal(formatRaceStatus(1, 4), 'racing 1/4 back…');
+});
+
+test('parseClassifyScore prefers SCORE n and stays in 0–10', () => {
+  assert.equal(parseClassifyScore('SCORE 8'), 8);
+  assert.equal(parseClassifyScore('SCORE: 3'), 3);
+  assert.equal(parseClassifyScore('The score is SCORE 10.'), 10);
+  assert.equal(parseClassifyScore('7/10'), 7);
+  assert.equal(parseClassifyScore('no number here'), 0);
+  assert.equal(parseClassifyScore('SCORE 99'), 10);
+});
+
+test('pickRaceWinner: highest passing score wins; zero-pass ships last of X', () => {
+  const a = { model: 'fast', text: 'weak', score: 3 };
+  const b = { model: 'better', text: 'strong', score: 9 };
+  assert.equal(pickRaceWinner([a, b], 6).winner.model, 'better');
+  assert.equal(pickRaceWinner([a, b], 6).reason, 'score');
+
+  const low1 = { model: 'a', text: 'first', score: 2 };
+  const low2 = { model: 'b', text: 'second', score: 4 };
+  const fb = pickRaceWinner([low1, low2], 6);
+  assert.equal(fb.reason, 'fallback-last');
+  assert.equal(fb.winner.text, 'second');
+
+  const tie = pickRaceWinner([
+    { model: 'a', text: 'A', score: 8 },
+    { model: 'b', text: 'B', score: 8 },
+  ], 6);
+  assert.equal(tie.reason, 'tie');
+  assert.equal(tie.tied.length, 2);
+  assert.equal(tie.winner, null);
+});
+
+test('createRaceFeed forwards the fastest alive and replaces on a different winner', () => {
+  const deltas = [];
+  const statuses = [];
+  const feed = createRaceFeed((t, meta) => deltas.push({ t, meta }), (s) => statuses.push(s), 2);
+  feed.start();
+  feed.onToken('fast', 'Hel');
+  feed.onToken('slow', 'xxx');
+  feed.onToken('fast', 'lo');
+  feed.onBack();
+  feed.onBack();
+  feed.settle({ model: 'slow', text: 'the winner' });
+  assert.deepEqual(deltas.map((d) => d.t), ['Hel', 'lo', 'the winner']);
+  assert.equal(deltas[2].meta.replace, true);
+  assert.ok(statuses.includes('racing 0/2 back…'));
+  assert.ok(statuses.includes('racing 1/2 back…'));
+  assert.ok(statuses.includes('racing 2/2 back…'));
+  feed.onToken('fast', 'ignored after settle');
+  assert.equal(deltas.length, 3);
 });
 
 test('idle / stale windows stay in the hang-timeout band', () => {
