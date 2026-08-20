@@ -1,15 +1,16 @@
 {
   "name": "openzoo-grokui",
-  "version": "1.5.49",
+  "version": "1.5.50",
   "private": true,
   "description": "Standalone desktop chat client \u2014 same message canvas as Grok Bot, backed by openzoo.",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
-    "dist:mac": "electron-builder --mac --arm64 --x64",
-    "dist:linux": "electron-builder --linux --arm64 --x64",
-    "dist:win": "electron-builder --win --arm64 --x64",
-    "dist:all": "electron-builder -mwl --arm64 --x64"
+    "bundle-ui": "node scripts/bundle-grokui.js",
+    "start": "node scripts/bundle-grokui.js && electron .",
+    "dist:mac": "node scripts/bundle-grokui.js && electron-builder --mac --arm64 --x64",
+    "dist:linux": "node scripts/bundle-grokui.js && electron-builder --linux --arm64 --x64",
+    "dist:win": "node scripts/bundle-grokui.js && electron-builder --win --arm64 --x64",
+    "dist:all": "node scripts/bundle-grokui.js && electron-builder -mwl --arm64 --x64"
   },
   "devDependencies": {
     "electron": "^32.0.0",
@@ -23,7 +24,12 @@
       "main.js",
       "preload.js",
       "lib/**/*",
-      "build/**/*"
+      "build/**/*",
+      {
+        "from": "../lib",
+        "to": "lib",
+        "filter": ["grokui.mjs", "podagent.mjs"]
+      }
     ],
     "directories": {
       "output": "dist"

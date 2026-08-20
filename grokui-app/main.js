@@ -1,12 +1,93 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell, clipboard, Menu } = require('electron');
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
+
+// One source of truth: the live UI is repo lib/grokui.mjs. A packaged build
+// copies that file next to this script; a checkout prefers the repo copy so
+// grokui-app/lib can never drift again.
+function grokuiScript() {
+  const repo = path.join(__dirname, '..', 'lib', 'grokui.mjs');
+  const bundled = path.join(__dirname, 'lib', 'grokui.mjs');
+  return fs.existsSync(repo) ? repo : bundled;
+}
 
 ipcMain.handle('pick-directory', async () => {
   const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
   return r.canceled ? null : r.filePaths[0];
 });
+
+// Click-to-copy and the Edit menu both need the OS clipboard. navigator.clipboard
+// is undefined or permission-denied in enough Electron/http cases that the
+// wallet addresses silently failed to copy.
+ipcMain.handle('copy-text', (_event, text) => {
+  clipboard.writeText(String(text ?? ''));
+  return true;
+});
+
+// On Windows/Linux, Ctrl+C/V/X/A do nothing in inputs unless Menu items with
+// these roles exist. macOS needs the same roles for Cmd+C in a packaged .app.
+function buildAppMenu() {
+  const isMac = process.platform === 'darwin';
+  const template = [
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    }] : []),
+    {
+      label: 'File',
+      submenu: [isMac ? { role: 'close' } : { role: 'quit' }],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'pasteAndMatchStyle' },
+        { role: 'delete' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        ...(isMac ? [{ type: 'separator' }, { role: 'front' }] : [{ role: 'close' }]),
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 
 const PORT = process.env.OZ_GROKUI_PORT || 4173;
 let serverProc, proxyProc;
@@ -15,7 +96,7 @@ function startServer() {
   // ELECTRON_RUN_AS_NODE makes the packaged Electron binary behave as plain
   // Node when spawned as a subprocess — without it, a packaged .app would try
   // to launch a second Electron GUI instance instead of running the script.
-  serverProc = spawn(process.execPath, [path.join(__dirname, 'lib', 'grokui.mjs')], {
+  serverProc = spawn(process.execPath, [grokuiScript()], {
     stdio: 'inherit',
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
   });
@@ -115,6 +196,7 @@ async function checkForUpdates() {
 }
 
 app.whenReady().then(() => {
+  buildAppMenu();
   startServer();
   createWindow();
   checkForUpdates();
