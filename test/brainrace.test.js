@@ -1,9 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 
 process.env.OZ_AGENT_PORTS = '0';
 
 const { brainRace } = await import('../lib/podagent.mjs');
+const {
+  receiptUsedCogs, capRaceByCredit, doorAcceptsRace, resetGatewayRaceProbe,
+  RACE_NO_CREDIT,
+} = await import('../lib/racesettle.js');
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -404,4 +409,112 @@ test('fetch-failed racer is retried once and can still fill X', async () => {
   assert.equal(tries.good, 1);
   assert.equal(text, 'flaky-ok');
   assert.deepEqual(classified.slice().sort(), ['flaky', 'good']);
+});
+
+test('receipt cogs is used racers after unused refund — never N+judge ceiling', () => {
+  const ceiling = { billedUsd: 1.44, cogsUsd: 2.20, race_unused: { cogsUsd: 0.90 } };
+  const used = receiptUsedCogs(ceiling);
+  assert.ok(Math.abs(used - 1.3) < 1e-9);
+  assert.ok(used <= ceiling.billedUsd, 'cogs ≤ billed after unused refund');
+  // Already-net receipt: unused informational billed must not double-subtract spent
+  assert.equal(receiptUsedCogs({ billedUsd: 1.00, cogsUsd: 0.70 }), 0.70);
+  assert.ok(receiptUsedCogs({ billedUsd: 1.00, cogsUsd: 0.70 }) <= 1.00);
+});
+
+test('capRaceByCredit shrinks or refuses instead of firing 4 groks on $0', () => {
+  assert.equal(capRaceByCredit(4, { creditUsd: 0, quoteUsd: 0.30 }).n, 0);
+  assert.equal(capRaceByCredit(4, { creditUsd: 0, quoteUsd: 0.30 }).reason, 'no-credit');
+  assert.equal(capRaceByCredit(4, { creditUsd: 0.50, quoteUsd: 0.30 }).n, 1);
+  assert.equal(capRaceByCredit(4, { creditUsd: 1.50, quoteUsd: 0.30 }).n, 4);
+  assert.equal(capRaceByCredit(4, {}).n, 4);
+  assert.equal(doorAcceptsRace({ upstream: 'https://x402-tokens.fly.dev' }), true);
+  assert.equal(doorAcceptsRace({ race: true }), true);
+  assert.equal(doorAcceptsRace({ upstream: 'http://127.0.0.1:9' }), false);
+});
+
+test('$0 prepaid credit refuses a race rather than launching N 402s', async () => {
+  let streamCalls = 0;
+  const text = await brainRace(
+    [{ role: 'user', content: 'q' }],
+    () => {},
+    null,
+    ['a', 'b', 'c', 'd'],
+    2,
+    undefined,
+    () => {},
+    {
+      creditUsd: 0,
+      quoteUsd: 0.25,
+      stream: async () => { streamCalls += 1; return 'should-not-run'; },
+    },
+  );
+  assert.equal(text, RACE_NO_CREDIT);
+  assert.equal(streamCalls, 0);
+});
+
+test('brainRace to a mock that accepts race: does ONE post not four', async () => {
+  resetGatewayRaceProbe();
+  let posts = 0;
+  const seen = [];
+  const server = await new Promise((resolve, reject) => {
+    const s = http.createServer((req, res) => {
+      const url = (req.url || '').split('?')[0];
+      if (req.method === 'GET' && (url === '/v1/info' || url === '/info')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ upstream: 'https://x402-tokens.fly.dev', race: true }));
+        return;
+      }
+      if (req.method === 'GET' && url === '/v1/session') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ creditUsd: 20, spentUsd: 1.44, cogsUsd: 0.9, directUsd: 8.26 }));
+        return;
+      }
+      if (req.method === 'POST' && url.includes('/chat/completions')) {
+        const chunks = [];
+        req.on('data', (d) => chunks.push(d));
+        req.on('end', () => {
+          posts += 1;
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          seen.push(body);
+          assert.ok(body.race >= 2, 'gateway race must send race:');
+          assert.equal(body.race_need, 2);
+          assert.equal(body.tier, 'cheap');
+          assert.equal(body.stream, true);
+          res.writeHead(200, { 'content-type': 'text/event-stream' });
+          res.write('data: {"id":"r","model":"fast","choices":[{"delta":{"content":"Hello"}}]}\n\n');
+          res.write('data: {"id":"r","model":"fast","choices":[{"delta":{"content":" winner"},"finish_reason":"stop"}]}\n\n');
+          res.write(': x402 {"billedUsd":1.00,"cogsUsd":1.20,"race_unused":{"cogsUsd":0.40}}\n\n');
+          res.write('data: [DONE]\n\n');
+          res.end();
+        });
+        return;
+      }
+      res.writeHead(404); res.end();
+    });
+    s.listen(0, '127.0.0.1', () => resolve(s));
+    s.on('error', reject);
+  });
+  const prev = process.env.OZ_PROXY;
+  process.env.OZ_PROXY = `http://127.0.0.1:${server.address().port}/v1`;
+  try {
+    const text = await brainRace(
+      [{ role: 'user', content: 'q' }],
+      () => {},
+      null,
+      ['a', 'b', 'c', 'd'],
+      2,
+      undefined,
+      () => {},
+      { tier: 'cheap', creditUsd: 20, quoteUsd: 0.1 },
+    );
+    assert.equal(posts, 1, 'gateway race must be one POST, not four');
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].race, 4);
+    assert.match(text, /Hello winner/);
+  } finally {
+    if (prev == null) delete process.env.OZ_PROXY;
+    else process.env.OZ_PROXY = prev;
+    resetGatewayRaceProbe();
+    await new Promise((r) => server.close(r));
+  }
 });

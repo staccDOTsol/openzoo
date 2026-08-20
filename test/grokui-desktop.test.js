@@ -120,8 +120,8 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.49.1');
-  assert.equal(appPkg.version, '1.5.79');
+  assert.equal(ozPkg.version, '0.49.2');
+  assert.equal(appPkg.version, '1.5.80');
 });
 
 test('desktop grokui ships dugite so Finder has git without PATH', () => {
@@ -256,6 +256,17 @@ test('HUD and wallet show prepaid credit, not only session spend', () => {
   assert.match(proxy, /creditUsd, chainUsd/);
 });
 
+test('HUD embers when session cogs exceed paid; cogs is used racers', () => {
+  assert.match(grokui, /cogsOver/);
+  assert.match(grokui, /cogs above paid/);
+  assert.match(grokui, /used racers, not the N\+judge ceiling/);
+  const proxy = readFileSync(path.join(root, 'lib', 'proxy.js'), 'utf8');
+  assert.match(proxy, /receiptUsedCogs/);
+  const settle = readFileSync(path.join(root, 'lib', 'racesettle.js'), 'utf8');
+  assert.match(settle, /race_unused/);
+  assert.match(settle, /receiptUsedCogs/);
+});
+
 test('a thinking turn paints live status, not mute dots', () => {
   assert.match(grokui, /type: 'status'/);
   assert.match(grokui, /waiting on model/);
@@ -272,12 +283,16 @@ test('a thinking turn paints live status, not mute dots', () => {
 test('a race streams the live racer and can replace the bubble once', () => {
   assert.match(grokui, /ev\.replace/);
   assert.match(grokui, /brainRace\(callMsgs, emit, t\.contextId, models, need, undefined, emitStatus/);
+  assert.match(grokui, /tier: t\.tier \|\| 'medium'/);
   assert.match(grokui, /function kickTurn/);
   assert.match(grokui, /emitToThread\(threadId, ev\)/);
   const brain = readFileSync(path.join(root, 'lib', 'podagent.mjs'), 'utf8');
   assert.match(brain, /createRaceFeed/);
   assert.match(brain, /classifyRaceAnswer/);
   assert.match(brain, /raceLastShip/);
+  assert.match(brain, /race_need/);
+  assert.match(brain, /probeGatewayRace/);
+  assert.match(brain, /brainGatewayRace/);
   assert.doesNotMatch(brain, /if \(!cands\.length\) return '';/);
   assert.doesNotMatch(brain, /Streaming is deliberately not forwarded/);
   const live = readFileSync(path.join(root, 'lib', 'livestatus.js'), 'utf8');
