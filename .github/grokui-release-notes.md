@@ -2,6 +2,8 @@
 - Windows: the exe
 - Linux: the AppImage
 
+1.6.1: Auto never eats a send. Orange Auto tries `openzoo-claude` on a PTY, then falls through to the same chat/completions path as Ask/Auto when the PTY is empty, `(no response)`, missing, or HTTP-N — even on a thread that already has a bot reply. First launch / heal installs `openzoo-claude` (and `node` / `npx`) into `~/.local/bin`. Packed `:8402` sidecar includes the whole openzoo `lib/` (think.js next to livestatus.js) and falls back to host Node if the Electron bin cannot load. Do not pkill the window to heal.
+
 #65: thinking… fold / short 400s.
 #67: autoscroll.
 #68: gzip relay (no Content-Encoding-stripped gzip 400s).
@@ -10,28 +12,9 @@
 
 ## Claude Code / Auto
 
-Orange Auto is `openzoo claude` then `openzoo-claude` — not a `RUN:` text parser. `openzoo claude` execs `openzoo-claude` (`npx -y` if needed) with the Anthropic base URL at the local OpenZoo proxy. No Claude login first. Do not curl `claude.ai/install.sh`.
+Orange Auto is `openzoo-claude` via OpenZoo — not a `RUN:` text parser, not official Anthropic bun `claude`. The grokui dmg/exe/AppImage installs `openzoo-claude` on first launch into `~/.local/bin`. No Claude login first. Do not curl the official Anthropic installer. Do not dump an npx recipe as the product path.
 
-Mac:
-
-```
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.7/install.sh | bash
-. "$HOME/.nvm/nvm.sh"
-nvm install 24
-npm i -g openzoo
-openzoo claude
-```
-
-Windows — nvm-windows (https://github.com/coreybutler/nvm-windows — `nvm-setup.exe`). Do not use the unix nvm curl on Windows. Do not source `~/.zshrc`. Do not install official Claude Code.
-
-Then nvm-windows:
-
-```
-nvm install 24
-nvm use 24
-npm i -g openzoo
-openzoo claude
-```
+Pay is an OpenZoo subscription Bearer or x402. Never `ANTHROPIC_API_KEY`.
 
 ## Arch
 

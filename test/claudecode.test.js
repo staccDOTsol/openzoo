@@ -150,6 +150,13 @@ test('foldTuiText strips ANSI, folds thinking, drops tool JSON', () => {
   assert.doesNotMatch(folded.text, /tool_use/);
   assert.doesNotMatch(folded.text, /file_path/);
   assert.equal(folded.tools[0]?.name, 'Write');
+  const taskFold = foldTuiText('● Task Worker A\n● Agent planner\nCrew is up.\n> ');
+  assert.equal(taskFold.tools[0]?.name, 'Task');
+  assert.equal(taskFold.tools[0]?.input?.description, 'Worker A');
+  assert.equal(taskFold.tools[0]?.input?.file_path, undefined);
+  assert.equal(taskFold.tools[1]?.name, 'Agent');
+  assert.equal(taskFold.tools[1]?.input?.description, 'planner');
+  assert.doesNotMatch(taskFold.text, /tool_use|file_path/);
   assert.equal(looksRawToolJson('{"type":"assistant","message":{}}'), true);
   assert.equal(tuiLooksIdle('Agents\n> '), true);
   assert.equal(stripAnsi('\x1b[31mred\x1b[0m'), 'red');
@@ -237,8 +244,10 @@ test('runClaudeCode override and missing CLI', async () => {
     env: { ...process.env, PATH: '/no/claude/here', OPENZOO_CLAUDE_PATH_ONLY: '1' },
   });
   assert.equal(miss.missing, true);
-  assert.match(miss.text, /openzoo-claude CLI not found/);
-  assert.match(CLAUDE_MISSING, /npx -y openzoo-claude/);
+  assert.match(miss.text, /openzoo-claude is installing|CLI not found/);
+  assert.match(CLAUDE_MISSING, /openzoo-claude is installing/);
+  assert.doesNotMatch(CLAUDE_MISSING, /npx -y openzoo-claude/);
+  assert.doesNotMatch(CLAUDE_MISSING, /npm i -g/);
   assert.doesNotMatch(CLAUDE_MISSING, /install\.sh/);
   assert.doesNotMatch(CLAUDE_MISSING, /claude\.ai/);
   assert.match(PTY_WINDOWS, /node-pty/);

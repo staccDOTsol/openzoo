@@ -4,15 +4,22 @@
 // Occupied TCP is not health — /v1/session must answer. Empty-wallet HTTP 402
 // still means the sidecar is up (Pay opens; that is not "sidecar dead").
 // Do not pkill/relaunch the Electron window to heal — only this child.
+//
+// First spawn is Electron execPath + packed bin. If that cannot load
+// (MODULE_NOT_FOUND / immediate exit), fall back to a real Node on PATH
+// (nvm Node 24, homebrew) running the same packed bin, then `openzoo` on
+// PATH. Do not sit forever restarting a bin that cannot boot.
+
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const DEFAULT_BACKOFF_MS = 250;
 const MAX_BACKOFF_MS = 8000;
 const HEALTH_MS = 2000;
+const IMMEDIATE_EXIT_MS = 2000;
 
-function looksLikeModuleNotFound(text) {
-  const s = String(text || '');
-  return /ERR_MODULE_NOT_FOUND|Cannot find module|MODULE_NOT_FOUND/.test(s);
-}
+const MODULE_NOT_FOUND_RE = /MODULE_NOT_FOUND|ERR_MODULE_NOT_FOUND|Cannot find module/i;
 
 function packedSidecarEnv(env = process.env) {
   return {
@@ -25,12 +32,96 @@ function packedSidecarEnv(env = process.env) {
   };
 }
 
-function packedSidecarSpawnOpts(env = process.env) {
+function hostNodeSidecarEnv(env = process.env) {
+  const next = {
+    ...env,
+    OPENZOO_SILENT: '1',
+    OPENZOO_NO_OPEN: env.OPENZOO_NO_OPEN || '1',
+  };
+  delete next.ELECTRON_RUN_AS_NODE;
+  return next;
+}
+
+function sidecarSpawnOpts(env, { electronAsNode = true } = {}) {
   return {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: packedSidecarEnv(env),
+    stdio: ['ignore', 'ignore', 'pipe'],
+    env: electronAsNode ? packedSidecarEnv(env) : hostNodeSidecarEnv(env),
     windowsHide: true,
   };
+}
+
+function packedSidecarSpawnOpts(env = process.env) {
+  return sidecarSpawnOpts(env, { electronAsNode: true });
+}
+
+function isCannotLoadOutput(text) {
+  return MODULE_NOT_FOUND_RE.test(String(text || ''));
+}
+
+function looksLikeModuleNotFound(text) {
+  return isCannotLoadOutput(text);
+}
+
+function isImmediateExit(startedAt, code, now = Date.now()) {
+  if (code === 0) return false;
+  if (!startedAt) return false;
+  return (now - startedAt) <= IMMEDIATE_EXIT_MS;
+}
+
+function exeName(base) {
+  return process.platform === 'win32' ? `${base}.exe` : base;
+}
+
+function pathOpenzooName() {
+  return process.platform === 'win32' ? 'openzoo.cmd' : 'openzoo';
+}
+
+function whichOnPath(name, env = process.env) {
+  const dirs = String(env.PATH || '').split(path.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    const candidate = path.join(dir, name);
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function listNvmNodes(env = process.env) {
+  const home = env.HOME || env.USERPROFILE || os.homedir();
+  const nvm = env.NVM_DIR || path.join(home, '.nvm');
+  const versions = path.join(nvm, 'versions', 'node');
+  let dirs = [];
+  try { dirs = fs.readdirSync(versions); } catch { return []; }
+  const node = exeName('node');
+  return dirs
+    .filter((d) => /^v\d+/.test(d))
+    .sort((a, b) => parseInt(b.slice(1), 10) - parseInt(a.slice(1), 10))
+    .map((d) => path.join(versions, d, 'bin', node))
+    .filter((p) => fs.existsSync(p));
+}
+
+function resolveHostNode(env = process.env) {
+  const node = exeName('node');
+  const nvm = listNvmNodes(env);
+  const prefer24 = nvm.find((p) => /[/\\]v24\./.test(p) || /[/\\]v24[/\\]/.test(p));
+  const hardcoded = [
+    '/opt/homebrew/bin/node',
+    '/usr/local/bin/node',
+    '/usr/bin/node',
+  ].filter((p) => fs.existsSync(p));
+  const fromPath = whichOnPath(node, env);
+  const ordered = [prefer24, ...nvm, ...hardcoded, fromPath].filter(Boolean);
+  const seen = new Set();
+  for (const p of ordered) {
+    if (seen.has(p)) continue;
+    seen.add(p);
+    return p;
+  }
+  return null;
+}
+
+function resolvePathOpenzoo(env = process.env) {
+  return whichOnPath(pathOpenzooName(), env)
+    || whichOnPath('openzoo', env);
 }
 
 // Reuse only a healthy :8402. Starting a second bundled proxy resets
@@ -61,6 +152,8 @@ function createSidecarHealer({
   sidecarIsAttachable,
   expectedVersion,
   waitForSession,
+  resolveHostNode: resolveHostNodeFn = resolveHostNode,
+  resolvePathOpenzoo: resolvePathOpenzooFn = resolvePathOpenzoo,
   log = console.error,
   env = process.env,
   setTimeoutFn = setTimeout,
@@ -72,15 +165,18 @@ function createSidecarHealer({
   let owned = null;
   let ensuring = false;
   let stopped = false;
-  let fatal = false;
   let timer = null;
   let nextAt = 0;
   let backoff = backoffMs;
+  // packed | host-node | path-openzoo
+  let spawnMode = 'packed';
+  let packedUnbootable = false;
+  let lastSpawnHealthy = false;
 
   function child() { return owned; }
 
   function schedule(ms) {
-    if (stopped || fatal) return;
+    if (stopped) return;
     const when = Date.now() + ms;
     if (timer && nextAt && nextAt <= when) return;
     if (timer) clearTimeoutFn(timer);
@@ -99,36 +195,90 @@ function createSidecarHealer({
     return delay;
   }
 
-  function spawnSidecar() {
-    // Same spawn as today: Electron execPath + node_modules/openzoo/bin/openzoo.js
-    const childProc = spawn(execPath, [binPath], packedSidecarSpawnOpts(env));
-    owned = childProc;
-    let bootLog = '';
-    const take = (buf) => {
-      bootLog += String(buf);
-      if (bootLog.length > 8000) bootLog = bootLog.slice(-8000);
+  function pickSpawn() {
+    if (spawnMode === 'packed' && packedUnbootable) spawnMode = 'host-node';
+    if (spawnMode === 'host-node') {
+      const node = resolveHostNodeFn(env);
+      if (node) {
+        return {
+          kind: 'host-node',
+          cmd: node,
+          args: [binPath],
+          opts: sidecarSpawnOpts(env, { electronAsNode: false }),
+        };
+      }
+      spawnMode = 'path-openzoo';
+    }
+    if (spawnMode === 'path-openzoo') {
+      const oz = resolvePathOpenzooFn(env);
+      if (oz) {
+        return {
+          kind: 'path-openzoo',
+          cmd: oz,
+          args: [],
+          opts: sidecarSpawnOpts(env, { electronAsNode: false }),
+        };
+      }
+      const node = resolveHostNodeFn(env);
+      if (node) {
+        spawnMode = 'host-node';
+        return {
+          kind: 'host-node',
+          cmd: node,
+          args: [binPath],
+          opts: sidecarSpawnOpts(env, { electronAsNode: false }),
+        };
+      }
+    }
+    return {
+      kind: 'packed',
+      cmd: execPath,
+      args: [binPath],
+      opts: packedSidecarSpawnOpts(env),
     };
-    if (childProc.stdout) childProc.stdout.on('data', take);
-    if (childProc.stderr) childProc.stderr.on('data', take);
+  }
+
+  function markUnbootable(kind, reason) {
+    if (kind === 'packed') {
+      packedUnbootable = true;
+      spawnMode = 'host-node';
+      log(`[openzoo] packed sidecar cannot load (${reason}) — falling back to host node / PATH openzoo`);
+      return;
+    }
+    if (kind === 'host-node') {
+      spawnMode = 'path-openzoo';
+      log(`[openzoo] host-node packed bin cannot load (${reason}) — falling back to PATH openzoo`);
+    }
+  }
+
+  function spawnSidecar() {
+    const spec = pickSpawn();
+    const childProc = spawn(spec.cmd, spec.args, spec.opts);
+    owned = childProc;
+    lastSpawnHealthy = false;
+    childProc._ozKind = spec.kind;
+    childProc._ozStartedAt = Date.now();
+    let stderr = '';
+    if (childProc.stderr && typeof childProc.stderr.on === 'function') {
+      childProc.stderr.on('data', (buf) => {
+        stderr += String(buf);
+        if (stderr.length > 8000) stderr = stderr.slice(-8000);
+      });
+    }
     childProc.on('error', (e) => {
       const msg = e && e.message;
       log('[openzoo] proxy failed to start:', msg);
-      if (looksLikeModuleNotFound(msg) || looksLikeModuleNotFound(e && e.code)) {
-        bootLog += `\n${msg || e.code}`;
-        fatal = true;
-        if (timer) { clearTimeoutFn(timer); timer = null; nextAt = 0; }
+      if (isCannotLoadOutput(msg) || (e && e.code === 'ENOENT')) {
+        markUnbootable(spec.kind, msg || e.code);
       }
     });
     childProc.on('exit', (code, signal) => {
       if (owned !== childProc) return;
       owned = null;
       if (stopped) return;
-      if (looksLikeModuleNotFound(bootLog)) {
-        fatal = true;
-        if (timer) { clearTimeoutFn(timer); timer = null; nextAt = 0; }
-        log(`[openzoo] sidecar MODULE_NOT_FOUND — not respawning:\n${bootLog.slice(-800)}`);
-        return;
-      }
+      const cannotLoad = isCannotLoadOutput(stderr)
+        || (!lastSpawnHealthy && isImmediateExit(childProc._ozStartedAt, code));
+      if (cannotLoad) markUnbootable(spec.kind, isCannotLoadOutput(stderr) ? 'MODULE_NOT_FOUND' : `immediate exit ${code ?? signal}`);
       log(`[openzoo] sidecar exited (${code ?? signal}) — respawning`);
       schedule(backoff);
     });
@@ -136,7 +286,7 @@ function createSidecarHealer({
   }
 
   async function ensure() {
-    if (stopped || ensuring || fatal) return { skipped: true };
+    if (stopped || ensuring) return { skipped: true };
     ensuring = true;
     try {
       const session = await fetchSession();
@@ -177,12 +327,13 @@ function createSidecarHealer({
         ? await waitForSession(() => stopped || !owned)
         : true;
       if (up) {
+        lastSpawnHealthy = true;
         backoff = backoffMs;
         schedule(healthMs);
-        return { reused: false, healthy: true, wedged: false, child: owned, spawned: true };
+        return { reused: false, healthy: true, wedged: false, child: owned, spawned: true, spawnMode };
       }
       schedule(bumpBackoff());
-      return { reused: false, healthy: false, wedged: false, child: owned, spawned: true };
+      return { reused: false, healthy: false, wedged: false, child: owned, spawned: true, spawnMode };
     } catch (e) {
       log('[openzoo] proxy ensure failed:', e && e.message);
       schedule(bumpBackoff());
@@ -194,7 +345,6 @@ function createSidecarHealer({
 
   function stop() {
     stopped = true;
-    fatal = true;
     if (timer) { clearTimeoutFn(timer); timer = null; }
     nextAt = 0;
     const proc = owned;
@@ -204,16 +354,24 @@ function createSidecarHealer({
     }
   }
 
-  return { ensure, stop, schedule, spawnSidecar, child };
+  return { ensure, stop, schedule, spawnSidecar, child, getSpawnMode: () => spawnMode };
 }
 
 module.exports = {
   createSidecarHealer,
   packedSidecarEnv,
   packedSidecarSpawnOpts,
+  hostNodeSidecarEnv,
+  sidecarSpawnOpts,
   shouldAttach,
+  isCannotLoadOutput,
   looksLikeModuleNotFound,
+  isImmediateExit,
+  resolveHostNode,
+  resolvePathOpenzoo,
+  whichOnPath,
   DEFAULT_BACKOFF_MS,
   MAX_BACKOFF_MS,
   HEALTH_MS,
+  IMMEDIATE_EXIT_MS,
 };
