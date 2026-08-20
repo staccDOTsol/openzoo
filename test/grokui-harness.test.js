@@ -539,6 +539,22 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
     assert.equal(stillUsers.length, 1);
     assert.equal(stillUsers[0].text, 'keep me through pty spawn');
 
+    const autoPin = newThread('auto-pin', null);
+    autoPin.runMode = 'auto';
+    autoPin.model = 'openzoo/auto';
+    let seenModel = 'UNSET';
+    setClaudeRunnerForTest(async ({ model }) => {
+      seenModel = model;
+      assert.equal(autoPin.history[0].text, 'hello auto picker');
+      assert.ok((autoPin.messages || []).some((m) => m.role === 'user' && m.content === 'hello auto picker'));
+      const diskPin = JSON.parse(readFileSync(store, 'utf8')).find((x) => x.id === autoPin.id);
+      assert.equal(diskPin.history[0].text, 'hello auto picker');
+      return { text: 'ok', sessionId: 'sess-pin' };
+    });
+    await runTurn(autoPin.id, 'hello auto picker');
+    assert.equal(seenModel, undefined, 'never pass openzoo/auto as Claude --model');
+    assert.equal(autoPin.history.filter((h) => h.who === 'user').length, 1);
+
     const listed = await (await fetch('http://127.0.0.1:' + uiPort + '/threads', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'drive-persist' }),

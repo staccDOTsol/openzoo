@@ -398,7 +398,9 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.doesNotMatch(autoFn, /enqueueAutoHop\(/);
   assert.doesNotMatch(autoFn, /AUTO_DIRECTIVE/);
   assert.doesNotMatch(autoFn, /fetch\([^)]*chat\/completions/);
-  assert.match(autoFn, /type: 'tool'/);
+  assert.match(autoFn, /claudeModelArg\(t\.model\)/);
+  assert.doesNotMatch(autoFn, /model: t\.model \|\| undefined/);
+  assert.match(grokui, /claudeModelArg/);
   assert.match(autoFn, /sanitizeClaudeCanvas/);
   assert.match(autoFn, /keepFold/);
   assert.match(grokui, /sanitizeClaudeCanvas/);
@@ -412,10 +414,14 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.doesNotMatch(claude, /'--output-format'/);
   assert.doesNotMatch(claude, /'stream-json'/);
   assert.match(claude, /export function claudeInteractiveArgs/);
+  assert.match(claude, /export function claudeModelArg/);
+  assert.match(claude, /isAutoModel/);
   assert.match(claude, /spawnClaudePty/);
   assert.match(claude, /bypassPermissions/);
   assert.match(claude, /Do not curl localhost:8402\/v1\/chat\/completions/);
   assert.doesNotMatch(claude, /spawn\([^)]*curl/);
+  assert.match(claude, /const pin = claudeModelArg\(model\)/);
+  assert.doesNotMatch(claude, /if \(model\) args\.push\('--model', String\(model\)\)/);
   assert.match(grokui, /function isGrokuiOwnedSlash/);
   assert.match(grokui, /CLAUDE_SLASH_IN_AUTO/);
   assert.match(grokui, /closeClaudeSession/);
