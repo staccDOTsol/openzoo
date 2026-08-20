@@ -23,7 +23,26 @@ paid $0.002137 (9.5× cheaper than direct) · rail solana · tx 5Kd…
 
 **Cursor** (Settings → Models → OpenAI API): set *Override OpenAI Base URL* to `http://localhost:8402/v1`, API key `sk-openzoo`. (Cursor Hobby can't BYOK; Pro can.)
 
-**Claude Code / any OpenAI-env tool:**
+**Claude Code (zoo catalog, not opus-5-only auto):**
+
+Claude Code discovers models via `GET /v1/models` on `ANTHROPIC_BASE_URL`. After Claude Code 2.1.129 that GET is opt-in — without it the picker stays a single opus-5 / tiny `claude-*` set. Point it at the zoo and turn discovery on:
+
+```bash
+npx openzoo   # already running? leave the healthy :8402 sidecar alone
+export ANTHROPIC_BASE_URL=http://localhost:8402/v1
+export ANTHROPIC_AUTH_TOKEN=sk-openzoo
+unset ANTHROPIC_API_KEY          # API_KEY wins and bills api.anthropic.com
+export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
+curl -s "$ANTHROPIC_BASE_URL/models" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d["data"]), "models"); print([m["id"] for m in d["data"][:8]])'
+# Expect the zoo catalog (cheap-band / OpenRouter ids like x-ai/grok-4.6,
+# deepseek/…, anthropic/claude-opus-5) — not a single opus-5.
+claude
+# /model picker should list those zoo animals (real ids, not fake claude-* aliases).
+```
+
+Or skip the exports: `npx openzoo claude` sets the same base URL + discovery flag.
+
+**Any OpenAI-env tool:**
 ```bash
 export OPENAI_BASE_URL=http://localhost:8402/v1
 export OPENAI_API_KEY=sk-openzoo
