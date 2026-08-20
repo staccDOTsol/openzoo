@@ -402,9 +402,10 @@ async function reloadOpenWindows() {
 
 async function loadAppWhenReady(win) {
   // First chrome is grokui itself (/threads). Do not block on the sidecar
-  // session or a paid handshake — a bad x402 used to leave the window on
-  // starting… forever. ensureProxy still runs (reuse a healthy sidecar,
-  // spawn if none) but must not gate loadURL. Chat pays later, after paint.
+  // session, a paid handshake, or Claude/Node/openzoo first-run — a bad x402
+  // used to leave the window on starting… forever. ensureProxy still runs
+  // (reuse a healthy sidecar, spawn if none) but must not gate loadURL.
+  // grokui.mjs kicks the harness after listen(); do not await it here.
   void ensureProxy();
   await loadLiveOrFailed(win);
 }

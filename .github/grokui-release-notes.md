@@ -1,51 +1,18 @@
 - Silicon Mac users download the arm64.dmg
-- Windows: the exe
+- Windows: the exe or msi
 - Linux: the AppImage
+
+The app installs Claude, Node 24, and openzoo on first run. Do not paste the old nvm/curl recipe.
 
 #65: thinking… fold / short 400s.
 #67: autoscroll.
 #68: gzip relay (no Content-Encoding-stripped gzip 400s).
-#66: Claude Auto on a PTY (/agents /tasks).
+#66: Claude Code / Auto on a PTY (/agents /tasks).
 #69: autoheal packed :8402 sidecar (respawn without window restart; 402 still Pay).
 
 ## Claude Code / Auto
 
-Orange Auto is `openzoo claude` then `claude` — not a `RUN:` text parser. `openzoo claude` sets the Anthropic API key + base URL to the local OpenZoo proxy. No Claude login first. PATH `~/.local/bin` is required on Mac so `claude` is found.
-
-Mac:
-
-```
-curl -fsSL https://claude.ai/install.sh | bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.7/install.sh | bash
-. "$HOME/.nvm/nvm.sh"
-nvm install 24
-npm i -g openzoo
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
-openzoo claude
-```
-
-Windows — official Claude install, then nvm-windows (https://github.com/coreybutler/nvm-windows — `nvm-setup.exe`). Do not use the unix nvm curl on Windows. Do not source `~/.zshrc`.
-
-PowerShell:
-
-```
-irm https://claude.ai/install.ps1 | iex
-```
-
-CMD:
-
-```
-curl -fsSL https://downloads.claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd
-```
-
-Then nvm-windows:
-
-```
-nvm install 24
-nvm use 24
-npm i -g openzoo
-openzoo claude
-```
+Orange Auto is `openzoo claude` then `claude` — not a `RUN:` text parser. First launch (or the first time you flip orange Auto) installs the official Claude CLI, Node 24, and global openzoo, then points Anthropic at the local OpenZoo proxy. No Claude login first. No paste recipe.
 
 ## Arch
 
@@ -53,9 +20,9 @@ openzoo claude
 
 **Intel Mac: download `openzoo-*.dmg` (no `arm64` in the name).**
 
-**Windows on a normal PC (Intel / AMD): download `openzoo.Setup.*.exe`.**
+**Windows on a normal PC (Intel / AMD): download `openzoo.Setup.*.exe` or `openzoo*.msi`.**
 
-**Windows on Snapdragon / ARM: download `openzoo.Setup.*-arm64.exe` if that file is on this release, otherwise the Setup exe.**
+**Windows on Snapdragon / ARM: download `openzoo.Setup.*-arm64.exe` or the arm64 msi if that file is on this release, otherwise the Setup exe / msi.**
 
 **Linux x64: download `openzoo-*.AppImage` (no `arm64` in the name). chmod +x it, then run it.**
 

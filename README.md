@@ -23,44 +23,11 @@ paid $0.002137 (9.5× cheaper than direct) · rail solana · tx 5Kd…
 
 **Cursor** (Settings → Models → OpenAI API): set *Override OpenAI Base URL* to `http://localhost:8402/v1`, API key `sk-openzoo`. (Cursor Hobby can't BYOK; Pro can.)
 
-**Claude Code / grokui Auto** — `openzoo claude` sets the Anthropic API key + base URL to the local OpenZoo proxy (x402 pay-per-call). You do **not** need to authenticate Claude first. grokui orange Auto is this harness, not a `RUN:` text parser. PATH `~/.local/bin` is required on Mac so `claude` is found.
+**Claude Code / grokui Auto** — grokui desktop installs Claude, Node 24, and openzoo on first run (or the first time you flip orange Auto). Do not paste an nvm/curl recipe. `openzoo claude` sets the Anthropic API key + base URL to the local OpenZoo proxy (x402 pay-per-call). You do **not** need to authenticate Claude first. grokui orange Auto is this harness, not a `RUN:` text parser.
+
+Downloads: Silicon Mac → arm64.dmg, Windows → exe/msi, Linux → AppImage. The window paints first; the status bar shows “Installing Claude… Node 24… openzoo…”.
 
 `GET /v1/models` is the live OpenRouter catalog **after** dropping `:batch`, `$0` / missing prices, and `openzoo-*` twins. Claude Code's `/model` picker (Anthropic-shaped GET) is a short list: current Opus/Sonnet/Haiku-class + a few real gateway models + `openzoo/auto`.
-
-Mac:
-
-```
-curl -fsSL https://claude.ai/install.sh | bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.7/install.sh | bash
-. "$HOME/.nvm/nvm.sh"
-nvm install 24
-npm i -g openzoo
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
-openzoo claude
-```
-
-Windows — official Claude install, then nvm-windows (https://github.com/coreybutler/nvm-windows — `nvm-setup.exe`). Do not use the unix nvm curl on Windows. Do not source `~/.zshrc`.
-
-PowerShell:
-
-```
-irm https://claude.ai/install.ps1 | iex
-```
-
-CMD:
-
-```
-curl -fsSL https://downloads.claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd
-```
-
-Then nvm-windows:
-
-```
-nvm install 24
-nvm use 24
-npm i -g openzoo
-openzoo claude
-```
 
 Leave a healthy `:8402` sidecar alone. Manual equivalent / check that the list is quoteable:
 
