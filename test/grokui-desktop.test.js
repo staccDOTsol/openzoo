@@ -232,20 +232,31 @@ test('selecting text copies it and toasts copied', () => {
   assert.doesNotMatch(grokui, /window\.alert\s*\(/);
 });
 
-test('auto keeps going instead of parking on a continue note', () => {
-  assert.match(grokui, /OZ_AUTO_MAX_STEPS \|\| 500/);
-  assert.doesNotMatch(grokui, /OZ_AUTO_MAX_STEPS \|\| 8\b/);
+test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
+  assert.match(grokui, /from '\.\/claudecode\.js'/);
+  assert.match(grokui, /async function runAutoClaudeTurn/);
+  assert.match(grokui, /t\.runMode === 'auto'/);
+  assert.match(grokui, /usedClaude = true/);
+  assert.match(grokui, /runClaudeCode\(/);
+  assert.match(grokui, /Claude Code via OpenZoo/);
   assert.doesNotMatch(grokui, /say "continue" to keep going/);
   assert.match(grokui, /const AUTO_CONTINUE/);
-  assert.match(grokui, /const AUTO_RACE_RETRY/);
-  assert.match(grokui, /const AUTO_EMPTY_RETRY/);
-  assert.match(grokui, /STALLED_OFFER/);
-  assert.match(grokui, /function isDoneReply/);
-  assert.match(grokui, /function isTransientModelFail/);
-  assert.match(grokui, /function enqueueAutoHop/);
-  assert.match(grokui, /function shouldKeepAuto/);
-  assert.match(grokui, /RACE_EVERY_FAILED/);
   assert.match(grokui, /kickTurn\(threadId, userText, onEvent\)/);
+  const autoFn = fnBody(grokui, 'runAutoClaudeTurn');
+  assert.doesNotMatch(autoFn, /parseRun\(/);
+  assert.doesNotMatch(autoFn, /tryDirective\(/);
+  assert.doesNotMatch(autoFn, /enqueueAutoHop\(/);
+  assert.doesNotMatch(autoFn, /AUTO_DIRECTIVE/);
+  assert.doesNotMatch(autoFn, /chat\/completions/);
+  const launch = readFileSync(path.join(root, 'lib', 'launch.js'), 'utf8');
+  assert.match(launch, /export function claudeZooEnv/);
+  assert.match(launch, /delete env\.ANTHROPIC_API_KEY/);
+  assert.match(launch, /ANTHROPIC_AUTH_TOKEN/);
+  const claude = readFileSync(path.join(root, 'lib', 'claudecode.js'), 'utf8');
+  assert.match(claude, /--output-format/);
+  assert.match(claude, /stream-json/);
+  assert.match(claude, /bypassPermissions/);
+  assert.doesNotMatch(claude, /chat\/completions/);
 });
 
 test('subagents get the root ask, recent turns, and a SEND brief refresh', () => {

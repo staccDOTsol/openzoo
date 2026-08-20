@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveModel, isTinyClassify, pickClassifierModel, raiseReasoningMaxTokens, rewriteChatModel, REASONING_MODEL_RE, displayNameFor, publishModelList, anthropicModelList, modelsListForRequest } from '../lib/models.js';
-import { applyClaudeCodeCatalogEnv } from '../lib/launch.js';
+import { applyClaudeCodeCatalogEnv, claudeZooEnv, resolveClaudeCli, claudeCodeBinDirs } from '../lib/launch.js';
 import { anthropicToOpenAI } from '../lib/anthropic.js';
 
 
@@ -455,6 +455,24 @@ test('applyClaudeCodeCatalogEnv opts Claude Code into GET /v1/models discovery',
   const { dirname, join } = await import('node:path');
   const launchSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../lib/launch.js'), 'utf8');
   assert.doesNotMatch(launchSrc, /\|\| 'claude-sonnet-5'/);
+});
+
+test('claudeZooEnv is the openzoo claude writer: gateway token, no Anthropic API key', () => {
+  const env = claudeZooEnv({
+    ANTHROPIC_API_KEY: 'sk-ant-real',
+    PATH: '/usr/bin',
+    HOME: '/tmp',
+  }, { port: 8402 });
+  assert.equal(env.ANTHROPIC_API_KEY, undefined);
+  assert.equal(env.ANTHROPIC_BASE_URL, 'http://localhost:8402/v1');
+  assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'sk-openzoo');
+  assert.equal(env.DISABLE_COMPACT, '1');
+  assert.equal(env.DISABLE_AUTO_COMPACT, '1');
+  assert.equal(env.CLAUDE_CODE_MAX_CONTEXT_TOKENS, '1000000');
+  assert.match(env.PATH, /\/usr\/bin/);
+  const dirs = claudeCodeBinDirs('/Users/x');
+  assert.ok(dirs.some((d) => d.endsWith('/.local/bin')));
+  assert.equal(resolveClaudeCli({ PATH: '/no/such/claude-bin' }), null);
 });
 
 test('GET /v1/models (OpenAI + Claude-shaped) returns the mocked zoo catalog, not opus-5-only', async () => {
