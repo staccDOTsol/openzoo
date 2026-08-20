@@ -1027,7 +1027,7 @@ test('paintStream snapshots near-bottom before growing the live bubble', () => {
   const helpers = appHtml.slice(start, paint);
   const fn = appHtml.slice(paint, end);
   const snap = fn.indexOf('const wasNearBottom = log.scrollHeight - log.scrollTop - log.clientHeight');
-  const writeText = fn.indexOf('b.textContent = parts.visible');
+  const writeText = fn.indexOf('b.textContent = scrubBotText(parts.visible)');
   const writeHtml = fn.indexOf('b.innerHTML = liveBubbleHtml()');
   assert.ok(snap >= 0, 'snapshots wasNearBottom before mutating the bubble');
   assert.ok(writeText > snap, 'textContent write is after the snapshot');
