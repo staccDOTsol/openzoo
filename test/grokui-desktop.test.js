@@ -125,6 +125,8 @@ test('desktop grokui ships dugite so Finder has git without PATH', () => {
   assert.match(wt, /from 'dugite'/);
   assert.match(wt, /setupEnvironment/);
   assert.match(wt, /bundledGitPath/);
+  assert.doesNotMatch(wt, /bin:\s*'git'/);
+  assert.match(wt, /will not call PATH git/);
 });
 
 test('pay modal lists the card subscribe lane before wallet/x402', () => {

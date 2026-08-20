@@ -66,6 +66,35 @@ test('git() uses dugite bundled binary, not PATH git', () => {
   }
 });
 
+test('SPAWN isolation never execs a git binary from PATH', () => {
+  const src = readFileSync(path.join(root, 'lib', 'worktree.mjs'), 'utf8');
+  assert.doesNotMatch(src, /bin:\s*'git'/);
+  assert.doesNotMatch(src, /bin:\s*"git"/);
+  assert.match(src, /will not call PATH git/);
+
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-wt-trap-'));
+  const binDir = path.join(dir, 'bin');
+  mkdirSync(binDir);
+  const marker = path.join(dir, 'path-git-called');
+  writeFileSync(path.join(binDir, 'git'),
+    `#!/bin/sh\nprintf called >> ${JSON.stringify(marker)}\nexit 1\n`, { mode: 0o755 });
+  const repo = path.join(dir, 'repo');
+  const prev = process.env.PATH;
+  process.env.PATH = binDir + path.delimiter + (prev || '/usr/bin');
+  try {
+    initRepo(repo);
+    writeFileSync(path.join(repo, 'marker.txt'), 'parent');
+    commitAll(repo, 'init');
+    const kid = prepareChildDir({ dir: repo }, 'trap', 'go');
+    assert.match(kid.path, /\.openzoo\/worktrees\/trap$/);
+    assert.match(gitBinary(), /dugite/);
+    assert.notEqual(gitBinary(), path.join(binDir, 'git'));
+    assert.equal(existsSync(marker), false, 'PATH git must never be invoked');
+  } finally {
+    process.env.PATH = prev;
+  }
+});
+
 test('GitHub/GitLab API URLs for PR heads when fetch ref is remote', () => {
   assert.equal(
     githubPullApiUrl('https://github.com/example/repo.git', 7),
