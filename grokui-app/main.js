@@ -5,6 +5,7 @@ const path = require('node:path');
 const http = require('node:http');
 const net = require('node:net');
 const { sidecarIsAttachable } = require('./sidecar-version');
+const { createSidecarHealer } = require('./sidecar-heal');
 
 // One source of truth: the live UI is repo lib/grokui.mjs. A packaged build
 // copies that file next to this script; a checkout prefers the repo copy so
@@ -102,10 +103,11 @@ function buildAppMenu() {
 
 const PORT = process.env.OZ_GROKUI_PORT || 4173;
 const LIVE_URL = `http://localhost:${PORT}`;
-let serverProc, proxyProc;
+let serverProc;
 let serverLog = '';
 let serverExit = null;
 let quitting = false;
+let healer;
 
 function startServer() {
   // ELECTRON_RUN_AS_NODE makes the packaged Electron binary behave as plain
@@ -164,6 +166,13 @@ function pingUrl(url) {
 function fetchSessionJson(url) {
   return new Promise((resolve) => {
     const req = http.get(url, { timeout: 1500 }, (res) => {
+      // Empty-wallet 402 still means the sidecar is up. Do not treat it as
+      // dead and spawn over a live proxy that is asking to Pay.
+      if (res.statusCode === 402) {
+        res.resume();
+        resolve({ paymentRequired: true });
+        return;
+      }
       if (!res.statusCode || res.statusCode >= 500) {
         res.resume();
         resolve(null);
@@ -260,43 +269,29 @@ function waitFor(url, retries, intervalMs, died) {
 
 // The chat backend needs openzoo's local proxy on :8402. Spawn the BUNDLED
 // bin with Electron's own node — never npx, never a login-shell PATH hunt.
-async function ensureProxy() {
-  // Reuse only a healthy :8402. Starting a second bundled proxy resets
-  // session counters and can race the one that already paid — but a process
-  // that LISTENs and does not answer GET /v1/session is wedged. Treating
-  // "port occupied" as reuse is worse than a crash (completions then throw
-  // undici `fetch failed` forever). Ping must time out; occupied ≠ healthy.
-  // Occupied+healthy is not enough: compare the listener's openzoo version
-  // to grokui-app's expected/shipped version. A leftover npx cache of 0.49.3
-  // answers GET /v1/session just fine. Do not blindly return on a session ping.
-  const session = await fetchSessionJson('http://127.0.0.1:8402/v1/session');
-  if (session) {
-    const expectedVersion = expectedOpenzooVersion();
-    const listenerVersion = session.version;
-    if (sidecarIsAttachable({ listenerVersion, expectedVersion })) return;
-    console.error(
-      `[openzoo] :8402 is a stale sidecar (openzoo ${listenerVersion || 'unknown'} < ${expectedVersion}) — not attaching; grokui will spawn the matching one`,
-    );
-    const displaced = await displaceStaleListener(8402);
-    if (!displaced) {
-      console.error('[openzoo] failed to displace stale :8402 — refusing to attach');
-      return;
-    }
-  } else if (await portOccupied(8402)) {
-    console.error('[openzoo] :8402 is listening but /v1/session did not answer — not reusing a wedged proxy');
-    return;
+// If :8402 is down or the packed sidecar child exits, respawn it after a
+// short backoff and keep retrying while the window is open. Do not reload
+// or pkill the grokui window to heal — only this sidecar process.
+function getHealer() {
+  if (!healer) {
+    healer = createSidecarHealer({
+      spawn,
+      execPath: process.execPath,
+      binPath: path.join(__dirname, 'node_modules', 'openzoo', 'bin', 'openzoo.js'),
+      fetchSession: () => fetchSessionJson('http://127.0.0.1:8402/v1/session'),
+      portOccupied: () => portOccupied(8402),
+      displaceStale: () => displaceStaleListener(8402),
+      sidecarIsAttachable,
+      expectedVersion: expectedOpenzooVersion,
+      waitForSession: (died) => waitFor('http://127.0.0.1:8402/v1/session', 60, 500, died),
+    });
   }
-  // Run the BUNDLED openzoo (whatever `latest` resolved to at pack time) with
-  // Electron's OWN node. Never npx: a Finder/Dock launch has no ~/.zshrc PATH,
-  // and a clean Windows box has no Node, so npx never starts the proxy.
-  const bin = path.join(__dirname, 'node_modules', 'openzoo', 'bin', 'openzoo.js');
-  proxyProc = spawn(process.execPath, [bin], {
-    stdio: 'inherit',
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-    windowsHide: true,
-  });
-  proxyProc.on('error', (e) => console.error('[openzoo] proxy failed to start:', e.message));
-  await waitFor('http://127.0.0.1:8402/v1/session', 60, 500);
+  return healer;
+}
+
+async function ensureProxy() {
+  if (quitting) return;
+  await getHealer().ensure();
 }
 
 // Black "starting…" so the window paints on ready. Do not await the sidecar
@@ -459,6 +454,6 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   quitting = true;
+  if (healer) healer.stop();
   if (serverProc) { serverProc.kill(); serverProc = null; }
-  if (proxyProc) { proxyProc.kill(); proxyProc = null; }
 });
