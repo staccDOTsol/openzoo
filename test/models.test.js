@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveModel, isTinyClassify, pickClassifierModel, raiseReasoningMaxTokens, rewriteChatModel, REASONING_MODEL_RE } from '../lib/models.js';
+import { anthropicToOpenAI } from '../lib/anthropic.js';
 
 // Hermetic: resolveModel honours OPENZOO_DEFAULT_MODEL, so an ambient value
 // (a dev shell, a project .env) would otherwise flip every family-hint case.
@@ -233,5 +234,81 @@ test('pickClassifierModel prefers env, then flash, then haiku, then first non-re
     assert.equal(pickClassifierModel(CATALOG), 'bytedance-seed/seed-2-1-turbo');
   } finally {
     delete process.env.OPENZOO_CLASSIFIER_MODEL;
+  }
+});
+
+// opus-5 is openzoo's default session model. HEAVY_RE matches `opus`, but
+// pickClassifierModel used to skip only REASONING_MODEL_RE, so a catalog of
+// [opus-5, grok] returned opus-5 as "first non-reasoner". rewriteChatModel
+// then did `(picked) || from` and a catalog miss left the classify on opus-5.
+// AUTO's classify timeout hard-blocks Bash ("cannot determine the safety").
+
+const OPUS5 = 'anthropic/claude-opus-5';
+const OPUS_CLASSIFY = {
+  model: OPUS5,
+  max_tokens: 16,
+  messages: [{ role: 'user', content: 'Is this command safe? Reply yes or no.' }],
+};
+const OPUS_ONLY = [OPUS5, 'x-ai/grok-4.6', 'deepseek/deepseek-v4-pro-0813'];
+
+function assertClassifyNotHardBlocked(out, { maxTokens = 16 } = {}) {
+  assert.equal(out.tiny, true);
+  assert.equal(out.raised, false);
+  assert.equal(out.parsed.max_tokens, maxTokens);
+  assert.notEqual(out.parsed.model, OPUS5);
+  assert.equal(/opus/i.test(out.parsed.model), false);
+  assert.equal(REASONING_MODEL_RE.test(out.parsed.model), false);
+  // A 4000-token reasoning floor on this body is what AUTO times out on.
+  const floor = raiseReasoningMaxTokens(out.parsed);
+  assert.equal(floor.raised, false, 'shipped classify body must not hit the reasoning floor');
+}
+
+test('pickClassifierModel never returns opus-5 as first non-reasoner', () => {
+  assert.equal(pickClassifierModel(OPUS_ONLY), null);
+  assert.equal(pickClassifierModel([OPUS5]), null);
+  assert.equal(pickClassifierModel([OPUS5, 'anthropic/claude-opus-5-fast', 'x-ai/grok-4.6']), null);
+});
+
+test('opus-5 AUTO classify never stays on opus-5 (full catalog, opus-only, catalog miss)', () => {
+  const catalogs = [CATALOG, OPUS_ONLY, []];
+  for (const ids of catalogs) {
+    const out = rewriteChatModel(OPUS_CLASSIFY, ids);
+    assertClassifyNotHardBlocked(out);
+    assert.equal(out.from, OPUS5);
+  }
+  const withFlash = rewriteChatModel(OPUS_CLASSIFY, CATALOG);
+  assert.equal(withFlash.parsed.model, 'google/gemini-3.7-flash');
+  const noFlash = rewriteChatModel(OPUS_CLASSIFY, OPUS_ONLY);
+  assert.equal(noFlash.parsed.model, 'google/gemini-3.7-flash');
+  const miss = rewriteChatModel(OPUS_CLASSIFY, []);
+  assert.equal(miss.parsed.model, 'google/gemini-3.7-flash');
+});
+
+test('opus-5 AUTO classify ignores OPENZOO_DEFAULT_MODEL and does not raise', () => {
+  process.env.OPENZOO_DEFAULT_MODEL = OPUS5;
+  try {
+    for (const ids of [CATALOG, OPUS_ONLY, []]) {
+      const out = rewriteChatModel(OPUS_CLASSIFY, ids);
+      assertClassifyNotHardBlocked(out);
+      assert.notEqual(out.parsed.model, process.env.OPENZOO_DEFAULT_MODEL);
+    }
+  } finally {
+    delete process.env.OPENZOO_DEFAULT_MODEL;
+  }
+});
+
+test('Anthropic Messages opus-5 classify is pinned off opus-5 after translate', () => {
+  // Claude Code speaks /v1/messages; proxy converts then rewriteChatModel.
+  const inbound = {
+    model: OPUS5,
+    max_tokens: 16,
+    system: 'Reply yes or no.',
+    messages: [{ role: 'user', content: 'Is this Bash command safe?' }],
+  };
+  const converted = anthropicToOpenAI(inbound);
+  assert.equal(isTinyClassify(converted), true);
+  for (const ids of [CATALOG, OPUS_ONLY, []]) {
+    const out = rewriteChatModel(converted, ids);
+    assertClassifyNotHardBlocked(out);
   }
 });
