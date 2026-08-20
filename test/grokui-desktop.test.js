@@ -120,6 +120,50 @@ test('sitrep is a plus-menu button that opens a wallet-style drawer, not a chat 
   assert.doesNotMatch(grokui, /task: '\/sitrep'/);
   assert.doesNotMatch(grokui, /sitrepRow\('subscription'/);
   assert.doesNotMatch(grokui, /sitrep.*npmrc/i);
+  assert.match(grokui, /formatSavingLabel\(you\)/);
+  assert.match(grokui, /' spilled'/);
+  assert.match(grokui, /' session'/);
+});
+
+test('HUD sitrep and /cost paint Nx spilled vs Nx session, never unlabeled Nx', () => {
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.match(appHtml, /formatSavingLabel/);
+  assert.match(appHtml, /savedEl\.textContent = sav\.text/);
+  assert.doesNotMatch(appHtml, /savedEl\.textContent = \([^)]+\) \+ 'x'/);
+  assert.match(grokui, /function formatSavingLabel/);
+  assert.match(grokui, /num \+ \(spilled \? ' spilled' : ' session'\)/);
+  assert.match(grokui, /multiple        \$\{sav\.text\}/);
+  assert.match(grokui, /HUD is spilled-call x when any call bound/);
+});
+
+test('always-on bottom-left dock HUD sits above #bar and keeps refreshing after ◎ closes', () => {
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.match(grokui, /id="dockHud"/);
+  assert.match(grokui, /data-component="dock-hud"/);
+  assert.match(grokui, /id="dockSpill"/);
+  assert.match(grokui, /id="dockSession"/);
+  assert.match(grokui, /id="dockPaid"/);
+  assert.match(grokui, /id="dockBind"/);
+  assert.match(grokui, /id="dockCalls"/);
+  assert.match(grokui, /#dockHud \{ position: absolute; left: 14px; bottom: 72px; z-index: 200;/);
+  assert.match(grokui, /#dockHud \{[\s\S]*?pointer-events: none/);
+  assert.match(grokui, /#hud \{[^}]*z-index: 300/);
+  assert.match(appHtml, /function paintDock/);
+  assert.match(appHtml, /function placeDockHud/);
+  assert.match(appHtml, /function ensureHudTick/);
+  assert.match(appHtml, /paintDock\(you\)/);
+  assert.match(appHtml, /ensureHudTick\(\)/);
+  assert.match(appHtml, /placeDockHud\(\)/);
+  assert.match(appHtml, /spillEl\.className = spillOn \? 'dv hlime' : 'dv'/);
+  assert.match(appHtml, /sessEl\.className = 'dv'/);
+  assert.match(appHtml, /bindEl\.textContent = bound \? 'yes' : 'no'/);
+  assert.doesNotMatch(appHtml, /else if \(hudTimer\) \{\s*clearInterval\(hudTimer\)/);
+  const hudBtn = appHtml.indexOf("hudBtn.addEventListener('click'");
+  const clearTick = appHtml.indexOf('clearInterval(hudTimer)', hudBtn);
+  assert.equal(clearTick, -1, 'closing ◎ must not stop the dock refresh');
+  const dockHtml = grokui.indexOf('id="dockHud"');
+  const barHtml = grokui.indexOf('<div id="bar">');
+  assert.ok(dockHtml > 0 && barHtml > dockHtml, 'dock sits in markup before #bar');
 });
 
 test('served APP_HTML <script> is valid JS (node --check)', () => {
@@ -823,6 +867,46 @@ test('canvas folds reasoning behind a collapsed thinking row, not the Auto chip'
   // Live bubble must not dump raw CoT: paint the visible split, not streamBuf.
   assert.match(appHtml, /b\.textContent = parts\.visible/);
   assert.doesNotMatch(appHtml, /b\.textContent = streamBuf;/);
+});
+
+test('SYSTEM and Auto refuse shelling the :8402 proxy; site curls stay allowed', () => {
+  assert.match(grokui, /const CHAT_NOT_PROXY/);
+  assert.match(grokui, /You already ARE the chat/);
+  assert.match(grokui, /Never RUN curl, wget, or fetch against localhost:8402/);
+  assert.match(grokui, /Orange Auto = WRITE \/ READ \/ RUN \/ GLOB/);
+  assert.match(grokui, /Never mkdir empty trees and declare DONE/);
+  assert.match(grokui, /function looksLikeProxyShell/);
+  assert.match(grokui, /if \(looksLikeProxyShell\(command\)\) return Promise\.resolve\(PROXY_SHELL_REFUSE\)/);
+  assert.match(grokui, /extras\.push\(\{ role: 'system', content: CHAT_NOT_PROXY \}\)/);
+  assert.match(grokui, /\{ role: 'system', content: CHAT_NOT_PROXY \}/);
+  assert.match(grokui, /\$\{CHAT_NOT_PROXY\}/);
+  assert.doesNotMatch(grokui, /YOUR OWN paid openzoo calls/);
+  assert.doesNotMatch(grokui, /Via RUN you can also make/);
+  assert.doesNotMatch(grokui, /Authorization: Bearer sk-openzoo/);
+  // Preview curls of the site must still be taught.
+  assert.match(grokui, /curl -s localhost:8080/);
+});
+
+test('canvas collapses completed RUN cards like thinking, not as the message', () => {
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.match(appHtml, /function makeRunFold/);
+  assert.match(appHtml, /function parseLegacyRun/);
+  assert.match(appHtml, /function runFoldLabel/);
+  assert.match(appHtml, /className = 'runfold'/);
+  assert.match(appHtml, /className = 'runchip'/);
+  assert.match(appHtml, /return 'ran'/);
+  assert.match(appHtml, /return 'running\.\.\.'/);
+  assert.match(appHtml, /runcard\.folded/);
+  assert.match(appHtml, /h\.runId \|\| h\.runStatus/);
+  assert.match(appHtml, /parseLegacyRun\(h\.text\)/);
+  assert.match(grokui, /runStatus: 'done', runOutput: output/);
+  assert.match(grokui, /text: command, runStatus: 'done', runOutput: output/);
+  // Auto lastReply stays `$ cmd\\noutput` for shouldKeepAuto / empty-run hops.
+  assert.match(grokui, /const shown = `\$ \$\{command\}\\n\$\{output\}`/);
+  assert.match(grokui, /lastReply = shown/);
+  // Approve/Deny stay on pending cards.
+  assert.match(appHtml, /run\.id && st === 'pending'/);
+  assert.match(appHtml, /textContent = 'Approve'/);
 });
 
 test('grokui chat does not dump raw 0x6a wrap simulation logs', () => {
