@@ -365,6 +365,219 @@ function assertPackedGrokuiLib(appDir) {
   }
 }
 
+function extraResourcesDir(context) {
+  return context.electronPlatformName === 'darwin'
+    ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
+    : path.join(context.appOutDir, 'resources');
+}
+
+function archName(arch) {
+  if (typeof arch === 'string') return arch;
+  const map = { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' };
+  return map[arch] || process.arch;
+}
+
+function walkNativeAddons(dir, found, depth) {
+  if (!dir || !fs.existsSync(dir) || depth > 6) return;
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  for (const e of entries) {
+    if (e.name === 'node_modules' && depth > 0) continue;
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) walkNativeAddons(full, found, depth + 1);
+    else if (e.name.endsWith('.node')) found.push(full);
+  }
+}
+
+function findNativeAddons(dir) {
+  const found = [];
+  walkNativeAddons(dir, found, 0);
+  return found;
+}
+
+function hasConptyBackend(dir) {
+  if (!dir || !fs.existsSync(dir)) return false;
+  let hit = false;
+  const walk = (d, depth) => {
+    if (hit || depth > 6) return;
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (/conpty/i.test(e.name) || /^OpenConsole\.exe$/i.test(e.name)) { hit = true; return; }
+      if (e.isDirectory()) walk(path.join(d, e.name), depth + 1);
+    }
+  };
+  walk(dir, 0);
+  return hit || findNativeAddons(dir).length > 0;
+}
+
+function saveRebuiltNatives(appDir) {
+  const dest = path.join(appDir, 'node_modules');
+  const saved = {};
+  for (const name of ['node-pty', 'openzoo-claude']) {
+    const from = path.join(dest, name);
+    if (!fs.existsSync(from)) continue;
+    const tmp = path.join(appDir, `.saved-${name}`);
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.cpSync(from, tmp, { recursive: true, dereference: true });
+    saved[name] = tmp;
+  }
+  return saved;
+}
+
+function restoreRebuiltNatives(appDir, saved) {
+  const dest = path.join(appDir, 'node_modules');
+  for (const [name, tmp] of Object.entries(saved || {})) {
+    if (!tmp || !fs.existsSync(tmp)) continue;
+    const out = path.join(dest, name);
+    fs.rmSync(out, { recursive: true, force: true });
+    fs.cpSync(tmp, out, { recursive: true, dereference: true });
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+function copyProjectRuntime(appDir, projectDir) {
+  const dest = path.join(appDir, 'node_modules');
+  fs.mkdirSync(dest, { recursive: true });
+  for (const name of ['node-pty', 'openzoo-claude']) {
+    const out = path.join(dest, name);
+    if (fs.existsSync(path.join(out, 'package.json'))) continue;
+    const from = path.join(projectDir, 'node_modules', name);
+    if (!fs.existsSync(from)) {
+      throw new Error(`[afterPack] ${name} is not in grokui-app/node_modules — add it as a real dependency`);
+    }
+    fs.cpSync(from, out, { recursive: true, dereference: true });
+  }
+}
+
+function copyRuntimeToExtraResources(context, appDir) {
+  const resources = extraResourcesDir(context);
+  fs.mkdirSync(resources, { recursive: true });
+  for (const name of ['node-pty', 'openzoo-claude']) {
+    const from = path.join(appDir, 'node_modules', name);
+    if (!fs.existsSync(from)) {
+      throw new Error(`[afterPack] cannot copy ${name} to extraResources — missing in packed app`);
+    }
+    const out = path.join(resources, name);
+    fs.rmSync(out, { recursive: true, force: true });
+    fs.cpSync(from, out, { recursive: true, dereference: true });
+  }
+}
+
+function packedElectronBin(context) {
+  const product = context.packager.appInfo.productFilename;
+  if (context.electronPlatformName === 'darwin') {
+    return path.join(context.appOutDir, `${product}.app`, 'Contents', 'MacOS', product);
+  }
+  if (context.electronPlatformName === 'win32') {
+    return path.join(context.appOutDir, `${product}.exe`);
+  }
+  return path.join(context.appOutDir, product);
+}
+
+function assertPackedOpenzooClaude(appDir) {
+  const dir = path.join(appDir, 'node_modules', 'openzoo-claude');
+  const pkg = path.join(dir, 'package.json');
+  if (!fs.existsSync(pkg)) {
+    throw new Error('[afterPack] packed app missing openzoo-claude — dmg/exe/AppImage would have no Auto harness');
+  }
+  const json = JSON.parse(fs.readFileSync(pkg, 'utf8'));
+  if (json.name !== 'openzoo-claude') {
+    throw new Error(`[afterPack] packed openzoo-claude package.json name is ${json.name}`);
+  }
+  const entry = json.bin && (typeof json.bin === 'string'
+    ? json.bin
+    : (json.bin['openzoo-claude'] || json.bin.occ || json.bin.claude));
+  if (entry && !fs.existsSync(path.join(dir, entry))) {
+    throw new Error(`[afterPack] packed openzoo-claude missing bin ${entry}`);
+  }
+}
+
+function assertPackedNodePty(appDir, context = {}) {
+  const roots = [
+    path.join(appDir, 'node_modules', 'node-pty'),
+  ];
+  if (context.electronPlatformName) {
+    roots.push(path.join(extraResourcesDir(context), 'node-pty'));
+  }
+  const ptyDir = roots.find((d) => fs.existsSync(path.join(d, 'package.json')));
+  if (!ptyDir) {
+    throw new Error('[afterPack] packed app missing node-pty — Auto PTY cannot spawn (dmg/exe/AppImage)');
+  }
+  const addons = findNativeAddons(ptyDir);
+  if (!addons.length) {
+    const arch = archName(context.arch);
+    throw new Error(`[afterPack] packed node-pty missing native .node for ${context.electronPlatformName || process.platform}-${arch}`);
+  }
+  const plat = context.electronPlatformName || process.platform;
+  const targetArch = archName(context.arch);
+  const sameArch = !context.arch || targetArch === process.arch || targetArch === 'universal';
+  const samePlat = plat === process.platform;
+  const electronBin = context.appOutDir ? packedElectronBin(context) : null;
+  if (electronBin && fs.existsSync(electronBin) && samePlat && sameArch) {
+    const r = spawnSync(electronBin, ['-e', "require('node-pty'); console.log('ok node-pty')"], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      cwd: appDir,
+      encoding: 'utf8',
+    });
+    if (r.status !== 0) {
+      const detail = (r.stderr || r.stdout || `exit ${r.status}`).trim();
+      throw new Error(`[afterPack] packed app cannot require('node-pty') via Electron-as-node:\n${detail}`);
+    }
+  } else if (samePlat && sameArch) {
+    const r = spawnSync(process.execPath, ['-e', "require('node-pty'); console.log('ok node-pty')"], {
+      cwd: appDir,
+      encoding: 'utf8',
+    });
+    if (r.status !== 0) {
+      const detail = (r.stderr || r.stdout || `exit ${r.status}`).trim();
+      throw new Error(`[afterPack] packed app cannot require('node-pty'):\n${detail}`);
+    }
+  }
+  if (plat === 'win32' && !hasConptyBackend(ptyDir)) {
+    throw new Error('[afterPack] Windows pack missing node-pty conpty backend');
+  }
+}
+
+async function rebuildNodePty(appDir, context) {
+  const pty = path.join(appDir, 'node_modules', 'node-pty');
+  if (!fs.existsSync(pty)) {
+    throw new Error('[afterPack] node-pty missing before rebuild');
+  }
+  if (findNativeAddons(pty).length && context._ptyAlreadyRebuilt) return;
+  let rebuild;
+  try {
+    ({ rebuild } = require('@electron/rebuild'));
+  } catch {
+    try { ({ rebuild } = require('electron-rebuild')); } catch { rebuild = null; }
+  }
+  if (!rebuild) {
+    if (findNativeAddons(pty).length) return;
+    throw new Error('[afterPack] @electron/rebuild missing and node-pty has no native .node');
+  }
+  const electronVersion = context.electronVersion
+    || context.packager.electronVersion
+    || context.packager.config?.electronVersion;
+  await rebuild({
+    buildPath: appDir,
+    electronVersion: String(electronVersion || '').replace(/^v/, ''),
+    arch: archName(context.arch),
+    onlyModules: ['node-pty'],
+    force: true,
+  });
+}
+
+async function ensurePackedPtyAndClaude(context) {
+  const appDir = packedAppDir(context);
+  copyProjectRuntime(appDir, context.packager.projectDir);
+  if (!findNativeAddons(path.join(appDir, 'node_modules', 'node-pty')).length) {
+    await rebuildNodePty(appDir, context);
+  }
+  copyRuntimeToExtraResources(context, appDir);
+  assertPackedOpenzooClaude(appDir);
+  assertPackedNodePty(appDir, context);
+}
+
 function copyNodeModules(context) {
   const src = prodModules(context.packager.projectDir);
   if (!fs.existsSync(src)) {
@@ -372,8 +585,10 @@ function copyNodeModules(context) {
   }
   const appDir = packedAppDir(context);
   const dest = path.join(appDir, 'node_modules');
+  const saved = saveRebuiltNatives(appDir);
   fs.rmSync(dest, { recursive: true, force: true });
   fs.cpSync(src, dest, { recursive: true, dereference: true });
+  restoreRebuiltNatives(appDir, saved);
   // Hard gate for win nsis / mac dmg / linux AppImage: the copied sidecar
   // must be whatever npm currently publishes, not last week's lockfile.
   assertCopiedOpenzoo(dest);
@@ -433,12 +648,19 @@ exports.packedAppDir = packedAppDir;
 exports.copyRepoLib = copyRepoLib;
 exports.writeLibEsmPackage = writeLibEsmPackage;
 exports.assertPackedGrokuiLib = assertPackedGrokuiLib;
+exports.assertPackedNodePty = assertPackedNodePty;
+exports.assertPackedOpenzooClaude = assertPackedOpenzooClaude;
+exports.findNativeAddons = findNativeAddons;
+exports.hasConptyBackend = hasConptyBackend;
+exports.extraResourcesDir = extraResourcesDir;
+exports.ensurePackedPtyAndClaude = ensurePackedPtyAndClaude;
 
 exports.default = async function afterPack(context) {
   const appDir = packedAppDir(context);
   copyRepoLib(appDir, context.packager.projectDir);
   assertPackedGrokuiLib(appDir);
   copyNodeModules(context);
+  await ensurePackedPtyAndClaude(context);
   if (context.electronPlatformName !== 'darwin') return;
   const app = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
 

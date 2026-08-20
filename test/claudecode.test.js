@@ -1,18 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   claudeInteractiveArgs, claudeModelArg, foldClaudeEvent, foldTuiText, stripAnsi,
   sanitizeClaudeOutput, looksRawToolJson, tuiLooksIdle, TinyTerm,
   toolStatusLine, paymentFailText, GROKUI_RESERVED_SLASH,
-  AUTO_CLAUDE_SYSTEM, CLAUDE_MISSING, PTY_WINDOWS,
+  AUTO_CLAUDE_SYSTEM, CLAUDE_MISSING, PTY_PENDING,
   spawnClaudeInteractive, setClaudeRunnerForTest, runClaudeCode, waitIdle,
   sanitizeClaudeCanvas, looksBinaryCanvas, canvasHttpErrorLine,
-  WAIT_IDLE_HARD_MS,
+  WAIT_IDLE_HARD_MS, setNodePtyLoaderForTest, setPtyPlatformForTest,
 } from '../lib/claudecode.js';
 import { claudeZooEnv } from '../lib/launch.js';
+import { CANVAS_PTY_RECIPE } from '../lib/packed-runtime.js';
+import { fileURLToPath } from 'node:url';
+
+const RECIPE = /install node-pty|\bconpty\b|PTY_WINDOWS|--print cannot grow/;
+const claudeSrc = readFileSync(fileURLToPath(new URL('../lib/claudecode.js', import.meta.url)), 'utf8');
 
 test('claudeInteractiveArgs is the TUI, not --print stream-json', () => {
   const args = claudeInteractiveArgs({ sessionId: 's1', model: 'openzoo-claude-sonnet-5' });
@@ -302,7 +307,40 @@ test('runClaudeCode override and missing CLI', async () => {
   assert.doesNotMatch(CLAUDE_MISSING, /npm i -g/);
   assert.doesNotMatch(CLAUDE_MISSING, /install\.sh/);
   assert.doesNotMatch(CLAUDE_MISSING, /claude\.ai/);
-  assert.match(PTY_WINDOWS, /node-pty/);
+  assert.doesNotMatch(claudeSrc, /PTY_WINDOWS/);
+  assert.doesNotMatch(claudeSrc, /install node-pty/);
+  assert.doesNotMatch(claudeSrc, /--print cannot grow/);
+  assert.doesNotMatch(PTY_PENDING, RECIPE);
+  assert.equal(sanitizeClaudeCanvas(
+    'Auto PTY is Mac/Linux first (`script` host PTY). On Windows install node-pty (conpty) — --print cannot grow the TUI',
+  ), '');
+});
+
+test('runClaudeCode on win32 without a loaded pty never returns an install recipe', async () => {
+  setPtyPlatformForTest('win32');
+  setNodePtyLoaderForTest(() => null);
+  const prev = process.env.OZ_PTY_WAIT_MS;
+  process.env.OZ_PTY_WAIT_MS = '0';
+  try {
+    const dir = mkdtempSync(path.join(tmpdir(), 'oz-win-pty-'));
+    const cli = writeReplyIdleClaude(dir);
+    const r = await runClaudeCode({
+      prompt: 'hi',
+      cwd: dir,
+      env: { ...process.env, PATH: dir, OZ_PTY_WAIT_MS: '0', OPENZOO_CLAUDE_PATH_ONLY: '1' },
+    });
+    const text = String(r.text || '');
+    assert.doesNotMatch(text, RECIPE);
+    assert.doesNotMatch(text, CANVAS_PTY_RECIPE);
+    assert.equal(r.ptyPending, true);
+    assert.equal(r.error, true);
+    assert.ok(cli);
+  } finally {
+    setPtyPlatformForTest(null);
+    setNodePtyLoaderForTest(null);
+    if (prev == null) delete process.env.OZ_PTY_WAIT_MS;
+    else process.env.OZ_PTY_WAIT_MS = prev;
+  }
 });
 
 function writeReplyIdleClaude(dir) {

@@ -17,7 +17,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test test/*.test.js && node scripts/assert-grokui-pin.mjs && node scripts/assert-app-html-script.mjs && node scripts/assert-overlaid-openzoo.mjs && node scripts/assert-packed-openzoo-lib.mjs"
+    "test": "node --test test/*.test.js && node scripts/assert-grokui-pin.mjs && node scripts/assert-app-html-script.mjs && node scripts/assert-overlaid-openzoo.mjs && node scripts/assert-packed-openzoo-lib.mjs && node scripts/assert-packed-node-pty.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
