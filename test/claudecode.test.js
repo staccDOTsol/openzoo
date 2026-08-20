@@ -150,6 +150,13 @@ test('foldTuiText strips ANSI, folds thinking, drops tool JSON', () => {
   assert.doesNotMatch(folded.text, /tool_use/);
   assert.doesNotMatch(folded.text, /file_path/);
   assert.equal(folded.tools[0]?.name, 'Write');
+  const taskFold = foldTuiText('● Task Worker A\n● Agent planner\nCrew is up.\n> ');
+  assert.equal(taskFold.tools[0]?.name, 'Task');
+  assert.equal(taskFold.tools[0]?.input?.description, 'Worker A');
+  assert.equal(taskFold.tools[0]?.input?.file_path, undefined);
+  assert.equal(taskFold.tools[1]?.name, 'Agent');
+  assert.equal(taskFold.tools[1]?.input?.description, 'planner');
+  assert.doesNotMatch(taskFold.text, /tool_use|file_path/);
   assert.equal(looksRawToolJson('{"type":"assistant","message":{}}'), true);
   assert.equal(tuiLooksIdle('Agents\n> '), true);
   assert.equal(stripAnsi('\x1b[31mred\x1b[0m'), 'red');

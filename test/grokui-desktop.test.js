@@ -445,6 +445,13 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.match(autoFn, /isClaudeFallbackReply\(finalText\)/);
   assert.match(autoFn, /return finalText;/);
   assert.match(autoFn, /result\.missing/);
+  assert.match(autoFn, /isClaudeSubagentTool/);
+  assert.match(autoFn, /adoptClaudeSubagent/);
+  assert.match(autoFn, /claudeSubagentHopText/);
+  assert.match(grokui, /function adoptClaudeSubagent/);
+  const subagents = readFileSync(path.join(root, 'lib', 'grokui-subagents.js'), 'utf8');
+  assert.match(subagents, /Messaged \$\{unique\.length\} Bots/);
+  assert.doesNotMatch(autoFn, /noteTool\(folded\.name/);
   assert.match(grokui, /sidecar starting…/);
   assert.match(grokui, /function waitForSidecarSession/);
   assert.match(grokui, /function autoClaudeTurnProducedVisible/);
@@ -1087,6 +1094,7 @@ test('canvas folds reasoning behind a collapsed thinking row, not the Auto chip'
   assert.match(appHtml, /fold\.hidden = false/);
   assert.match(appHtml, /function foldBodyText/);
   assert.match(appHtml, /ev\.type === 'tool'/);
+  assert.match(appHtml, /ev\.type === 'spawn'/);
   assert.match(appHtml, /streamTools/);
   assert.match(appHtml, /function scrubBotText/);
   assert.match(appHtml, /upstream HTTP /);

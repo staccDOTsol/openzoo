@@ -726,3 +726,109 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
   const r = JSON.parse(line);
   assert.equal(r.ok, true);
 });
+
+test('Claude Task/Agent tools become sidebar agents, including nested kids', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-claude-sub-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 27000 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.HOME = ${JSON.stringify(dir)};
+    process.env.OZ_WORKSPACE_DIR = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    const assert = (await import('node:assert/strict')).default;
+    const {
+      newThread, runTurn, setBrainAskForTest, setClaudeRunnerForTest, findByName,
+    } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+
+    const waitName = async (name, ms = 2500) => {
+      const start = Date.now();
+      while (Date.now() - start < ms) {
+        const t = findByName(name);
+        if (t) return t;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return findByName(name);
+    };
+
+    setBrainAskForTest(() => 'ask must not run for Auto Task hops');
+    setClaudeRunnerForTest(async ({ prompt, onEvent }) => {
+      const p = String(prompt || '');
+      if (/--- your specific job ---/.test(p)) {
+        if (/leaf-job|You are "Leaf"/.test(p)) {
+          return { text: 'leaf done', error: false, paymentFailed: '' };
+        }
+        if (/Worker A|build the frontend/.test(p)) {
+          onEvent?.({ kind: 'tool', name: 'Task', input: { description: 'Leaf', prompt: 'leaf-job' } });
+          return { text: 'delegated to Leaf', error: false, paymentFailed: '' };
+        }
+        return { text: 'child done', error: false, paymentFailed: '' };
+      }
+      onEvent?.({ kind: 'tool', name: 'Task', input: { description: 'Worker A', prompt: 'build the frontend' } });
+      onEvent?.({ kind: 'tool', name: 'Task', input: { description: 'Worker B', prompt: 'build the backend' } });
+      onEvent?.({ kind: 'tui', text: 'Crew is up.', tools: [] });
+      return { text: 'Crew is up.', error: false, paymentFailed: '' };
+    });
+
+    const parent = newThread('Botty', null);
+    parent.runMode = 'auto';
+    const painted = [];
+    await runTurn(parent.id, 'ultracode give me a bunch of subagents to build this out', (ev) => painted.push(ev));
+    const workerA = await waitName('Worker A');
+    const workerB = await waitName('Worker B');
+    const leaf = await waitName('Leaf');
+    assert.ok(workerA, 'Task Worker A is a sidebar thread');
+    assert.ok(workerB, 'Task Worker B is a sidebar thread');
+    assert.equal(workerA.parent, parent.id);
+    assert.equal(workerB.parent, parent.id);
+    assert.ok(workerA.color, 'sidebar agent has a color');
+    assert.ok(workerB.color);
+    assert.ok(leaf, 'nested Task on a child becomes a grandchild');
+    assert.equal(leaf.parent, workerA.id);
+    assert.equal(parent.history.filter((h) => h.who === 'bot').pop().text, 'Crew is up.');
+    assert.ok(painted.some((e) => e.type === 'status' && /Messaged 2 Bots/.test(e.detail || '')));
+    assert.ok(painted.some((e) => e.type === 'spawn' && /Messaged 2 Bots/.test(e.detail || '')));
+    assert.ok(!painted.some((e) => e.type === 'tool' && /Task /.test(e.detail || '')));
+    const canvas = [...parent.history.map((h) => h.text), ...painted.map((e) => e.text || e.detail || '')].join('\\n');
+    assert.doesNotMatch(canvas, /tool_use|file_path|"prompt":/);
+    assert.doesNotMatch(canvas, /RUN:|READ:/);
+
+    const emptyParent = newThread('empty-fan', null);
+    emptyParent.runMode = 'auto';
+    setClaudeRunnerForTest(async ({ prompt, onEvent }) => {
+      if (/--- your specific job ---/.test(String(prompt || ''))) {
+        return { text: 'scout working', error: false, paymentFailed: '' };
+      }
+      onEvent?.({ kind: 'tool', name: 'Agent', input: { name: 'Scout', prompt: 'look around' } });
+      return { text: '', error: false, paymentFailed: '' };
+    });
+    const emptyPaint = [];
+    await runTurn(emptyParent.id, 'spawn a scout', (ev) => emptyPaint.push(ev));
+    const scout = await waitName('Scout');
+    assert.ok(scout);
+    assert.equal(scout.parent, emptyParent.id);
+    assert.equal(emptyParent.history.filter((h) => h.who === 'bot').pop().text, 'Spawned Scout.');
+    assert.ok(emptyPaint.some((e) => e.type === 'status' && /Spawned Scout/.test(e.detail || '')));
+
+    setClaudeRunnerForTest(async () => { throw new Error('Ask must not spawn Claude'); });
+    setBrainAskForTest(() => 'ask stays on chat');
+    const askStay = newThread('ask-no-task', null);
+    askStay.runMode = 'ask';
+    await runTurn(askStay.id, 'please do not invent sidebar kids');
+    assert.equal(findByName('ask-no-task').history.filter((h) => h.who === 'bot').pop().text, 'ask stays on chat');
+    assert.equal(findByName('Worker A').parent, parent.id);
+
+    console.log(JSON.stringify({
+      ok: true,
+      kids: [workerA.name, workerB.name, leaf.name],
+      leafParent: leaf.parent === workerA.id,
+    }));
+    process.exit(0);
+  `);
+  const out = await runChild(script);
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result: ' + out);
+  const r = JSON.parse(line);
+  assert.equal(r.ok, true);
+  assert.equal(r.leafParent, true);
+});
