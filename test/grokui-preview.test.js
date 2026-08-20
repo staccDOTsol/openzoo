@@ -1,0 +1,100 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const grokuiSrc = readFileSync(path.join(root, 'lib', 'grokui.mjs'), 'utf8');
+
+test('html autopreview is wired in grokui.mjs', () => {
+  assert.match(grokuiSrc, /function isPreviewableRel/);
+  assert.match(grokuiSrc, /function ensureWorkspacePort/);
+  assert.match(grokuiSrc, /function previewAck/);
+  assert.match(grokuiSrc, /function htmlPreviewUrl/);
+  assert.match(grokuiSrc, /function linkWorkspacePaths/);
+  assert.match(grokuiSrc, /function parkPreviews/);
+  assert.match(grokuiSrc, /html-preview/);
+  assert.match(grokuiSrc, /height: 420px/);
+  assert.match(grokuiSrc, /HTML_PREVIEW_RULE/);
+  assert.match(grokuiSrc, /can't preview/);
+  assert.match(grokuiSrc, /The harness will preview/);
+  assert.match(grokuiSrc, /await previewAck\(originId, rel\)/);
+  assert.doesNotMatch(grokuiSrc, /Workspace server is still starting — try again in a second/);
+  // A second `const chatHeader` in the same <script> is a SyntaxError and
+  // kills the whole UI — including the preview iframe we just added.
+  const script = grokuiSrc.split('const APP_HTML')[1] || '';
+  assert.equal((script.match(/const chatHeader/g) || []).length, 1);
+});
+
+test('WRITE of html acks a live localhost URL that serves the file', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-preview-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 18000 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.OZ_WORKSPACE_DIR = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    const { tryDirective, ensureWorkspacePort } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+    const uiPort = ${uiPort};
+    let ready = false;
+    for (let i = 0; i < 50; i++) {
+      try {
+        const r = await fetch('http://127.0.0.1:' + uiPort + '/threads');
+        if (r.ok) { ready = true; break; }
+      } catch {}
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (!ready) { console.error(JSON.stringify({ error: 'grokui did not start' })); process.exit(1); }
+    const t = await (await fetch('http://127.0.0.1:' + uiPort + '/threads', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'PreviewBot' }),
+    })).json();
+    const ack = await tryDirective(
+      'WRITE: fries-vs-birds.html | <!doctype html><html><body>fries fly</body></html>',
+      t.id,
+    );
+    const wsPort = await ensureWorkspacePort();
+    const url = 'http://127.0.0.1:' + wsPort + '/' + t.id + '/fries-vs-birds.html';
+    const html = await (await fetch(url)).text();
+    const page = await (await fetch('http://127.0.0.1:' + uiPort + '/')).text();
+    const summary = await (await fetch('http://127.0.0.1:' + uiPort + '/threads')).json();
+    const txt = await tryDirective('WRITE: notes.txt | just text', t.id);
+    const edited = await tryDirective('EDIT: fries-vs-birds.html |fries fly|||fries vs birds', t.id);
+    const html2 = await (await fetch(url)).text();
+    console.log(JSON.stringify({
+      ack, edited, txt, html, html2, wsPort,
+      workspacePort: (summary.find((x) => x.id === t.id) || {}).workspacePort,
+      hasPreviewCss: /html-preview/.test(page),
+      hasClientUrl: /clientWorkspaceUrl/.test(page),
+      hasPreviewFn: /htmlPreviewUrl/.test(page),
+    }));
+    process.exit(0);
+  `);
+  const out = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script], { cwd: root, env: { ...process.env, OZ_AGENT_PORTS: '0' } });
+    let buf = '';
+    child.stdout.on('data', (d) => { buf += d; });
+    child.stderr.on('data', (d) => { buf += d; });
+    const t = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('preview child timed out: ' + buf)); }, 15000);
+    child.on('exit', (code) => {
+      clearTimeout(t);
+      if (code !== 0) reject(new Error('preview child exited ' + code + ': ' + buf));
+      else resolve(buf);
+    });
+  });
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result');
+  const r = JSON.parse(line);
+  assert.match(r.ack, /Preview: http:\/\/localhost:\d+\/[0-9a-f-]+\/fries-vs-birds\.html/);
+  assert.match(r.html, /fries fly/);
+  assert.equal(r.hasPreviewCss, true);
+  assert.equal(r.hasClientUrl, true);
+  assert.equal(r.hasPreviewFn, true);
+  assert.equal(r.workspacePort, r.wsPort);
+  assert.doesNotMatch(r.txt, /Preview:/);
+  assert.match(r.edited, /Preview: http:\/\/localhost:\d+\//);
+  assert.match(r.html2, /fries vs birds/);
+});
