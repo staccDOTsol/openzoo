@@ -725,7 +725,8 @@ test('tightenKnobs / loosenKnobs stay on the notch ladder', () => {
 
 test('hudDollarX prefers spill direct/billed, then session, else null', () => {
   assert.equal(hudDollarX({ spillDirect: 5.84, spillSpend: 1.6 }), 5.84 / 1.6);
-  assert.ok(Math.abs(hudDollarX({ spillDirect: 5.84, spillSpend: 21.27 / 3.65 }) - 3.65) < 0.02);
+  // Live HUD: $21.27 direct vs $5.84 billed → ~3.64x
+  assert.ok(Math.abs(hudDollarX({ spillDirect: 21.27, spillSpend: 5.84 }) - 3.64) < 0.02);
   assert.equal(hudDollarX({ sessionDirect: 10, sessionSpent: 2 }), 5);
   assert.equal(hudDollarX({ spillDirect: 5.84, spillSpend: 0, sessionDirect: 10, sessionSpent: 2 }), 5);
   assert.equal(hudDollarX({}), null);
