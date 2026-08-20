@@ -100,11 +100,14 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
   assert.match(grokui, /WORKING SET:/);
   assert.match(grokui, /function childKickoff/);
   assert.match(grokui, /childKickoff\(threads\.get\(originId\), target\.name, msg, \{ fresh: false \}\)/);
+  // Repeat SPAWN is a wake, not another CONTEXT REFRESH.
+  assert.match(grokui, /wakeOnPing\(existing\)/);
+  assert.doesNotMatch(grokui, /runTurn\(existing\.id, childKickoff/);
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.93');
-  assert.equal(appPkg.version, '1.5.71');
+  assert.equal(ozPkg.version, '0.48.94');
+  assert.equal(appPkg.version, '1.5.72');
 });
 
 test('pay modal lists the card subscribe lane before wallet/x402', () => {
@@ -128,6 +131,30 @@ test('header pay button is not labeled only wallet', () => {
   assert.doesNotMatch(m[0], />\s*wallet\s*</i);
   assert.match(m[0], />pay</);
   assert.match(m[0], /Pay with a card/);
+});
+
+test('ping-all wakes the crew without a prompt or /all modal', () => {
+  // window.prompt is missing/blocked in Electron, so a prompt here made the
+  // only UI ping path a silent no-op. Default click is /ping — a wake.
+  assert.match(grokui, /function wakeOnPing/);
+  assert.match(grokui, /function kickTurn/);
+  assert.match(grokui, /task: '\/ping'/);
+  assert.match(grokui, /title="Wake all '/);
+  const scriptStart = grokui.indexOf('<script>');
+  const scriptEnd = grokui.indexOf('</script>', scriptStart);
+  const script = grokui.slice(scriptStart, scriptEnd);
+  const pingAt = script.indexOf("const pingBtn = row.querySelector('.trow-ping')");
+  assert.notEqual(pingAt, -1);
+  const pingHandler = script.slice(pingAt, script.indexOf("row.querySelector('.tclose')", pingAt));
+  assert.doesNotMatch(pingHandler, /prompt\s*\(/);
+  assert.doesNotMatch(pingHandler, /task: '\/all /);
+  assert.match(pingHandler, /task: '\/ping'/);
+  assert.match(grokui, /wake idle bots below you/);
+  assert.match(grokui, /Never childKickoff/);
+  const wakeAt = grokui.indexOf('function wakeOnPing');
+  const wakeFn = grokui.slice(wakeAt, grokui.indexOf('// Ceiling on subagents', wakeAt));
+  assert.doesNotMatch(wakeFn, /childKickoff\s*\(/);
+  assert.match(wakeFn, /pingWakeText/);
 });
 
 test('wallet modal offers Stripe subscriptions next to x402', () => {

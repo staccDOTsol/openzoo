@@ -128,3 +128,99 @@ test('parseRun, think-tag strip, inDir, MCP-as-bash refuse', async () => {
   assert.equal(r.listedHasReadme, true);
   assert.equal(r.refusedMcp, true);
 });
+
+test('/ping and PING: name wake idle descendants; PEEK stays a read', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-ping-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 21000 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.HOME = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    const assert = (await import('node:assert/strict')).default;
+    const {
+      handleSlash, tryDirective, newThread, setRunTurnForTest, AUTO_CONTINUE, pingWakeText,
+      childKickoff,
+    } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+
+    assert.equal(pingWakeText(''), AUTO_CONTINUE);
+    assert.equal(pingWakeText('   '), AUTO_CONTINUE);
+    assert.notEqual(String(pingWakeText('')).trim(), '');
+    assert.doesNotMatch(AUTO_CONTINUE, /CONTEXT REFRESH/);
+    assert.doesNotMatch(AUTO_CONTINUE, /ROOT ASK/);
+    assert.doesNotMatch(AUTO_CONTINUE, /your specific job/);
+
+    const parent = newThread('tetris', null);
+    const idle = newThread('game-builder', parent.id);
+    const idle2 = newThread('kid', parent.id);
+    const thinking = newThread('shipcheck', parent.id);
+    thinking.status = 'thinking';
+    const blocked = newThread('mcp-analyst', parent.id);
+    blocked.pendingRun = { runId: 'x', command: 'echo hi', cwd: ${JSON.stringify(dir)} };
+    idle.history.push({ who: 'bot', text: 'old last line that used to be dumped as if I acted' });
+
+    const wakes = [];
+    setRunTurnForTest((threadId, userText) => {
+      wakes.push({ threadId, userText });
+      return Promise.resolve();
+    });
+
+    const slash = await handleSlash('/ping', parent);
+    assert.match(slash, /game-builder: pinged, working/);
+    assert.match(slash, /kid: pinged, working/);
+    assert.match(slash, /shipcheck: working/);
+    assert.match(slash, /mcp-analyst: BLOCKED/);
+    assert.equal(wakes.length, 2);
+    assert.deepEqual(wakes.map((w) => w.threadId).sort(), [idle.id, idle2.id].sort());
+    assert.ok(wakes.every((w) => w.userText === AUTO_CONTINUE));
+
+    wakes.length = 0;
+    const named = await tryDirective('PING: game-builder', parent.id);
+    assert.equal(named, 'game-builder: pinged, working');
+    assert.equal(wakes.length, 1);
+    assert.equal(wakes[0].threadId, idle.id);
+    assert.equal(wakes[0].userText, AUTO_CONTINUE);
+
+    wakes.length = 0;
+    const star = await tryDirective('PING: *', parent.id);
+    assert.match(star, /game-builder: pinged, working/);
+    assert.match(star, /kid: pinged, working/);
+    assert.match(star, /shipcheck: still working/);
+    assert.match(star, /mcp-analyst: BLOCKED/);
+    assert.equal(wakes.length, 2);
+
+    wakes.length = 0;
+    const peek = await tryDirective('PEEK: game-builder', parent.id);
+    assert.match(peek, /old last line/);
+    assert.equal(wakes.length, 0, 'PEEK must stay read-only');
+
+    wakes.length = 0;
+    const emptyPing = await handleSlash('/ping', parent);
+    assert.match(emptyPing, /pinged, working/);
+    assert.equal(wakes.length, 2, 'empty /ping is a wake, not a cancel');
+    assert.ok(wakes.every((w) => w.userText === AUTO_CONTINUE));
+    assert.ok(wakes.every((w) => !/CONTEXT REFRESH|ROOT ASK|your specific job/.test(w.userText)));
+
+    const refresh = childKickoff(parent, 'game-builder', 'keep building the game', { fresh: false });
+    assert.match(refresh, /CONTEXT REFRESH/);
+    assert.equal(pingWakeText(refresh), AUTO_CONTINUE);
+
+    wakes.length = 0;
+    const respawn = await tryDirective('SPAWN: game-builder | keep building the game', parent.id);
+    assert.match(respawn, /already exists/);
+    assert.match(respawn, /woke it to keep working/);
+    assert.equal(wakes.length, 1);
+    assert.equal(wakes[0].threadId, idle.id);
+    assert.equal(wakes[0].userText, AUTO_CONTINUE);
+    assert.doesNotMatch(wakes[0].userText, /CONTEXT REFRESH/);
+
+    console.log(JSON.stringify({ ok: true, slashWakes: 2, peekWakes: 0 }));
+    process.exit(0);
+  `);
+  const out = await runChild(script);
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result: ' + out);
+  const r = JSON.parse(line);
+  assert.equal(r.ok, true);
+  assert.equal(r.peekWakes, 0);
+});
