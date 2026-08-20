@@ -173,6 +173,75 @@ test('zero-pass classifier still ships the last of the X', async () => {
   assert.equal(text, 'last-of-x');
 });
 
+test('if X never fills, ship the last completion that arrived — never blank', async () => {
+  const deltas = [];
+  const text = await brainRace(
+    [{ role: 'user', content: 'q' }],
+    (d, meta) => deltas.push({ d, meta }),
+    null,
+    ['boom', 'blank', 'last'],
+    2,
+    undefined,
+    () => {},
+    {
+      stream: scriptedStream({
+        boom: { err: new Error('HTTP 502'), at: 5 },
+        blank: { empty: true, text: '', at: 15 },
+        last: { text: '(upstream error — HTTP 503, try again)', at: 30 },
+      }),
+      classify: async () => { throw new Error('classify must not run when X never fills'); },
+    },
+  );
+  assert.notEqual(text, '');
+  assert.match(text, /HTTP 503/);
+  assert.ok(deltas.some((x) => String(x.d).includes('HTTP 503')));
+});
+
+test('if everyone errors with no text, surface a real error — do not hang or return blank', async () => {
+  const t0 = Date.now();
+  const deltas = [];
+  const text = await brainRace(
+    [{ role: 'user', content: 'q' }],
+    (d) => { if (d) deltas.push(d); },
+    null,
+    ['a', 'b'],
+    2,
+    undefined,
+    () => {},
+    {
+      stream: scriptedStream({
+        a: { err: new Error('5xx'), at: 8 },
+        b: { empty: true, text: '', at: 20 },
+      }),
+    },
+  );
+  assert.ok(Date.now() - t0 < 100, 'must not wait for a K that will never come');
+  assert.ok(text && text.trim(), 'must not return blank');
+  assert.match(text, /failed|returned nothing|every model failed/i);
+  assert.ok(deltas.some((d) => /failed|returned nothing|every model failed/i.test(d)));
+});
+
+test('malformed judge / equally bad scores ship the last finished candidate', async () => {
+  const text = await brainRace(
+    [{ role: 'user', content: 'q' }],
+    () => {},
+    null,
+    ['a', 'b'],
+    2,
+    undefined,
+    () => {},
+    {
+      stream: scriptedStream({
+        a: { text: 'first', at: 10 },
+        b: { text: 'last-finished', at: 25 },
+      }),
+      classify: async () => 8,
+      pairwise: async () => ({ text: '' }),
+    },
+  );
+  assert.equal(text, 'last-finished');
+});
+
 test('empty/5xx do not count toward X', async () => {
   const classified = [];
   const text = await brainRace(

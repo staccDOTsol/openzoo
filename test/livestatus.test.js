@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   clipStatusArg, peekDirectiveStatus, formatModelWait, formatPayStatus,
   formatRaceStatus, parseClassifyScore, pickRaceWinner, createRaceFeed,
+  isRaceCountable, raceLastShip,
   startModelWait, readWithIdleTimeout, STREAM_IDLE_MS, STALE_THINKING_MS,
 } from '../lib/livestatus.js';
 
@@ -95,6 +96,26 @@ test('pickRaceWinner: highest passing score wins; zero-pass ships last of X', ()
   assert.equal(tie.winner, null);
 });
 
+test('empty and 5xx notes do not count toward X; last arrival still ships', () => {
+  assert.equal(isRaceCountable(''), false);
+  assert.equal(isRaceCountable('   '), false);
+  assert.equal(isRaceCountable('(upstream error — HTTP 502, try again)'), false);
+  assert.equal(isRaceCountable('(payment failed — HTTP 402 after 3 retries. Run `npx openzoo` to check wallet balances.)'), false);
+  assert.equal(isRaceCountable('(stream timed out — no tokens arrived)'), false);
+  assert.equal(isRaceCountable('DONE: built it'), true);
+  assert.equal(isRaceCountable('here is a real answer mentioning HTTP 500 in passing'), true);
+
+  const last = raceLastShip([
+    { model: 'a', text: '', error: '5xx' },
+    { model: 'b', text: '' },
+  ]);
+  assert.match(last.text, /returned nothing/);
+  assert.equal(raceLastShip([]).text, '(race: every model failed — no reply)');
+  assert.match(raceLastShip([{ model: 'x-ai/grok', text: '', error: 'boom' }]).text, /grok failed: boom/);
+  assert.equal(raceLastShip([{ model: 'a', text: '' }, { model: 'b', text: '(upstream error — HTTP 502, try again)' }]).text,
+    '(upstream error — HTTP 502, try again)');
+});
+
 test('createRaceFeed forwards the fastest alive and replaces on a different winner', () => {
   const deltas = [];
   const statuses = [];
@@ -113,6 +134,15 @@ test('createRaceFeed forwards the fastest alive and replaces on a different winn
   assert.ok(statuses.includes('racing 2/2 back…'));
   feed.onToken('fast', 'ignored after settle');
   assert.equal(deltas.length, 3);
+});
+
+test('createRaceFeed paints a real error when settling a no-text race', () => {
+  const deltas = [];
+  const feed = createRaceFeed((t, meta) => deltas.push({ t, meta }), () => {}, 2);
+  feed.start();
+  feed.settle({ model: 'x', text: '(x failed: 5xx)', error: true });
+  assert.equal(deltas.at(-1).t, '(x failed: 5xx)');
+  assert.equal(deltas.at(-1).meta.replace, true);
 });
 
 test('idle / stale windows stay in the hang-timeout band', () => {

@@ -106,8 +106,8 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.95');
-  assert.equal(appPkg.version, '1.5.73');
+  assert.equal(ozPkg.version, '0.48.96');
+  assert.equal(appPkg.version, '1.5.74');
 });
 
 test('pay modal lists the card subscribe lane before wallet/x402', () => {
@@ -249,6 +249,8 @@ test('a race streams the live racer and can replace the bubble once', () => {
   const brain = readFileSync(path.join(root, 'lib', 'podagent.mjs'), 'utf8');
   assert.match(brain, /createRaceFeed/);
   assert.match(brain, /classifyRaceAnswer/);
+  assert.match(brain, /raceLastShip/);
+  assert.doesNotMatch(brain, /if \(!cands\.length\) return '';/);
   assert.doesNotMatch(brain, /Streaming is deliberately not forwarded/);
   const live = readFileSync(path.join(root, 'lib', 'livestatus.js'), 'utf8');
   assert.match(live, /racing \$\{b\}\/\$\{n\} back/);
