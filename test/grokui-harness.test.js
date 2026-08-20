@@ -242,6 +242,7 @@ test('AUTO keeps going after RUN and race-fail; DONE and pendingRun park', async
       newThread, runTurn, setBrainAskForTest, setRunTurnForTest,
       handleSlash, AUTO_RACE_RETRY, AUTO_EMPTY_RETRY, shouldKeepAuto,
       isDoneReply, isTransientModelFail, isEmptyToolResult,
+      isPaymentFailed, isEmptyWalletPayment,
     } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
 
     async function drain(pred) {
@@ -261,6 +262,11 @@ test('AUTO keeps going after RUN and race-fail; DONE and pendingRun park', async
     auto.runMode = 'auto';
     assert.equal(shouldKeepAuto(auto, RACE_EVERY_FAILED), true);
     assert.equal(shouldKeepAuto(auto, 'DONE: shipped'), false);
+    assert.equal(isEmptyWalletPayment('(payment required — HTTP 402, the wallet is empty.)'), true);
+    assert.equal(isEmptyWalletPayment('openzoo wallet underfunded: this call needs more'), true);
+    assert.equal(isEmptyWalletPayment('(payment failed — HTTP 402 after 3 retries, though the wallet holds 12 USDC)'), false);
+    assert.equal(isPaymentFailed('(payment failed — HTTP 402 after 3 retries, though the wallet holds 12 USDC)'), true);
+    assert.equal(shouldKeepAuto(auto, '(payment required — HTTP 402, the wallet is empty.)'), false);
     assert.equal(isEmptyToolResult('(command output)\\n(no output)'), true);
     assert.equal(shouldKeepAuto(auto, 'DONE: shipped', '(command output)\\n(no output)'), true);
     auto.pendingRun = { runId: 'x', command: 'echo', cwd: ${JSON.stringify(dir)} };
