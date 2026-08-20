@@ -433,3 +433,117 @@ test('AUTO does not mkdir-and-Done or curl chat/completions', async () => {
   assert.equal(r.calls, 1);
   assert.equal(r.brainCalls, 0);
 });
+
+test('user message is on disk before the model call; 500 does not rewrite it as AUTO continue', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-persist-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 26000 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.HOME = ${JSON.stringify(dir)};
+    process.env.OZ_WORKSPACE_DIR = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    const assert = (await import('node:assert/strict')).default;
+    const { readFileSync } = await import('node:fs');
+    const path = await import('node:path');
+    const {
+      newThread, runTurn, persistUserTurn, visibleHistory, isHarnessUserText,
+      AUTO_RACE_RETRY, AUTO_CONTINUE, setBrainAskForTest, setClaudeRunnerForTest,
+    } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+
+    const store = path.join(${JSON.stringify(dir)}, '.openzoo', 'grokui-threads.json');
+    const uiPort = ${uiPort};
+    let ready = false;
+    for (let i = 0; i < 50; i++) {
+      try {
+        const r = await fetch('http://127.0.0.1:' + uiPort + '/threads');
+        if (r.ok) { ready = true; break; }
+      } catch {}
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (!ready) { console.error('grokui did not start'); process.exit(1); }
+
+    assert.equal(isHarnessUserText(AUTO_RACE_RETRY), true);
+    assert.equal(isHarnessUserText(AUTO_CONTINUE), true);
+    assert.equal(isHarnessUserText('ship the tetris contract'), false);
+    const hidden = visibleHistory([
+      { who: 'user', text: 'keep me' },
+      { who: 'user', text: AUTO_RACE_RETRY },
+      { who: 'user', text: AUTO_CONTINUE },
+      { who: 'bot', text: 'error: upstream HTTP 500' },
+    ]);
+    assert.deepEqual(hidden.map((h) => h.text), ['keep me', 'error: upstream HTTP 500']);
+
+    const ask = newThread('persist-ask', null);
+    persistUserTurn(ask, 'hello from disk');
+    const disk1 = JSON.parse(readFileSync(store, 'utf8'));
+    const savedAsk = disk1.find((t) => t.id === ask.id);
+    assert.equal(savedAsk.history[0].who, 'user');
+    assert.equal(savedAsk.history[0].text, 'hello from disk');
+
+    let releaseHang;
+    const hung = new Promise((resolve) => { releaseHang = resolve; });
+    setBrainAskForTest(() => hung);
+    const hanging = newThread('hang-ask', null);
+    const turnP = runTurn(hanging.id, 'remember this ask');
+    assert.equal(hanging.history[0].text, 'remember this ask');
+    const diskHang = JSON.parse(readFileSync(store, 'utf8'));
+    const savedHang = diskHang.find((t) => t.id === hanging.id);
+    assert.equal(savedHang.history[0].text, 'remember this ask');
+    releaseHang('ok from model');
+    await turnP;
+
+    setClaudeRunnerForTest(async () => {
+      return { text: '', error: 'upstream HTTP 500', paymentFailed: '', sessionId: '' };
+    });
+    const auto = newThread('persist-auto', null);
+    auto.runMode = 'auto';
+    await runTurn(auto.id, 'do the job even if 500');
+    const userTurns = auto.history.filter((h) => h.who === 'user');
+    assert.equal(userTurns.length, 1);
+    assert.equal(userTurns[0].text, 'do the job even if 500');
+    assert.equal(userTurns.some((h) => h.text === AUTO_RACE_RETRY || h.text === AUTO_CONTINUE), false);
+    const vis = visibleHistory(auto.history);
+    assert.equal(vis.some((h) => h.who === 'user' && h.text === 'do the job even if 500'), true);
+    assert.equal(vis.some((h) => isHarnessUserText(h.text)), false);
+
+    const listed = await (await fetch('http://127.0.0.1:' + uiPort + '/threads', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'drive-persist' }),
+    })).json();
+    let releaseDrive;
+    setBrainAskForTest(() => new Promise((resolve) => { releaseDrive = resolve; }));
+    const driveRes = await fetch('http://127.0.0.1:' + uiPort + '/drive', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ threadId: listed.id, task: 'from the composer' }),
+    });
+    const driveBody = await driveRes.json();
+    assert.equal(driveRes.ok, true);
+    assert.equal(driveBody.persisted, true);
+    const afterDrive = await (await fetch('http://127.0.0.1:' + uiPort + '/threads/' + listed.id)).json();
+    assert.equal(afterDrive.history[0].who, 'user');
+    assert.equal(afterDrive.history[0].text, 'from the composer');
+    const diskDrive = JSON.parse(readFileSync(store, 'utf8'));
+    const savedDrive = diskDrive.find((t) => t.id === listed.id);
+    assert.equal(savedDrive.history[0].text, 'from the composer');
+    releaseDrive('later');
+
+    setBrainAskForTest(() => 'ok');
+    const hop = newThread('hop-hidden', null);
+    hop.history.push({ who: 'user', text: 'original ask' });
+    await runTurn(hop.id, AUTO_RACE_RETRY);
+    const hopUsers = hop.history.filter((h) => h.who === 'user');
+    assert.equal(hopUsers.length, 1);
+    assert.equal(hopUsers[0].text, 'original ask');
+    const hopGet = await (await fetch('http://127.0.0.1:' + uiPort + '/threads/' + hop.id)).json();
+    assert.equal(hopGet.history.some((h) => h.text === AUTO_RACE_RETRY), false);
+
+    console.log(JSON.stringify({ ok: true }));
+    process.exit(0);
+  `);
+  const out = await runChild(script);
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result: ' + out);
+  const r = JSON.parse(line);
+  assert.equal(r.ok, true);
+});

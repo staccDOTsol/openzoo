@@ -1168,3 +1168,42 @@ test('the box image does not bake or decrypt encrypted ProofFront', () => {
   assert.doesNotMatch(workflow, /PROOFFRONT_URL/);
 });
 
+test('user turns persist to the thread store before the model call', () => {
+  assert.match(grokui, /function persistUserTurn/);
+  assert.match(grokui, /function visibleHistory/);
+  assert.match(grokui, /function isVisibleHistoryEntry/);
+  const run = fnBody(grokui, 'runTurn');
+  const persistAt = run.indexOf('persistUserTurn(t, userText, images)');
+  const thinkAt = run.indexOf("t.status = 'thinking'");
+  assert.ok(persistAt >= 0 && thinkAt > persistAt, 'persist before thinking / model await');
+  assert.doesNotMatch(run, /t\.history\.push\(images && images\.length \? \{ who: 'user'/);
+  const driveStart = grokui.indexOf("req.url === '/drive'");
+  const driveEnd = grokui.indexOf('res.writeHead(200, { \'content-type\': \'text/html\' })', driveStart);
+  const drive = grokui.slice(driveStart, driveEnd);
+  const flushAt = drive.indexOf('persistUserTurn(t, task, images)');
+  const ackAt = drive.lastIndexOf("ack(true, { persisted: true })");
+  const kickAt = drive.lastIndexOf('runTurn(threadId, task');
+  assert.ok(flushAt >= 0 && ackAt > flushAt && kickAt > ackAt, '/drive persists, then ACKs, then runTurn');
+  assert.match(grokui, /history: visibleHistory\(t\.history\)/);
+  assert.match(fnBody(grokui, 'loadThreads'), /t\.history = t\.history\.filter\(isVisibleHistoryEntry\)/);
+});
+
+test('compose box keeps the draft until persist; AUTO continue is never a user bubble', () => {
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.match(appHtml, /let pendingTurns = \[\]/);
+  assert.match(appHtml, /function isHarnessUserText/);
+  assert.match(appHtml, /pendingTurns\.push/);
+  const submitStart = appHtml.indexOf('async function submit()');
+  const submitEnd = appHtml.indexOf("inp.addEventListener('input'", submitStart);
+  const submitFn = appHtml.slice(submitStart, submitEnd);
+  const afterSitrep = submitFn.slice(submitFn.indexOf('openSitrep()'));
+  const fetchAt = afterSitrep.indexOf("await fetch(API + '/drive'");
+  const clearAt = afterSitrep.indexOf("inp.value = ''");
+  assert.ok(fetchAt >= 0 && clearAt > fetchAt, 'do not clear the composer until persist ACK');
+  assert.match(submitFn, /persisted = r\.ok && body\.persisted !== false/);
+  assert.match(submitFn, /inp\.value = draft/);
+  assert.match(appHtml, /if \(h\.who === 'user' && isHarnessUserText\(h\.text\)\) continue/);
+  assert.match(appHtml, /s\.indexOf\('AUTO is still on '/);
+  assert.doesNotMatch(appHtml, /AUTO is still on — do not stop/);
+});
+
