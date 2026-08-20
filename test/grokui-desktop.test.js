@@ -1104,10 +1104,10 @@ test('canvas collapses completed RUN cards like thinking, not as the message', (
   assert.match(appHtml, /h\.runId \|\| h\.runStatus/);
   assert.match(appHtml, /parseLegacyRun\(h\.text\)/);
   assert.match(grokui, /runStatus: 'done', runOutput: output/);
-  assert.match(grokui, /text: command, runStatus: 'done', runOutput: output/);
-  // Auto lastReply stays `$ cmd\\noutput` for shouldKeepAuto / empty-run hops.
+  assert.match(grokui, /text: botText, runStatus: 'done', runOutput: output/);
+  // Auto lastReply stays `$ cmd\\noutput` unless the same RUN hit the retry cap.
   assert.match(grokui, /const shown = `\$ \$\{command\}\\n\$\{output\}`/);
-  assert.match(grokui, /lastReply = shown/);
+  assert.match(grokui, /lastReply = stopSame \? `\$\{shown\}\\n\$\{AUTO_SAME_COMMAND_STOP\}` : shown/);
   // Approve/Deny stay on pending cards.
   assert.match(appHtml, /run\.id && st === 'pending'/);
   assert.match(appHtml, /textContent = 'Approve'/);
