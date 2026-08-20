@@ -173,7 +173,7 @@ test('zero-pass classifier still ships the last of the X', async () => {
   assert.equal(text, 'last-of-x');
 });
 
-test('if X never fills, ship the last completion that arrived — never blank', async () => {
+test('if X never fills, one race-level error — not the last model name', async () => {
   const deltas = [];
   const text = await brainRace(
     [{ role: 'user', content: 'q' }],
@@ -192,12 +192,12 @@ test('if X never fills, ship the last completion that arrived — never blank', 
       classify: async () => { throw new Error('classify must not run when X never fills'); },
     },
   );
-  assert.notEqual(text, '');
-  assert.match(text, /HTTP 503/);
-  assert.ok(deltas.some((x) => String(x.d).includes('HTTP 503')));
+  assert.equal(text, '(race: every model failed — no reply)');
+  assert.doesNotMatch(text, /boom|blank|last failed|HTTP 503/);
+  assert.ok(deltas.some((x) => String(x.d).includes('every model failed')));
 });
 
-test('if everyone errors with no text, surface a real error — do not hang or return blank', async () => {
+test('if everyone errors with no text, surface a race-level error — do not hang or return blank', async () => {
   const t0 = Date.now();
   const deltas = [];
   const text = await brainRace(
@@ -216,9 +216,112 @@ test('if everyone errors with no text, surface a real error — do not hang or r
     },
   );
   assert.ok(Date.now() - t0 < 100, 'must not wait for a K that will never come');
-  assert.ok(text && text.trim(), 'must not return blank');
-  assert.match(text, /failed|returned nothing|every model failed/i);
-  assert.ok(deltas.some((d) => /failed|returned nothing|every model failed/i.test(d)));
+  assert.equal(text, '(race: every model failed — no reply)');
+  assert.ok(deltas.some((d) => /every model failed/i.test(d)));
+});
+
+test('1.5.74 regression: fetch-failed racer is dropped; two real answers still classify', async () => {
+  // Would have failed on 1.5.74: TypeError `fetch failed` (and/or empty+error)
+  // was shipped as `(mistral-large-2512 failed: fetch failed)` / `(seed-2.0-code
+  // failed: fetch failed)` instead of waiting for countable answers.
+  const classified = [];
+  const text = await brainRace(
+    [{ role: 'user', content: 'q' }],
+    () => {},
+    null,
+    [
+      'mistralai/mistral-large-2512',
+      'bytedance-seed/seed-2.0-code',
+      'deepseek/deepseek-v4-pro-0813',
+      'z-ai/glm-4.7',
+    ],
+    2,
+    undefined,
+    () => {},
+    {
+      stream: scriptedStream({
+        'mistralai/mistral-large-2512': {
+          err: Object.assign(new TypeError('fetch failed'), { name: 'TypeError' }),
+          at: 5,
+        },
+        'bytedance-seed/seed-2.0-code': { text: 'real-seed-answer', at: 25 },
+        'deepseek/deepseek-v4-pro-0813': { text: 'real-deepseek-answer', at: 40 },
+        'z-ai/glm-4.7': { text: 'late-should-not-enter', at: 200 },
+      }),
+      classify: async (_m, c) => {
+        classified.push(c.text);
+        return c.text === 'real-deepseek-answer' ? 9 : 7;
+      },
+    },
+  );
+  assert.equal(text, 'real-deepseek-answer');
+  assert.doesNotMatch(text, /failed: fetch failed/);
+  assert.doesNotMatch(text, /mistral-large-2512|seed-2.0-code failed/);
+  assert.deepEqual(classified.slice().sort(), ['real-deepseek-answer', 'real-seed-answer']);
+});
+
+test('1.5.74 regression: resolved fetch-failed text is not countable toward X', async () => {
+  // 1.5.74 isRaceCountable treated the raw string "fetch failed" as a real
+  // answer, so two fast failures filled X and abandoned the live racers.
+  const classified = [];
+  const text = await brainRace(
+    [{ role: 'user', content: 'q' }],
+    () => {},
+    null,
+    [
+      'mistralai/mistral-large-2512',
+      'bytedance-seed/seed-2.0-code',
+      'deepseek/deepseek-v4-pro-0813',
+      'z-ai/glm-4.7',
+    ],
+    2,
+    undefined,
+    () => {},
+    {
+      stream: scriptedStream({
+        'mistralai/mistral-large-2512': { text: 'fetch failed', at: 5 },
+        'bytedance-seed/seed-2.0-code': { empty: true, text: '', at: 8 },
+        'deepseek/deepseek-v4-pro-0813': { text: 'ok-one', at: 25 },
+        'z-ai/glm-4.7': { text: 'ok-two', at: 40 },
+      }),
+      classify: async (_m, c) => {
+        classified.push(c.text);
+        return c.text === 'ok-two' ? 9 : 7;
+      },
+    },
+  );
+  assert.equal(text, 'ok-two');
+  assert.doesNotMatch(text, /failed: fetch failed|fetch failed/);
+  assert.deepEqual(classified.slice().sort(), ['ok-one', 'ok-two']);
+});
+
+test('1.5.74 regression: every racer fetch-failed → race-level failure, not a model name', async () => {
+  const text = await brainRace(
+    [{ role: 'user', content: 'q' }],
+    () => {},
+    null,
+    [
+      'mistralai/mistral-large-2512',
+      'bytedance-seed/seed-2.0-code',
+      'deepseek/deepseek-v4-pro-0813',
+      'z-ai/glm-4.7',
+    ],
+    2,
+    undefined,
+    () => {},
+    {
+      stream: scriptedStream({
+        'mistralai/mistral-large-2512': { err: new TypeError('fetch failed'), at: 4 },
+        'bytedance-seed/seed-2.0-code': { err: new TypeError('fetch failed'), at: 8 },
+        'deepseek/deepseek-v4-pro-0813': { err: new TypeError('fetch failed'), at: 12 },
+        'z-ai/glm-4.7': { err: new TypeError('fetch failed'), at: 16 },
+      }),
+      classify: async () => { throw new Error('classify must not run when every racer failed'); },
+    },
+  );
+  assert.equal(text, '(race: every model failed — no reply)');
+  assert.doesNotMatch(text, /mistral-large-2512|seed-2.0-code|deepseek|glm-4\.7/);
+  assert.doesNotMatch(text, /failed: fetch failed/);
 });
 
 test('malformed judge / equally bad scores ship the last finished candidate', async () => {

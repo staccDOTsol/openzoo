@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   clipStatusArg, peekDirectiveStatus, formatModelWait, formatPayStatus,
   formatRaceStatus, parseClassifyScore, pickRaceWinner, createRaceFeed,
-  isRaceCountable, raceLastShip,
+  isRaceCountable, raceLastShip, RACE_EVERY_FAILED,
   startModelWait, readWithIdleTimeout, STREAM_IDLE_MS, STALE_THINKING_MS,
 } from '../lib/livestatus.js';
 
@@ -96,24 +96,43 @@ test('pickRaceWinner: highest passing score wins; zero-pass ships last of X', ()
   assert.equal(tie.winner, null);
 });
 
-test('empty and 5xx notes do not count toward X; last arrival still ships', () => {
+test('empty, HTTP/pay/timeout, fetch failed, and last.error do not count toward X', () => {
   assert.equal(isRaceCountable(''), false);
   assert.equal(isRaceCountable('   '), false);
   assert.equal(isRaceCountable('(upstream error — HTTP 502, try again)'), false);
   assert.equal(isRaceCountable('(payment failed — HTTP 402 after 3 retries. Run `npx openzoo` to check wallet balances.)'), false);
   assert.equal(isRaceCountable('(stream timed out — no tokens arrived)'), false);
+  assert.equal(isRaceCountable('(stream stalled — showing what arrived before the timeout)'), false);
+  assert.equal(isRaceCountable('fetch failed'), false);
+  assert.equal(isRaceCountable('TypeError: fetch failed'), false);
+  assert.equal(isRaceCountable('(mistral-large-2512 failed: fetch failed)'), false);
+  assert.equal(isRaceCountable('(seed-2.0-code failed: fetch failed)'), false);
+  assert.equal(isRaceCountable({ text: '', error: 'fetch failed' }), false);
+  assert.equal(isRaceCountable({ text: 'DONE: built it', error: 'fetch failed' }), false);
   assert.equal(isRaceCountable('DONE: built it'), true);
   assert.equal(isRaceCountable('here is a real answer mentioning HTTP 500 in passing'), true);
+  assert.equal(isRaceCountable('a real answer that mentions fetch failed in passing'), true);
+});
 
-  const last = raceLastShip([
+test('raceLastShip is race-level when nobody countable — never a single model name', () => {
+  assert.equal(raceLastShip([]).text, RACE_EVERY_FAILED);
+  assert.equal(raceLastShip([{ model: 'x-ai/grok', text: '', error: 'boom' }]).text, RACE_EVERY_FAILED);
+  assert.equal(raceLastShip([
+    { model: 'mistralai/mistral-large-2512', text: '', error: 'fetch failed' },
+    { model: 'bytedance-seed/seed-2.0-code', text: '', error: 'fetch failed' },
+  ]).text, RACE_EVERY_FAILED);
+  assert.doesNotMatch(raceLastShip([
+    { model: 'mistralai/mistral-large-2512', text: '', error: 'fetch failed' },
+  ]).text, /mistral-large-2512|seed-2.0-code/);
+  assert.equal(raceLastShip([
     { model: 'a', text: '', error: '5xx' },
-    { model: 'b', text: '' },
-  ]);
-  assert.match(last.text, /returned nothing/);
-  assert.equal(raceLastShip([]).text, '(race: every model failed — no reply)');
-  assert.match(raceLastShip([{ model: 'x-ai/grok', text: '', error: 'boom' }]).text, /grok failed: boom/);
-  assert.equal(raceLastShip([{ model: 'a', text: '' }, { model: 'b', text: '(upstream error — HTTP 502, try again)' }]).text,
-    '(upstream error — HTTP 502, try again)');
+    { model: 'b', text: '(upstream error — HTTP 502, try again)' },
+  ]).text, RACE_EVERY_FAILED);
+  // A countable answer in the pile still wins over error arrivals.
+  assert.equal(raceLastShip([
+    { model: 'mistralai/mistral-large-2512', text: '', error: 'fetch failed' },
+    { model: 'z-ai/glm-4.7', text: 'the real one' },
+  ]).text, 'the real one');
 });
 
 test('createRaceFeed forwards the fastest alive and replaces on a different winner', () => {

@@ -2,3 +2,4 @@
 # Generated from ../../lib at start/pack time — never a second source of truth.
 lib/grokui.mjs
 lib/podagent.mjs
+lib/livestatus.js
