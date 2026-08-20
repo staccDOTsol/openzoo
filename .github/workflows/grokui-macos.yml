@@ -142,8 +142,20 @@ jobs:
           set -u
           TAG="${GITHUB_REF#refs/tags/}"
           for i in 1 2 3 4 5 6; do
+            cat > /tmp/oz-release-notes.md <<'NOTES'
+## Install
+
+**Apple Silicon Mac (M1 / M2 / M3 / M4): download `openzoo-*-arm64.dmg`. That is the one you want.**
+
+- Intel Mac: `openzoo-*.dmg` (no `arm64` in the name)
+- Windows: `openzoo.Setup.*.exe`
+- Linux: `openzoo-*-arm64.AppImage` on ARM, `openzoo-*.AppImage` on x64
+
+If you are on a Silicon Mac and you grab the Intel dmg, it will run under Rosetta. Don't.
+
+NOTES
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
-              --title "openzoo grokui ${TAG#grokui-}" --generate-notes 2>/dev/null && break
+              --title "openzoo grokui ${TAG#grokui-}" --notes-file /tmp/oz-release-notes.md --generate-notes 2>/dev/null && break
             gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
             echo "release not ready (attempt $i) — retrying"; sleep $((i * 10))
           done
