@@ -30,12 +30,28 @@ test('the Electron app does not keep a drifting grokui.mjs', () => {
   assert.equal((appPkg.build.files || []).includes('lib/**/*'), true);
 });
 
+test('cost HUD sits below the wrapping header, not on top of the dials', () => {
+  assert.doesNotMatch(grokui, /#hud \{ position: fixed; top: 40px/);
+  assert.doesNotMatch(grokui, /#hud \{[^}]*top:\s*40px/);
+  assert.match(grokui, /function placeHud/);
+  assert.match(grokui, /chatHeader\.getBoundingClientRect\(\)\.bottom/);
+  assert.match(grokui, /#main \{ position: relative;/);
+});
+
 test('header always ships the spend dials and wallet', () => {
   assert.match(grokui, /id="tierSel"/);
   assert.match(grokui, /id="raceSel"/);
   assert.match(grokui, /id="walletBtn"/);
   assert.match(grokui, /id="headerDials"/);
   assert.doesNotMatch(grokui, /#modeToggle \{ margin-left: auto/);
+});
+
+test('grokui does not ship an assets unlock button or decrypt route', () => {
+  assert.doesNotMatch(grokui, /id="assetsBtn"/);
+  assert.doesNotMatch(grokui, /id="assetsOverlay"/);
+  assert.doesNotMatch(grokui, /unlockAssets/);
+  assert.doesNotMatch(grokui, /\/decrypt-assets/);
+  assert.doesNotMatch(grokui, /\/opt\/prooffront\.enc/);
 });
 
 test('copy/paste: Edit menu roles, Electron clipboard, selectable addresses', () => {
@@ -83,6 +99,18 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.84');
+  assert.equal(ozPkg.version, '0.48.85');
   assert.equal(appPkg.version, '1.5.50');
+});
+
+test('the box image does not bake or decrypt encrypted ProofFront', () => {
+  const dockerfile = readFileSync(path.join(root, 'box.Dockerfile'), 'utf8');
+  const boot = readFileSync(path.join(root, 'box-boot.sh'), 'utf8');
+  const workflow = readFileSync(path.join(root, '.github', 'workflows', 'docker-box.yml'), 'utf8');
+  assert.doesNotMatch(dockerfile, /prooffront\.enc/);
+  assert.doesNotMatch(dockerfile, /PROOFFRONT_URL/);
+  assert.doesNotMatch(dockerfile, /COPY.*prooffront/i);
+  assert.doesNotMatch(boot, /prooffront\.enc/);
+  assert.doesNotMatch(boot, /OZ_PROOFFRONT_PASS/);
+  assert.doesNotMatch(workflow, /PROOFFRONT_URL/);
 });

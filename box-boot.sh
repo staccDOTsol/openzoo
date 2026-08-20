@@ -75,41 +75,6 @@ mkdir -p /workspace/.grokui
 cp /opt/grokui/grokui.mjs /opt/grokui/podagent.mjs /workspace/.grokui/ 2>/dev/null || true
 cp /opt/openzoo/.oz-tag /workspace/.oz-tag 2>/dev/null || true
 
-# ---- 2b. ProofFront: decrypt ONLY if the operator supplied the passphrase ----
-# The blob is baked into the image as ciphertext. Without OZ_PROOFFRONT_PASS it
-# stays that way — the bits are present and useless, which is the point.
-#
-# The passphrase is read from the environment and never echoed, never written to
-# disk, and never logged. openssl reads it via env: so it does not appear in the
-# process list either (a command line is world-readable in /proc).
-if [ -f /opt/prooffront.enc ] && [ ! -d /workspace/prooffront ]; then
-  if [ -n "${OZ_PROOFFRONT_PASS:-}" ]; then
-    log "decrypting prooffront ($(stat -c%s /opt/prooffront.enc) bytes)"
-    # Decrypt to a temp file, verify it is really a zip, THEN unpack and swap.
-    # A wrong passphrase produces garbage, not an error loud enough to notice:
-    # unzipping garbage into /workspace would leave a half-tree that later
-    # boots inherit forever, which is the stale-seed trap all over again.
-    if openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
-         -in /opt/prooffront.enc -out /tmp/pf.zip -pass env:OZ_PROOFFRONT_PASS 2>/dev/null \
-       && head -c 2 /tmp/pf.zip | grep -q 'PK'; then
-      rm -rf /workspace/.prooffront.tmp
-      mkdir -p /workspace/.prooffront.tmp
-      if unzip -q /tmp/pf.zip -d /workspace/.prooffront.tmp; then
-        mv /workspace/.prooffront.tmp /workspace/prooffront
-        log "prooffront ready: $(find /workspace/prooffront -type f | wc -l | tr -d ' ') files"
-      else
-        rm -rf /workspace/.prooffront.tmp
-        log "prooffront unzip FAILED — left encrypted"
-      fi
-    else
-      log "prooffront: wrong passphrase or corrupt blob — left encrypted"
-    fi
-    rm -f /tmp/pf.zip
-  else
-    log "prooffront present but locked (no OZ_PROOFFRONT_PASS)"
-  fi
-fi
-
 # ---- 3. box-server on :8080 (upload/files/health), injected as base64 --------
 if [ -n "${OZ_UI_B64:-}" ]; then
   printf '%s' "$OZ_UI_B64" | base64 -d > /opt/box-server.mjs 2>/dev/null || \

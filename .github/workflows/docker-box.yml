@@ -90,7 +90,6 @@ jobs:
           file: box.Dockerfile
           build-args: |
             OZ_TAG=${{ steps.oz.outputs.tag }}
-            PROOFFRONT_URL=${{ vars.PROOFFRONT_URL }}
           platforms: linux/amd64
           load: true
           tags: openzoo-box:smoke
@@ -143,7 +142,6 @@ jobs:
           file: box.Dockerfile
           build-args: |
             OZ_TAG=${{ steps.oz.outputs.tag }}
-            PROOFFRONT_URL=${{ vars.PROOFFRONT_URL }}
           platforms: ${{ matrix.platform }}
           cache-from: type=gha,scope=box-${{ matrix.arch }}
           cache-to: type=gha,scope=box-${{ matrix.arch }},mode=max
