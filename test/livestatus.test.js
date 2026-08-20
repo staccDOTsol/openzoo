@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   clipStatusArg, peekDirectiveStatus, formatModelWait, formatPayStatus,
   formatRaceStatus, parseClassifyScore, pickRaceWinner, createRaceFeed,
-  raceSavingsCutPct, raceChoiceLabel,
+  raceSavingsCutPct, raceChoiceLabel, formatSitrep,
   isRaceCountable, raceLastShip, RACE_EVERY_FAILED, shouldRetryRaceArrival,
   summarizeRaceFailures, raceFailKind, shortModelName, clipRacePreview,
   startModelWait, readWithIdleTimeout, STREAM_IDLE_MS, STALE_THINKING_MS,
@@ -197,6 +197,32 @@ test('race savings cut is Y-based: 1→0%, 2→50%, 4→75%', () => {
   assert.equal(raceChoiceLabel(1), '1 model  0%');
   assert.equal(raceChoiceLabel(2, 1), 'race 2  −50%');
   assert.equal(raceChoiceLabel(4, 2), 'best 2 of 4  −75%');
+});
+
+test('formatSitrep is compact, 1-model 0%, prepaid yes/no, no keys', () => {
+  const text = formatSitrep({
+    race: 0, raceNeed: 1, tier: 'medium', runMode: 'auto',
+    dir: '/workspace', status: 'idle',
+    spentUsd: 6.57, cogsUsd: 6.26, directUsd: 13.70, paidCalls: 451, creditUsd: 4.2,
+  });
+  assert.match(text, /^Sitrep/);
+  assert.match(text, /1 model  0%/);
+  assert.match(text, /band        medium/);
+  assert.match(text, /mode        auto/);
+  assert.match(text, /cwd         \/workspace/);
+  assert.match(text, /in flight   idle/);
+  assert.match(text, /paid        \$6\.57/);
+  assert.match(text, /saved       2\.09x/);
+  assert.match(text, /paid calls  451/);
+  assert.match(text, /prepaid     yes/);
+  assert.doesNotMatch(text, /sk-|npmrc|subscription key|wallet\.json/i);
+  const empty = formatSitrep({ creditUsd: 0 });
+  assert.match(empty, /prepaid     no/);
+  const racing = formatSitrep({
+    race: 4, raceNeed: 2, status: 'thinking', liveRace: { phase: 'judging' },
+  });
+  assert.match(racing, /best 2 of 4  −75%/);
+  assert.match(racing, /in flight   classifier judging/);
 });
 
 test('shortModelName drops the org prefix; clipRacePreview keeps an opening, not the whole answer', () => {

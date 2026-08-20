@@ -52,23 +52,21 @@ test('header always ships the spend dials and wallet', () => {
   assert.doesNotMatch(grokui, /#modeToggle \{ margin-left: auto/);
 });
 
-test('sitrep is a plus-menu button that opens a wallet-style drawer, not a chat dump', () => {
+test('sitrep button and /sitrep dump a compact report into the thread plus drawer', () => {
   const attach = grokui.indexOf('id="attachBtn"');
   const sitrep = grokui.indexOf('id="sitrepBtn"');
   assert.ok(attach >= 0 && sitrep > attach, 'Sitrep sits next to Attach files');
   assert.match(grokui, /id="sitrepOverlay"/);
-  assert.match(grokui, /data-component="sitrep-drawer"/);
-  assert.match(grokui, /id="sitrepBox"/);
   assert.match(grokui, /function openSitrep/);
-  assert.match(grokui, /\/sitrep/);
+  assert.match(grokui, /function runSitrep/);
   assert.match(grokui, /name: '\/sitrep'/);
-  assert.match(grokui, /\^\\\/sitrep\\b/);
-  assert.match(grokui, /Drawer-only\. Never dump sitrep into the transcript/);
-  assert.match(grokui, /if \(c\.name === '\/sitrep'\)/);
-  assert.match(grokui, /sitrepRow\('race'/);
-  assert.match(grokui, /sitrepRow\('paid calls'/);
+  assert.match(grokui, /formatSitrep/);
+  assert.match(grokui, /if \(cmd === 'sitrep'\)/);
+  assert.match(grokui, /task: '\/sitrep'/);
+  assert.match(grokui, /Reply AFTER the dump is on the thread/);
+  assert.match(grokui, /sitrepRow\('prepaid', \(Number\(you\.creditUsd\) > 0\) \? 'yes' : 'no'\)/);
+  assert.doesNotMatch(grokui, /Drawer-only\. Never dump sitrep into the transcript/);
   assert.doesNotMatch(grokui, /sitrepRow\('subscription'/);
-  assert.doesNotMatch(grokui, /sitrepRow\('credit'/);
   assert.doesNotMatch(grokui, /sitrep.*npmrc/i);
 });
 
