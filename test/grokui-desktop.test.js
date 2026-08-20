@@ -398,7 +398,9 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.doesNotMatch(autoFn, /enqueueAutoHop\(/);
   assert.doesNotMatch(autoFn, /AUTO_DIRECTIVE/);
   assert.doesNotMatch(autoFn, /fetch\([^)]*chat\/completions/);
-  assert.match(autoFn, /type: 'tool'/);
+  assert.match(autoFn, /claudeModelArg\(t\.model\)/);
+  assert.doesNotMatch(autoFn, /model: t\.model \|\| undefined/);
+  assert.match(grokui, /claudeModelArg/);
   assert.match(autoFn, /sanitizeClaudeCanvas/);
   assert.match(autoFn, /keepFold/);
   assert.match(grokui, /sanitizeClaudeCanvas/);
@@ -412,14 +414,20 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.doesNotMatch(claude, /'--output-format'/);
   assert.doesNotMatch(claude, /'stream-json'/);
   assert.match(claude, /export function claudeInteractiveArgs/);
+  assert.match(claude, /export function claudeModelArg/);
+  assert.match(claude, /isAutoModel/);
   assert.match(claude, /spawnClaudePty/);
   assert.match(claude, /bypassPermissions/);
   assert.match(claude, /Do not curl localhost:8402\/v1\/chat\/completions/);
   assert.doesNotMatch(claude, /spawn\([^)]*curl/);
+  assert.match(claude, /const pin = claudeModelArg\(model\)/);
+  assert.doesNotMatch(claude, /if \(model\) args\.push\('--model', String\(model\)\)/);
   assert.match(grokui, /function isGrokuiOwnedSlash/);
   assert.match(grokui, /CLAUDE_SLASH_IN_AUTO/);
   assert.match(grokui, /closeClaudeSession/);
   assert.match(autoFn, /sessionKey: t\.id/);
+  assert.match(autoFn, /isClaudeFallbackReply\(finalText\)/);
+  assert.match(autoFn, /return finalText;/);
 });
 
 test('install docs ship Mac nvm+openzoo claude and Windows nvm-windows, not extra steps', () => {
@@ -665,7 +673,7 @@ test('afterPack overlays sidecar spill/runguard into node_modules/openzoo and bi
   // node_modules/openzoo/bin/openzoo.js, so a missing overlay leaves npm's
   // 16k spill in the dmg even though repo lib/spill.js binds at 2k.
   const afterPack = require('../grokui-app/build/afterPack.js');
-  const required = ['lib/spill.js', 'lib/runguard.js', 'lib/racesettle.js', 'lib/hrr.js', 'lib/livestatus.js'];
+  const required = ['lib/spill.js', 'lib/runguard.js', 'lib/racesettle.js', 'lib/hrr.js', 'lib/livestatus.js', 'lib/think.js'];
   for (const rel of required) {
     assert.equal(afterPack.OPENZOO_SIDECAR_OVERLAY.includes(rel), true, rel);
   }
@@ -689,6 +697,8 @@ test('afterPack overlays sidecar spill/runguard into node_modules/openzoo and bi
     );
   }
   assert.doesNotThrow(() => afterPack.assertOverlaidOpenzoo(dest, root));
+  assert.doesNotThrow(() => afterPack.assertPackedLivestatusLoads(dest));
+  assert.equal(existsSync(path.join(dest, 'lib', 'think.js')), true);
   writeFileSync(path.join(dest, 'lib', 'spill.js'), 'stale npm spill\n');
   assert.throws(() => afterPack.assertOverlaidOpenzoo(dest, root), /spill\.js|differ|overlaid/);
   rmSync(path.join(dest, 'lib', 'runguard.js'));
@@ -701,7 +711,7 @@ test('assert-overlaid-openzoo fails a packed tree that still has npm spill.js', 
   try {
     const dest = path.join(packed, 'resources', 'app', 'node_modules', 'openzoo');
     mkdirSync(path.join(dest, 'lib'), { recursive: true });
-    writeFileSync(path.join(dest, 'package.json'), JSON.stringify({ name: 'openzoo', version: '0.49.8' }) + '\n');
+    writeFileSync(path.join(dest, 'package.json'), JSON.stringify({ name: 'openzoo', version: '0.49.8', type: 'module' }) + '\n');
     for (const rel of afterPack.OPENZOO_SIDECAR_OVERLAY) {
       mkdirSync(path.join(dest, path.dirname(rel)), { recursive: true });
       writeFileSync(path.join(dest, rel), readFileSync(path.join(root, rel)));
@@ -1125,11 +1135,13 @@ test('ensureProxy reuses a healthy :8402 and autoheals a dead packed sidecar', (
   assert.match(src, /spawn\(execPath, \[binPath\]/);
   assert.match(src, /ELECTRON_RUN_AS_NODE: '1'/);
   assert.match(src, /OPENZOO_SILENT: '1'/);
-  assert.match(src, /stdio: 'ignore'/);
+  assert.match(src, /stdio: \['ignore', 'pipe', 'pipe'\]/);
   assert.match(src, /node_modules', 'openzoo', 'bin', 'openzoo\.js'/);
   assert.doesNotMatch(src, /npx openzoo@latest/);
   assert.match(src, /sidecar exited/);
   assert.match(src, /respawning/);
+  assert.match(heal, /looksLikeModuleNotFound/);
+  assert.match(heal, /MODULE_NOT_FOUND — not respawning/);
   assert.doesNotMatch(heal, /reloadOpenWindows/);
   assert.doesNotMatch(heal, /app\.quit\(/);
   assert.match(main, /createSidecarHealer/);
@@ -1166,5 +1178,73 @@ test('the box image does not bake or decrypt encrypted ProofFront', () => {
   assert.doesNotMatch(boot, /prooffront\.enc/);
   assert.doesNotMatch(boot, /OZ_PROOFFRONT_PASS/);
   assert.doesNotMatch(workflow, /PROOFFRONT_URL/);
+});
+
+test('user turns persist to the thread store before the model call', () => {
+  assert.match(grokui, /function persistUserTurn/);
+  assert.match(grokui, /function visibleHistory/);
+  assert.match(grokui, /function isVisibleHistoryEntry/);
+  assert.match(fnBody(grokui, 'saveThreads'), /fsyncSync/);
+  const run = fnBody(grokui, 'runTurn');
+  const persistAt = run.indexOf('persistUserTurn(t, userText, images)');
+  const thinkAt = run.indexOf("t.status = 'thinking'");
+  assert.ok(persistAt >= 0 && thinkAt > persistAt, 'persist before thinking / model await');
+  assert.doesNotMatch(run, /t\.history\.push\(images && images\.length \? \{ who: 'user'/);
+  const autoAt = run.indexOf('Orange Auto is interactive');
+  assert.ok(autoAt >= 0);
+  const autoSlice = run.slice(autoAt);
+  const claudeAt = autoSlice.indexOf('runAutoClaudeTurn');
+  assert.ok(claudeAt > 0);
+  const beforeClaude = autoSlice.slice(0, claudeAt);
+  assert.match(beforeClaude, /persistUserTurn\(t, userText, images\)/);
+  assert.match(beforeClaude, /saveThreads\(\)/);
+  assert.match(grokui, /function isClaudeFallbackReply/);
+  assert.match(fnBody(grokui, 'isClaudeFallbackReply'), /\(no response\)/);
+  assert.match(fnBody(grokui, 'isClaudeFallbackReply'), /upstream HTTP \\d\+/);
+  assert.match(run, /isClaudeFallbackReply\(lastReply\)/);
+  assert.match(run, /popClaudeFallbackBot\(t\)/);
+  assert.match(run, /claudeFallback = true/);
+  assert.match(run, /!claudeFallback && shouldKeepAuto/);
+  assert.match(grokui, /function threadHasVisibleBotReply/);
+  assert.match(run, /threadHasVisibleBotReply\(t\)/);
+  const driveStart = grokui.indexOf("req.url === '/drive'");
+  const driveEnd = grokui.indexOf('res.writeHead(200, { \'content-type\': \'text/html\' })', driveStart);
+  const drive = grokui.slice(driveStart, driveEnd);
+  const flushAt = drive.indexOf('persistUserTurn(t, task, images)');
+  const ackAt = drive.lastIndexOf("ack(true, { persisted: true })");
+  const kickAt = drive.lastIndexOf('runTurn(threadId, task');
+  assert.ok(flushAt >= 0 && ackAt > flushAt && kickAt > ackAt, '/drive persists, then ACKs, then runTurn');
+  assert.match(grokui, /history: visibleHistory\(t\.history\)/);
+  assert.match(fnBody(grokui, 'loadThreads'), /t\.history = t\.history\.filter\(isVisibleHistoryEntry\)/);
+});
+
+test('compose box keeps the draft until persist; AUTO continue is never a user bubble', () => {
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.match(appHtml, /let pendingTurns = \[\]/);
+  assert.match(appHtml, /function isHarnessUserText/);
+  assert.match(appHtml, /pendingTurns\.push/);
+  const submitStart = appHtml.indexOf('async function submit()');
+  const submitEnd = appHtml.indexOf("inp.addEventListener('input'", submitStart);
+  const submitFn = appHtml.slice(submitStart, submitEnd);
+  const afterSitrep = submitFn.slice(submitFn.indexOf('openSitrep()'));
+  const addRowAt = afterSitrep.indexOf("addRow('user'");
+  const fetchAt = afterSitrep.indexOf("await fetch(API + '/drive'");
+  const clearAt = afterSitrep.indexOf("inp.value = ''");
+  assert.ok(addRowAt >= 0 && addRowAt < fetchAt, 'optimistic user bubble before /drive');
+  assert.ok(fetchAt >= 0 && clearAt > fetchAt, 'do not clear the composer until persist ACK');
+  assert.match(afterSitrep.slice(0, fetchAt), /pendingTurns\.push/);
+  assert.match(submitFn, /persisted = r\.ok && body\.persisted !== false/);
+  assert.match(submitFn, /inp\.value = draft/);
+  assert.match(appHtml, /if \(h\.who === 'user' && isHarnessUserText\(h\.text\)\) continue/);
+  assert.match(appHtml, /s\.indexOf\('AUTO is still on '/);
+  assert.doesNotMatch(appHtml, /AUTO is still on — do not stop/);
+  assert.match(appHtml, /function rememberUserTurn/);
+  assert.match(appHtml, /function recalledUserTurn/);
+  assert.match(appHtml, /function ensureLiveBotRow/);
+  assert.match(appHtml, /openzoo\.userTurn\./);
+  const paintStart = appHtml.indexOf('function paintStream()');
+  const paintFn = appHtml.slice(paintStart, appHtml.indexOf('function connectStream', paintStart));
+  assert.doesNotMatch(paintFn, /if \(!b\) \{ render\(\); return; \}/);
+  assert.match(paintFn, /ensureLiveBotRow/);
 });
 

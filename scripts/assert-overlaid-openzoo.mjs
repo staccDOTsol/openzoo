@@ -23,6 +23,7 @@ const REQUIRED = [
   'lib/racesettle.js',
   'lib/hrr.js',
   'lib/livestatus.js',
+  'lib/think.js',
 ];
 
 function fail(msg) {

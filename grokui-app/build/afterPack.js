@@ -13,9 +13,10 @@
 // first-launch prompt, but it makes the bundle structurally valid, so the
 // normal right-click → Open path works instead of dead-ending on "damaged".
 // arm64 additionally REQUIRES a valid signature to execute at all.
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
+const { pathToFileURL } = require('node:url');
 
 // COPY THE DEPENDENCY TREE OURSELVES.
 //
@@ -94,6 +95,7 @@ const OPENZOO_SIDECAR_OVERLAY = [
   'lib/racesettle.js',
   'lib/hrr.js',
   'lib/livestatus.js',
+  'lib/think.js',
   'lib/modelroute.js',
   'lib/models.js',
   'lib/proxy.js',
@@ -159,6 +161,34 @@ function assertOverlaidOpenzoo(openzooDir, repoRoot) {
   }
   if (mismatches.length) {
     throw new Error(`[afterPack] packed openzoo is not the overlaid tree:\n${mismatches.join('\n')}`);
+  }
+  assertPackedLivestatusLoads(openzooDir);
+}
+
+// livestatus.js imports ./think.js. Overlaying livestatus without think.js
+// dies at sidecar boot with ERR_MODULE_NOT_FOUND and the healer used to
+// respawn forever. Packed node_modules/openzoo/lib must include think.js
+// and a dry import of livestatus must succeed.
+function assertPackedLivestatusLoads(openzooDir) {
+  const think = path.join(openzooDir, 'lib', 'think.js');
+  const live = path.join(openzooDir, 'lib', 'livestatus.js');
+  if (!fs.existsSync(think)) {
+    throw new Error('[afterPack] packed node_modules/openzoo/lib missing think.js');
+  }
+  if (!fs.existsSync(live)) {
+    throw new Error('[afterPack] packed node_modules/openzoo/lib missing livestatus.js');
+  }
+  const href = pathToFileURL(live).href;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', [
+    `import { STREAM_IDLE_MS, clipStatusArg } from ${JSON.stringify(href)};`,
+    'if (typeof STREAM_IDLE_MS !== "number" || typeof clipStatusArg !== "function") {',
+    '  throw new Error("livestatus did not load");',
+    '}',
+    'console.log("ok packed livestatus load");',
+  ].join('\n')], { encoding: 'utf8', cwd: path.join(openzooDir, 'lib') });
+  if (r.status !== 0) {
+    const err = (r.stderr || r.stdout || `exit ${r.status}`).trim();
+    throw new Error(`[afterPack] packed livestatus cannot load (need think.js next to it):\n${err}`);
   }
 }
 
@@ -313,6 +343,7 @@ function copyNodeModules(context) {
 exports.OPENZOO_SIDECAR_OVERLAY = OPENZOO_SIDECAR_OVERLAY;
 exports.overlayRepoOpenzooSidecar = overlayRepoOpenzooSidecar;
 exports.assertOverlaidOpenzoo = assertOverlaidOpenzoo;
+exports.assertPackedLivestatusLoads = assertPackedLivestatusLoads;
 exports.assertCopiedOpenzoo = assertCopiedOpenzoo;
 exports.publishedOpenzooVersion = publishedOpenzooVersion;
 exports.packedAppDir = packedAppDir;
