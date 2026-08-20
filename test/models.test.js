@@ -71,6 +71,36 @@ test('OPENZOO_DEFAULT_MODEL is an explicit override for any rewrite', () => {
   }
 });
 
+test('OPENZOO_DEFAULT_MODEL=opus-5 does not swallow an explicit catalog pick', () => {
+  process.env.OPENZOO_DEFAULT_MODEL = 'anthropic/claude-opus-5';
+  const ids = [...CATALOG, 'anthropic/claude-opus-5'];
+  try {
+    assert.equal(resolveModel('x-ai/grok-4.6', ids), null);
+    assert.equal(resolveModel('openzoo-grok-4.6', ids), 'x-ai/grok-4.6');
+    const grok = rewriteChatModel({
+      model: 'x-ai/grok-4.6',
+      max_tokens: 2000,
+      messages: Array.from({ length: 20 }, (_, i) => ({
+        role: i % 2 ? 'assistant' : 'user',
+        content: `turn ${i} ${'x'.repeat(500)}`,
+      })),
+    }, ids);
+    assert.equal(grok.tiny, false);
+    assert.equal(grok.parsed.model, 'x-ai/grok-4.6');
+    const twin = rewriteChatModel({
+      model: 'openzoo-grok-4.6',
+      max_tokens: 2000,
+      messages: Array.from({ length: 20 }, (_, i) => ({
+        role: i % 2 ? 'assistant' : 'user',
+        content: `turn ${i} ${'x'.repeat(500)}`,
+      })),
+    }, ids);
+    assert.equal(twin.parsed.model, 'x-ai/grok-4.6');
+  } finally {
+    delete process.env.OPENZOO_DEFAULT_MODEL;
+  }
+});
+
 test('every shipped alias id resolves against the live-shaped catalog', async () => {
   const { ALIAS_IDS, augmentModelList } = await import('../lib/models.js');
   for (const id of ALIAS_IDS) {
@@ -316,9 +346,9 @@ test('Anthropic Messages opus-5 classify is pinned off opus-5 after translate', 
 });
 
 
-// Claude Code /model picker: GET /v1/models must expose the zoo catalog
-// (cheap band + many OpenRouter ids), not a single opus-5, and must not mint
-// fake claude-* aliases for non-Anthropic animals.
+// Mock of GET {OPENZOO_API_BASE}/v1/models (live OpenRouter catalog).
+// Not a product "33-item" list — the real catalog is whatever the gateway
+// returns; augmentModelList then adds openzoo-* twins + ALIAS_IDS.
 
 const ZOO_CATALOG = [
   'deepseek/deepseek-v4-flash',
@@ -406,14 +436,24 @@ test('anthropicModelList uses real zoo ids (Claude Code reads id + display_name)
   assert.ok(!/^claude-/.test(grok.id));
 });
 
-test('applyClaudeCodeCatalogEnv opts Claude Code into GET /v1/models discovery', () => {
+test('applyClaudeCodeCatalogEnv opts Claude Code into GET /v1/models discovery', async () => {
   const env = applyClaudeCodeCatalogEnv({
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '0',
   });
   assert.equal(env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY, '1');
   assert.equal(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, undefined);
+  assert.equal(env.ANTHROPIC_MODEL, undefined, 'must not pin a single sonnet/opus');
   const skipped = applyClaudeCodeCatalogEnv({ OPENZOO_NO_GATEWAY_DISCOVERY: '1' });
   assert.equal(skipped.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY, undefined);
+  const aliased = applyClaudeCodeCatalogEnv({ ANTHROPIC_MODEL: 'claude-sonnet-5' });
+  assert.equal(aliased.ANTHROPIC_MODEL, 'openzoo-claude-sonnet-5');
+  const grok = applyClaudeCodeCatalogEnv({ ANTHROPIC_MODEL: 'x-ai/grok-4.6' });
+  assert.equal(grok.ANTHROPIC_MODEL, 'x-ai/grok-4.6');
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const { dirname, join } = await import('node:path');
+  const launchSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../lib/launch.js'), 'utf8');
+  assert.doesNotMatch(launchSrc, /\|\| 'claude-sonnet-5'/);
 });
 
 test('GET /v1/models (OpenAI + Claude-shaped) returns the mocked zoo catalog, not opus-5-only', async () => {
