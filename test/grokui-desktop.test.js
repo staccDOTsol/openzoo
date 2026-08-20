@@ -103,8 +103,8 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.91');
-  assert.equal(appPkg.version, '1.5.69');
+  assert.equal(ozPkg.version, '0.48.92');
+  assert.equal(appPkg.version, '1.5.70');
 });
 
 test('wallet modal offers Stripe subscriptions next to x402', () => {
@@ -127,6 +127,45 @@ test('wallet modal offers Stripe subscriptions next to x402', () => {
   const pay = readFileSync(path.join(root, 'lib', 'pay.js'), 'utf8');
   assert.match(pay, /applySubscriptionHeaders/);
   assert.match(pay, /stripAuthorization/);
+});
+
+test('thread avatars are illustrated bot faces, not two-letter initials', () => {
+  // Grok Bot paints a cute PFP per agent. Two letters in a flat circle is the
+  // thing we are replacing — a grep that still allows initials(t.name) would
+  // let that painter come back.
+  assert.match(grokui, /function botPfp/);
+  assert.match(grokui, /function botFaceInner/);
+  assert.match(grokui, /function nameHash/);
+  assert.match(grokui, /class="bot-pfp"/);
+  assert.match(grokui, /@keyframes botbob/);
+  assert.match(grokui, /@keyframes botblink/);
+  assert.match(grokui, /botPfp\(t\.name, t\.members\)/);
+  assert.doesNotMatch(grokui, /function initials\s*\(/);
+  assert.doesNotMatch(grokui, /initials\s*\(\s*t\.name\s*\)/);
+  assert.doesNotMatch(grokui, /initials\s*\(\s*name\s*\)/);
+  assert.doesNotMatch(grokui, /name\.slice\(0,\s*2\)\.toUpperCase\(\)/);
+  assert.doesNotMatch(grokui, /gravatar|dicebear|ui-avatars|unavatar|pravatar/i);
+  const scriptStart = grokui.indexOf('<script>');
+  const scriptEnd = grokui.indexOf('</script>', scriptStart);
+  const script = grokui.slice(scriptStart, scriptEnd);
+  assert.match(script, /<svg class="bot-pfp"/);
+  assert.equal((script.match(/botPfp\(/g) || []).length >= 5, true);
+  const fnStart = grokui.indexOf('  let botPfpSeq = 0;');
+  const fnEnd = grokui.indexOf('  // SEARCH.', fnStart);
+  const fns = grokui.slice(fnStart, fnEnd);
+  const api = Function(fns + '; return { botPfp: botPfp, nameHash: nameHash };')();
+  const a = api.botPfp('Alpha');
+  const a2 = api.botPfp('Alpha');
+  const b = api.botPfp('Beta');
+  const crew = api.botPfp('Alpha, Beta, Gamma');
+  assert.match(a, /^<svg class="bot-pfp"/);
+  assert.match(a, /<circle /);
+  assert.doesNotMatch(a, />[A-Z]{2}</);
+  assert.equal(a.replace(/id="bfg\d+"/g, 'id="bfg"').replace(/url\(#bfg\d+\)/g, 'url(#bfg)'),
+    a2.replace(/id="bfg\d+"/g, 'id="bfg"').replace(/url\(#bfg\d+\)/g, 'url(#bfg)'));
+  assert.notEqual(a.replace(/id="bfg\d+"/g, ''), b.replace(/id="bfg\d+"/g, ''));
+  assert.equal((crew.match(/class="bot-bob"/g) || []).length, 3);
+  assert.equal(api.nameHash('Alpha'), api.nameHash('Alpha'));
 });
 
 test('HUD and wallet show prepaid credit, not only session spend', () => {
