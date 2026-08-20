@@ -4,7 +4,7 @@ import {
   clipStatusArg, peekDirectiveStatus, formatModelWait, formatPayStatus,
   formatRaceStatus, parseClassifyScore, pickRaceWinner, createRaceFeed,
   isRaceCountable, raceLastShip, RACE_EVERY_FAILED, shouldRetryRaceArrival,
-  summarizeRaceFailures, raceFailKind,
+  summarizeRaceFailures, raceFailKind, shortModelName, clipRacePreview,
   startModelWait, readWithIdleTimeout, STREAM_IDLE_MS, STALE_THINKING_MS,
 } from '../lib/livestatus.js';
 
@@ -186,6 +186,69 @@ test('onBack after settle cannot paint racing 4/2 onto an idle thread', () => {
   feed.onBack();
   feed.onBack();
   assert.deepEqual(statuses, ['racing 0/2 back…', 'racing 1/2 back…', 'racing 2/2 back…']);
+});
+
+test('shortModelName drops the org prefix; clipRacePreview keeps an opening, not the whole answer', () => {
+  assert.equal(shortModelName('z-ai/glm-4.7'), 'glm-4.7');
+  assert.equal(shortModelName('deepseek/deepseek-v4-flash'), 'deepseek-v4-flash');
+  assert.equal(shortModelName('glm-4.7'), 'glm-4.7');
+  const long = Array.from({ length: 20 }, (_, i) => `line ${i}`).join('\n');
+  const clip = clipRacePreview(long);
+  assert.ok(clip.includes('line 0'));
+  assert.ok(!clip.includes('line 19'));
+  assert.ok(clip.endsWith('…'));
+});
+
+test('createRaceFeed spectator snapshot: Y cells, abandon after X, then judging/winner', () => {
+  const snaps = [];
+  const feed = createRaceFeed(() => {}, () => {}, 2, (s) => snaps.push(s));
+  feed.start(['z-ai/glm-4.7', 'deepseek/deepseek-v4-flash', 'qwen/qwen3', 'mistralai/mistral-large']);
+  assert.equal(snaps[0].launched, 4);
+  assert.equal(snaps[0].need, 2);
+  assert.equal(snaps[0].phase, 'racing');
+  assert.deepEqual(snaps[0].racers.map((r) => r.short), ['glm-4.7', 'deepseek-v4-flash', 'qwen3', 'mistral-large']);
+  assert.ok(snaps[0].racers.every((r) => r.status === 'waiting'));
+
+  feed.onToken('z-ai/glm-4.7', 'Hello from glm\nmore\n');
+  feed.onToken('deepseek/deepseek-v4-flash', 'Hello from deepseek');
+  feed.onToken('qwen/qwen3', 'still going');
+  const streaming = snaps.at(-1);
+  assert.equal(streaming.racers.find((r) => r.model === 'z-ai/glm-4.7').status, 'streaming');
+  assert.ok(streaming.racers.find((r) => r.model === 'z-ai/glm-4.7').preview.includes('Hello from glm'));
+
+  feed.onBack('z-ai/glm-4.7');
+  feed.onBack('deepseek/deepseek-v4-flash');
+  const afterX = snaps.at(-1);
+  assert.equal(afterX.back, 2);
+  assert.equal(afterX.racers.find((r) => r.model === 'qwen/qwen3').status, 'abandoned');
+  assert.equal(afterX.racers.find((r) => r.model === 'mistralai/mistral-large').status, 'abandoned');
+  assert.equal(afterX.racers.find((r) => r.model === 'z-ai/glm-4.7').status, 'back');
+  assert.equal(afterX.racers.find((r) => r.model === 'deepseek/deepseek-v4-flash').status, 'back');
+
+  feed.onToken('qwen/qwen3', 'should not keep racing');
+  const frozen = snaps.at(-1);
+  assert.equal(frozen.racers.find((r) => r.model === 'qwen/qwen3').status, 'abandoned');
+  assert.ok(!String(frozen.racers.find((r) => r.model === 'qwen/qwen3').preview).includes('should not keep racing'));
+
+  feed.judge();
+  assert.equal(snaps.at(-1).phase, 'judging');
+  feed.settle({ model: 'deepseek/deepseek-v4-flash', text: 'the winner' });
+  const won = snaps.at(-1);
+  assert.equal(won.phase, 'winner');
+  assert.equal(won.winner, 'deepseek/deepseek-v4-flash');
+  assert.equal(won.racers.length, 4);
+});
+
+test('failed racer snapshot is a fail kind, not a dumped 502 body', () => {
+  const snaps = [];
+  const feed = createRaceFeed(() => {}, () => {}, 2, (s) => snaps.push(s));
+  feed.start(['fast', 'boom']);
+  feed.onFail('boom', { model: 'boom', text: '(upstream error — HTTP 502, try again)', error: 'HTTP 502' });
+  const boom = snaps.at(-1).racers.find((r) => r.model === 'boom');
+  assert.equal(boom.status, 'failed');
+  assert.equal(boom.fail, 'HTTP 502');
+  assert.equal(boom.preview, '');
+  assert.doesNotMatch(JSON.stringify(boom), /upstream error/);
 });
 
 test('fetch-failed / empty / 5xx are retried; pay is not', () => {

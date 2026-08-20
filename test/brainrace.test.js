@@ -61,6 +61,38 @@ test('race forwards onDelta before a winner exists', async () => {
   assert.equal(text, 'Bye');
 });
 
+test('onRace paints a Y-cell grid, abandons the rest after X, then judges', async () => {
+  const snaps = [];
+  await brainRace(
+    [{ role: 'user', content: 'q' }],
+    () => {},
+    null,
+    ['a', 'b', 'c', 'd'],
+    2,
+    undefined,
+    () => {},
+    {
+      stream: scriptedStream({
+        a: { text: 'one', at: 15 },
+        b: { text: 'two', at: 35 },
+        c: { chunks: ['late'], text: 'three', at: 200, tokenAt: 80 },
+        d: { text: 'four', at: 220 },
+      }),
+      classify: async (_m, c) => (c.model === 'b' ? 9 : 7),
+      onRace: (s) => snaps.push(s),
+    },
+  );
+  assert.ok(snaps[0].racers.length === 4);
+  assert.ok(snaps[0].racers.every((r) => r.status === 'waiting'));
+  assert.ok(snaps.some((s) => s.phase === 'judging'));
+  const judged = snaps.find((s) => s.phase === 'judging');
+  assert.equal(judged.racers.filter((r) => r.status === 'back').length, 2);
+  assert.equal(judged.racers.filter((r) => r.status === 'abandoned').length, 2);
+  const won = snaps.find((s) => s.phase === 'winner');
+  assert.equal(won.winner, 'b');
+  assert.equal(won.racers.length, 4);
+});
+
 test('status updates as racers finish: racing n/X back…', async () => {
   const statuses = [];
   await brainRace(
