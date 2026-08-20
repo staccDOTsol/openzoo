@@ -25,6 +25,8 @@ import {
   adaptTail,
   tightenKnobs,
   loosenKnobs,
+  cutTranscript,
+  sliceChars,
 } from '../lib/spill.js';
 import { anthropicToOpenAI } from '../lib/anthropic.js';
 
@@ -828,9 +830,12 @@ test('floor knobs do not forward 15 full tool bodies inside a tool chain', () =>
   assert.ok(got.ratio >= 10, `corpus/sent ${got.ratio} should be >= 10`);
   assert.ok(forwardedHasAsk(got, ask), 'last user ask must survive');
   assert.ok(pairingValid(tail), 'pairing must stay valid');
-  assert.ok(tail.some((m) => Array.isArray(m.tool_calls) && m.tool_calls.length >= 15),
-    'assistant tool_calls must stay so remaining tool results are not orphans');
-  assert.equal(tail.filter((m) => m.role === 'tool').length, 15);
+  const asst = tail.find((m) => Array.isArray(m.tool_calls) && m.tool_calls.length);
+  const tools = tail.filter((m) => m.role === 'tool');
+  assert.ok(asst, 'assistant tool_calls must stay so remaining tool results are not orphans');
+  assert.equal(asst.tool_calls.length, tools.length, 'kept tool_calls must match kept results');
+  assert.ok(tools.length >= 1 && tools.length <= FLOOR_KNOBS.keepTail,
+    `keepTail ${FLOOR_KNOBS.keepTail} should trim the 15-result storm, got ${tools.length}`);
 });
 
 test('stubMore stubs fat WebSearch/Bash, not just bound files', () => {
@@ -860,8 +865,154 @@ test('budget 800 stubs old tool_result bodies when nothing is severable', () => 
   const got = stubBoundFileResults(msgs, { boundFiles: new Set(), budget: 800, fromIndex: assistantAt });
   const tail = got.messages.slice(assistantAt);
   assert.equal(fullToolBodies(tail).length, 0);
-  assert.ok(got.stubbed >= 13);
+  assert.ok(got.stubbed >= 1);
   assert.equal(tail.at(-1).content, ask);
   assert.ok(pairingValid(tail));
-  assert.ok(Array.isArray(tail[0].tool_calls) && tail[0].tool_calls.length >= 13);
+  assert.ok(Array.isArray(tail[0].tool_calls) && tail[0].tool_calls.length >= 1);
+});
+
+/**
+ * Live 0.48.75 shape: one assistant with hundreds of tool_calls, then that
+ * many tool results, then the ask. No isSeverable break in the last hundreds
+ * of messages — keepTail 16/8/6/2 all cut at the same index. File stubs
+ * dropped ~722k (136 Reads) and left ~728k of WebSearch/Fetch/Bash/tool JSON.
+ */
+function liveUnseverableStorm({
+  fileReads = 136,
+  otherTools = 164,
+  fileChars = 5300,
+  otherChars = 4450,
+  argChars = 120,
+  ask = 'LAST_USER_ASK please continue from here',
+} = {}) {
+  const abs = '/tmp/openzoo-live-corpus.rs';
+  const calls = [];
+  const results = [];
+  const fileBody = 'R'.repeat(fileChars);
+  const extras = [
+    { name: 'WebSearch', key: 'query', prefix: 'topic ', body: JSON.stringify({ hits: 'S'.repeat(otherChars) }) },
+    { name: 'WebFetch', key: 'url', prefix: 'https://example.com/', body: 'H'.repeat(otherChars) },
+    { name: 'Bash', key: 'command', prefix: 'echo ', body: 'O'.repeat(otherChars) },
+  ];
+  for (let i = 0; i < fileReads + otherTools; i++) {
+    const id = `s${i}`;
+    if (i < fileReads) {
+      calls.push({
+        id,
+        type: 'function',
+        function: { name: 'Read', arguments: JSON.stringify({ file_path: abs, extra: 'A'.repeat(argChars) }) },
+      });
+      results.push({ role: 'tool', tool_call_id: id, content: fileBody });
+    } else {
+      const spec = extras[(i - fileReads) % extras.length];
+      calls.push({
+        id,
+        type: 'function',
+        function: {
+          name: spec.name,
+          arguments: JSON.stringify({ [spec.key]: `${spec.prefix}${i}`, extra: 'J'.repeat(argChars) }),
+        },
+      });
+      results.push({ role: 'tool', tool_call_id: id, content: spec.body });
+    }
+  }
+  const prefix = [];
+  for (let i = 0; i < 20; i++) {
+    prefix.push(i % 2 === 0
+      ? { role: 'user', content: `prefix turn ${i}` }
+      : { role: 'assistant', content: `prefix reply ${i}` });
+  }
+  const msgs = [
+    { role: 'system', content: 'You are a coding agent.' },
+    { role: 'user', content: 'work through the repo' },
+    { role: 'assistant', content: 'I will look around.' },
+    ...prefix,
+    { role: 'assistant', content: '', tool_calls: calls },
+    ...results,
+    { role: 'user', content: ask },
+  ];
+  return { msgs, ask, abs, boundFiles: new Set([`${abs}:1`]), tools: fileReads + otherTools };
+}
+
+test('un-severable 300-tool storm: keepTail 16 vs 2 differ; floor knobs do not ship ~728k', () => {
+  resetAdaptState();
+  const { msgs, ask, boundFiles, tools } = liveUnseverableStorm();
+  const cut16 = cutTranscript(msgs, { keepTail: 16, minTurns: 2, budget: 24000, stubMore: false });
+  const cut2 = cutTranscript(msgs, { keepTail: 2, minTurns: 2, budget: 800, stubMore: true });
+  assert.equal(cut16.cut, cut2.cut, 'cut index may stay put — keepTail votes in stub/trim');
+
+  const loose = applySpillCut(msgs, {
+    knobs: { keepTail: 16, minTurns: 2, budget: 24000, stubMore: false },
+    corpusChars: 1_580_000,
+    boundFiles,
+    adapt: false,
+    persist: false,
+  });
+  const floor = applySpillCut(msgs, {
+    knobs: FLOOR_KNOBS,
+    corpusChars: 1_580_000,
+    boundFiles,
+    adapt: false,
+    persist: false,
+  });
+  assert.ok(floor.sentChars < loose.sentChars,
+    `keep 2 sent ${floor.sentChars} should be < keep 16 sent ${loose.sentChars}`);
+  assert.ok(floor.sentChars < 100_000, `keep 2 + budget 800 must not ship ~728k, got ${floor.sentChars}`);
+  assert.ok(floor.ratio >= 10, `corpus/sent ${floor.ratio} should be >= 10`);
+  assert.ok(forwardedHasAsk(floor, ask), 'last user ask must survive');
+  assert.ok(forwardedHasAsk(loose, ask), 'last user ask must survive at keep 16');
+  const floorTail = tailOf(floor);
+  const looseTail = tailOf(loose);
+  assert.ok(pairingValid(floorTail), 'floor pairing must stay valid');
+  assert.ok(pairingValid(looseTail), 'keep-16 pairing must stay valid');
+  assert.equal(fullToolBodies(floorTail).length, 0);
+  const floorTools = floorTail.filter((m) => m.role === 'tool').length;
+  const looseTools = looseTail.filter((m) => m.role === 'tool').length;
+  assert.ok(floorTools < looseTools, `keep 2 tools ${floorTools} should be < keep 16 tools ${looseTools}`);
+  assert.ok(floorTools <= 2 && floorTools >= 1);
+  assert.ok(looseTools <= 16);
+  assert.ok(looseTools < tools, 'keep 16 must drop older pairs of the 300-tool chain');
+});
+
+test('budget stubs fat tool_call JSON, not just result bodies', () => {
+  const fat = 'Z'.repeat(8000);
+  const msgs = [
+    {
+      role: 'assistant',
+      tool_calls: [{
+        id: 'w1',
+        function: { name: 'Write', arguments: JSON.stringify({ file_path: '/tmp/x.rs', contents: fat }) },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'w1', content: '[bound, 12 chars]' },
+    { role: 'user', content: 'ok continue' },
+  ];
+  const got = stubBoundFileResults(msgs, { boundFiles: new Set(), budget: 800 });
+  const args = got.messages[0].tool_calls[0].function.arguments;
+  assert.doesNotMatch(args, /Z{20}/);
+  assert.match(args, /\/tmp\/x\.rs/);
+  assert.match(args, /\[bound/);
+  assert.equal(got.messages[2].content, 'ok continue');
+  assert.ok(pairingValid(got.messages));
+});
+
+test('300-tool-result un-severable tail under floor knobs is not still ~728k', () => {
+  resetAdaptState();
+  const { msgs, ask, boundFiles } = liveUnseverableStorm();
+  const rawTail = (() => {
+    const plan = cutTranscript(msgs, FLOOR_KNOBS);
+    return sliceChars(msgs, plan.cut);
+  })();
+  assert.ok(rawTail > 700_000, `fixture tail should start huge, got ${rawTail}`);
+  const got = applySpillCut(msgs, {
+    knobs: FLOOR_KNOBS,
+    corpusChars: 1_580_000,
+    boundFiles,
+    adapt: false,
+    persist: false,
+  });
+  assert.ok(got.sentChars < 50_000, `floor knobs forwarded ${got.sentChars}, still in the 728k neighbourhood`);
+  assert.ok(got.ratio >= 10, `corpus/sent ${got.ratio} should be >= 10`);
+  assert.ok(forwardedHasAsk(got, ask));
+  assert.ok(pairingValid(tailOf(got)));
 });
