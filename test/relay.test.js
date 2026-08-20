@@ -1,12 +1,14 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { readFileSync } from 'node:fs';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
 import { gzipSync, brotliCompressSync } from 'node:zlib';
 import { looksGzip, knownCodec, inflateEncoded, relay } from '../lib/relay.js';
+import { config } from '../lib/config.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -86,10 +88,10 @@ function gzipResponse(status, json, extraHeaders = {}) {
 
 describe('relay() encoding', () => {
   test('proxy.js relays through lib/relay.js and no longer strips encoding blindly', () => {
-    const proxy = readFileSync(path.join(root, 'lib/proxy.js'), 'utf8');
+    const proxy = fs.readFileSync(path.join(root, 'lib/proxy.js'), 'utf8');
     assert.match(proxy, /import \{ relay \} from '\.\/relay\.js'/);
     assert.doesNotMatch(proxy, /content-encoding', 'content-length'\]\.includes\(k\)/);
-    const src = readFileSync(path.join(root, 'lib/relay.js'), 'utf8');
+    const src = fs.readFileSync(path.join(root, 'lib/relay.js'), 'utf8');
     assert.match(src, /never emit a compressed body without Content-Encoding/i);
     assert.match(src, /decoded && key === 'content-encoding'/);
   });
@@ -226,5 +228,80 @@ describe('relay() encoding', () => {
     assert.equal(got.headers['content-encoding'], undefined);
     assert.equal(looksGzip(got.body), false);
     assert.equal(got.body.toString('utf8'), json);
+  });
+});
+
+describe('sidecar proxy relays a mocked Fly gzip 400', { concurrency: 1 }, () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oz-relay-proxy-'));
+  const prev = {
+    apiBase: config.apiBase,
+    port: config.port,
+    walletPath: config.walletPath,
+    noTopup: process.env.OPENZOO_NO_AUTOTOPUP,
+    sessionPath: process.env.OPENZOO_SESSION_PATH,
+  };
+  process.env.OPENZOO_NO_AUTOTOPUP = '1';
+  process.env.OPENZOO_NO_OPEN = '1';
+  process.env.OPENZOO_SESSION_PATH = path.join(tmp, 'session.json');
+  config.walletPath = path.join(tmp, 'wallet.json');
+
+  test('POST /v1/chat/completions does not forward naked gzip', async (t) => {
+    const json = '{"error":{"message":"invalid skill","type":"invalid_request_error"}}';
+    const gz = gzipSync(Buffer.from(json));
+    const up = await listen((_req, res) => {
+      res.writeHead(400, {
+        'content-type': 'application/json',
+        'content-encoding': 'gzip',
+        'content-length': String(gz.length),
+      });
+      res.end(gz);
+    });
+    config.apiBase = `http://127.0.0.1:${up.address().port}`;
+    config.port = 0;
+    const { startProxy } = await import('../lib/proxy.js');
+    const proxy = await startProxy({ silent: true, autoTunnel: false });
+    t.after(async () => {
+      await closeServer(proxy.server);
+      await closeServer(up);
+    });
+    const port = proxy.server.address().port;
+    const got = await new Promise((resolve, reject) => {
+      const req = http.request({
+        host: '127.0.0.1',
+        port,
+        path: '/v1/chat/completions',
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+      }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve({
+          status: res.statusCode,
+          headers: res.headers,
+          body: Buffer.concat(chunks),
+        }));
+      });
+      req.on('error', reject);
+      req.end(JSON.stringify({
+        model: 'openzoo/test',
+        messages: [{ role: 'user', content: 'hi' }],
+      }));
+    });
+    assert.equal(got.status, 400);
+    assert.equal(got.headers['content-encoding'], undefined);
+    assert.equal(looksGzip(got.body), false);
+    assert.equal(got.body[0], 0x7b);
+    const parsed = JSON.parse(got.body.toString('utf8'));
+    assert.equal(parsed.error?.message, 'invalid skill');
+  });
+
+  test.after(() => {
+    config.apiBase = prev.apiBase;
+    config.port = prev.port;
+    config.walletPath = prev.walletPath;
+    if (prev.noTopup == null) delete process.env.OPENZOO_NO_AUTOTOPUP;
+    else process.env.OPENZOO_NO_AUTOTOPUP = prev.noTopup;
+    if (prev.sessionPath == null) delete process.env.OPENZOO_SESSION_PATH;
+    else process.env.OPENZOO_SESSION_PATH = prev.sessionPath;
   });
 });
