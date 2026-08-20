@@ -228,3 +228,33 @@ test('new chat does not reuse another root contextId; SPAWN kids still share', a
   const out = await runChild(script);
   assert.match(out, /"ok":true/);
 });
+
+test('looksLikeProxyShell bans :8402 / local completions, not site curls', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-proxy-shell-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 23600 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.HOME = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    const assert = (await import('node:assert/strict')).default;
+    const { looksLikeProxyShell, CHAT_NOT_PROXY, PROXY_SHELL_REFUSE } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+
+    assert.match(CHAT_NOT_PROXY, /already ARE the chat/);
+    assert.match(PROXY_SHELL_REFUSE, /already ARE the chat/);
+
+    assert.equal(looksLikeProxyShell('curl http://localhost:8402/v1/chat/completions'), true);
+    assert.equal(looksLikeProxyShell('curl -s http://127.0.0.1:8402/v1/models'), true);
+    assert.equal(looksLikeProxyShell('wget http://localhost:8402/v1/chat/completions -O -'), true);
+    assert.equal(looksLikeProxyShell("fetch('http://localhost:8402/v1/chat/completions')"), true);
+    assert.equal(looksLikeProxyShell('curl -s localhost:8080/site/ | head -20'), false);
+    assert.equal(looksLikeProxyShell('curl -s http://127.0.0.1:8080/'), false);
+    assert.equal(looksLikeProxyShell('ls -la'), false);
+    assert.equal(looksLikeProxyShell('mkdir -p src/components'), false);
+
+    console.log(JSON.stringify({ ok: true }));
+    process.exit(0);
+  `);
+  const out = await runChild(script);
+  assert.match(out, /"ok":true/);
+});

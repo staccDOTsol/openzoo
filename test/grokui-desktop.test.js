@@ -805,6 +805,46 @@ test('canvas folds reasoning behind a collapsed thinking row, not the Auto chip'
   assert.doesNotMatch(appHtml, /b\.textContent = streamBuf;/);
 });
 
+test('SYSTEM and Auto refuse shelling the :8402 proxy; site curls stay allowed', () => {
+  assert.match(grokui, /const CHAT_NOT_PROXY/);
+  assert.match(grokui, /You already ARE the chat/);
+  assert.match(grokui, /Never RUN curl, wget, or fetch against localhost:8402/);
+  assert.match(grokui, /Orange Auto = WRITE \/ READ \/ RUN \/ GLOB/);
+  assert.match(grokui, /Never mkdir empty trees and declare DONE/);
+  assert.match(grokui, /function looksLikeProxyShell/);
+  assert.match(grokui, /if \(looksLikeProxyShell\(command\)\) return Promise\.resolve\(PROXY_SHELL_REFUSE\)/);
+  assert.match(grokui, /extras\.push\(\{ role: 'system', content: CHAT_NOT_PROXY \}\)/);
+  assert.match(grokui, /\{ role: 'system', content: CHAT_NOT_PROXY \}/);
+  assert.match(grokui, /\$\{CHAT_NOT_PROXY\}/);
+  assert.doesNotMatch(grokui, /YOUR OWN paid openzoo calls/);
+  assert.doesNotMatch(grokui, /Via RUN you can also make/);
+  assert.doesNotMatch(grokui, /Authorization: Bearer sk-openzoo/);
+  // Preview curls of the site must still be taught.
+  assert.match(grokui, /curl -s localhost:8080/);
+});
+
+test('canvas collapses completed RUN cards like thinking, not as the message', () => {
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.match(appHtml, /function makeRunFold/);
+  assert.match(appHtml, /function parseLegacyRun/);
+  assert.match(appHtml, /function runFoldLabel/);
+  assert.match(appHtml, /className = 'runfold'/);
+  assert.match(appHtml, /className = 'runchip'/);
+  assert.match(appHtml, /return 'ran'/);
+  assert.match(appHtml, /return 'running\.\.\.'/);
+  assert.match(appHtml, /runcard\.folded/);
+  assert.match(appHtml, /h\.runId \|\| h\.runStatus/);
+  assert.match(appHtml, /parseLegacyRun\(h\.text\)/);
+  assert.match(grokui, /runStatus: 'done', runOutput: output/);
+  assert.match(grokui, /text: command, runStatus: 'done', runOutput: output/);
+  // Auto lastReply stays `$ cmd\\noutput` for shouldKeepAuto / empty-run hops.
+  assert.match(grokui, /const shown = `\$ \$\{command\}\\n\$\{output\}`/);
+  assert.match(grokui, /lastReply = shown/);
+  // Approve/Deny stay on pending cards.
+  assert.match(appHtml, /run\.id && st === 'pending'/);
+  assert.match(appHtml, /textContent = 'Approve'/);
+});
+
 test('grokui chat does not dump raw 0x6a wrap simulation logs', () => {
   const brain = readFileSync(path.join(root, 'lib', 'podagent.mjs'), 'utf8');
   assert.match(brain, /function sanitizeProxiedError/);
