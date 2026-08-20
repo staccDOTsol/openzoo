@@ -24,8 +24,10 @@ test('the Electron app does not keep a drifting grokui.mjs', () => {
   assert.match(main, /path\.join\(__dirname, '\.\.', 'lib', 'grokui\.mjs'\)/);
   assert.match(appPkg.scripts['dist:mac'], /bundle-grokui/);
   assert.match(appPkg.scripts.start, /bundle-grokui/);
-  const fromLib = (appPkg.build.files || []).some((f) => f && f.from === '../lib');
-  assert.equal(fromLib, true);
+  // Packaged files are the bundled grokui-app/lib copy (bundle-grokui.js
+  // writes it at start/pack). Do not require a second { from: '../lib' }
+  // electron-builder extra that would ship the whole proxy tree.
+  assert.equal((appPkg.build.files || []).includes('lib/**/*'), true);
 });
 
 test('header always ships the spend dials and wallet', () => {
