@@ -22,6 +22,7 @@
     "asar": false,
     "files": [
       "main.js",
+      "sidecar-version.js",
       "preload.js",
       "lib/**/*",
       "build/**/*"
