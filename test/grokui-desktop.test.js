@@ -748,8 +748,8 @@ test('canvas folds reasoning behind a collapsed thinking row, not the Auto chip'
   assert.match(appHtml, /function makeThinkFold/);
   assert.match(appHtml, /thinking\.\.\./);
   assert.match(appHtml, /'thought'/);
-  assert.match(appHtml, /class="thinkfold/);
-  assert.match(appHtml, /class="thinkchip"/);
+  assert.match(appHtml, /className = 'thinkfold'/);
+  assert.match(appHtml, /className = 'thinkchip'/);
   assert.match(appHtml, /liveThinkOpen/);
   assert.match(appHtml, /ev\.type === 'think'/);
   assert.match(appHtml, /body\.textContent = liveThinkOpen \? think : ''/);
