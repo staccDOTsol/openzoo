@@ -96,12 +96,13 @@ test('auto keeps going instead of parking on a continue note', () => {
   assert.doesNotMatch(grokui, /say "continue" to keep going/);
   assert.match(grokui, /const AUTO_CONTINUE/);
   assert.match(grokui, /STALLED_OFFER/);
+  assert.match(grokui, /function shouldKeepAuto/);
   assert.match(grokui, /function shouldParkAuto/);
   assert.match(grokui, /function isBlockingQuestion/);
   assert.match(grokui, /function isRaceFailReply/);
   assert.match(grokui, /function queueAutoHop/);
-  assert.match(grokui, /queueAutoHop\(t, threadId, condense\('\(command output\)'/);
-  assert.match(grokui, /queueAutoHop\(t, threadId, AUTO_CONTINUE/);
+  assert.match(grokui, /RACE_EVERY_FAILED/);
+  assert.match(grokui, /runTurn\(threadId, AUTO_CONTINUE/);
   assert.match(grokui, /every model failed/);
   assert.match(grokui, /retrying race/);
   assert.match(grokui, /threads.get\(threadId\)\?\.turnSeq \|\| 0/);
@@ -361,9 +362,14 @@ test('AUTO does not park on a continue note; a non-DONE tool result schedules an
     const assert = (await import('node:assert/strict')).default;
     const {
       newThread, runTurn, setBrainAskForTest, AUTO_CONTINUE,
-      shouldParkAuto, isBlockingQuestion, isRaceFailReply,
+      shouldKeepAuto, shouldParkAuto, isBlockingQuestion, isRaceFailReply,
     } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
 
+    const probe = newThread('probe-keep', null);
+    probe.runMode = 'auto';
+    assert.equal(typeof shouldKeepAuto, 'function');
+    assert.equal(shouldKeepAuto(probe, '(race: every model failed — no reply)'), true);
+    assert.equal(shouldKeepAuto(probe, 'DONE: shipped'), false);
     assert.equal(shouldParkAuto('DONE: shipped'), true);
     assert.equal(shouldParkAuto('$ ls\\nfoo'), false);
     assert.equal(shouldParkAuto('(race: every model failed — no reply)'), false);

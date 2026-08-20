@@ -224,3 +224,88 @@ test('/ping and PING: name wake idle descendants; PEEK stays a read', async () =
   assert.equal(r.ok, true);
   assert.equal(r.peekWakes, 0);
 });
+
+test('AUTO keeps going after RUN and race-fail; DONE and pendingRun park', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-auto-keep-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 23000 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.HOME = ${JSON.stringify(dir)};
+    process.env.OZ_WORKSPACE_DIR = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    process.env.OZ_AUTO_MAX_STEPS = '8';
+    process.env.OZ_AUTO_RACE_RETRIES = '0';
+    process.env.OZ_AUTO_EMPTY_RETRIES = '0';
+    const assert = (await import('node:assert/strict')).default;
+    const { RACE_EVERY_FAILED } = await import(${JSON.stringify(path.join(root, 'lib/livestatus.js'))});
+    const {
+      newThread, runTurn, setBrainAskForTest, AUTO_CONTINUE, shouldKeepAuto,
+    } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+
+    async function drain(pred) {
+      const start = Date.now();
+      while (Date.now() - start < 4000) {
+        if (pred()) return;
+        await new Promise((r) => setTimeout(r, 15));
+      }
+    }
+
+    const auto = newThread('auto-keep', null);
+    auto.runMode = 'auto';
+    assert.equal(shouldKeepAuto(auto, RACE_EVERY_FAILED), true);
+    assert.equal(shouldKeepAuto(auto, 'DONE: shipped'), false);
+    auto.pendingRun = { runId: 'x', command: 'echo', cwd: ${JSON.stringify(dir)} };
+    assert.equal(shouldKeepAuto(auto, 'RUN: ls'), false);
+    delete auto.pendingRun;
+
+    const hops = [];
+    setBrainAskForTest(({ userText }) => {
+      hops.push(String(userText || ''));
+      if (hops.length === 1) return 'RUN: mkdir -p oz-auto-keep';
+      if (/^\\(command output\\)/.test(userText)) return RACE_EVERY_FAILED;
+      return 'DONE: after race fail';
+    });
+    await runTurn(auto.id, 'build it');
+    await drain(() => hops.length >= 3 && auto.status === 'idle');
+    assert.ok(hops.length >= 3, 'RUN then race-fail must kick AUTO_CONTINUE, got ' + hops.length + ' ' + JSON.stringify(hops));
+    assert.match(hops[1], /\\(command output\\)/);
+    assert.equal(hops[2], AUTO_CONTINUE);
+
+    const doneBot = newThread('done-keep', null);
+    doneBot.runMode = 'auto';
+    const doneHops = [];
+    setBrainAskForTest(({ userText }) => {
+      doneHops.push(String(userText || ''));
+      return 'DONE: finished';
+    });
+    await runTurn(doneBot.id, 'wrap up');
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(doneHops.length, 1, 'DONE: must not kick AUTO_CONTINUE');
+    assert.equal(doneBot.status, 'idle');
+
+    const askBot = newThread('ask-keep', null);
+    askBot.runMode = 'ask';
+    const askHops = [];
+    setBrainAskForTest(({ userText }) => {
+      askHops.push(String(userText || ''));
+      return 'RUN: mkdir -p should-wait';
+    });
+    await runTurn(askBot.id, 'please mkdir');
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(askHops.length, 1, 'pendingRun must not kick AUTO_CONTINUE');
+    assert.ok(askBot.pendingRun);
+    assert.equal(shouldKeepAuto(askBot, 'listed files'), false);
+
+    console.log(JSON.stringify({ ok: true, hops: hops.length, doneHops: doneHops.length, askHops: askHops.length }));
+    process.exit(0);
+  `);
+  const out = await runChild(script);
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result: ' + out);
+  const r = JSON.parse(line);
+  assert.equal(r.ok, true);
+  assert.ok(r.hops >= 3);
+  assert.equal(r.doneHops, 1);
+  assert.equal(r.askHops, 1);
+});
