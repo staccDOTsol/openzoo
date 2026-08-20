@@ -102,8 +102,9 @@ usage:
                                          only "Auto". Undo: npx openzoo unblock
   npx openzoo vscode [path]   same, for VS Code
   npx openzoo editor [path]   whichever is installed (Cursor wins if both)
-  npx openzoo claude [dir]        Claude Code CLI on the zoo (x402 per turn); --desktop for the app
-                                          by default, --terminal for the Claude Code CLI
+  npx openzoo claude [args]       launch openzoo-claude on the zoo (x402 per turn);
+                                  installs via npx -y openzoo-claude if needed;
+                                  --desktop for the Anthropic app
   npx openzoo launch <cmd> [args]   launch a TERMINAL Messages API client
                                     (claude, aider...) already pointed at the zoo
   npx openzoo grokbot         KEEP Grok Bot's UI, serve YOUR RunPod box under it:

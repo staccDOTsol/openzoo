@@ -10,33 +10,19 @@
 
 ## Claude Code / Auto
 
-Orange Auto is `openzoo claude` then `claude` — not a `RUN:` text parser. `openzoo claude` sets the Anthropic API key + base URL to the local OpenZoo proxy. No Claude login first. PATH `~/.local/bin` is required on Mac so `claude` is found.
+Orange Auto is `openzoo claude` then `openzoo-claude` — not a `RUN:` text parser. `openzoo claude` execs `openzoo-claude` (`npx -y` if needed) with the Anthropic base URL at the local OpenZoo proxy. No Claude login first. Do not curl `claude.ai/install.sh`.
 
 Mac:
 
 ```
-curl -fsSL https://claude.ai/install.sh | bash
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.7/install.sh | bash
 . "$HOME/.nvm/nvm.sh"
 nvm install 24
 npm i -g openzoo
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 openzoo claude
 ```
 
-Windows — official Claude install, then nvm-windows (https://github.com/coreybutler/nvm-windows — `nvm-setup.exe`). Do not use the unix nvm curl on Windows. Do not source `~/.zshrc`.
-
-PowerShell:
-
-```
-irm https://claude.ai/install.ps1 | iex
-```
-
-CMD:
-
-```
-curl -fsSL https://downloads.claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd
-```
+Windows — nvm-windows (https://github.com/coreybutler/nvm-windows — `nvm-setup.exe`). Do not use the unix nvm curl on Windows. Do not source `~/.zshrc`. Do not install official Claude Code.
 
 Then nvm-windows:
 

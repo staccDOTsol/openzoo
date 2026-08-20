@@ -237,7 +237,9 @@ test('runClaudeCode override and missing CLI', async () => {
     env: { ...process.env, PATH: '/no/claude/here', OPENZOO_CLAUDE_PATH_ONLY: '1' },
   });
   assert.equal(miss.missing, true);
-  assert.match(miss.text, /claude CLI not found/);
-  assert.match(CLAUDE_MISSING, /install\.sh/);
+  assert.match(miss.text, /openzoo-claude CLI not found/);
+  assert.match(CLAUDE_MISSING, /npx -y openzoo-claude/);
+  assert.doesNotMatch(CLAUDE_MISSING, /install\.sh/);
+  assert.doesNotMatch(CLAUDE_MISSING, /claude\.ai/);
   assert.match(PTY_WINDOWS, /node-pty/);
 });

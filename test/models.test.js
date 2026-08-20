@@ -596,7 +596,7 @@ test('claudeZooEnv is the openzoo claude writer: gateway token, no Anthropic API
   assert.match(env.PATH, /\/usr\/bin/);
   const dirs = claudeCodeBinDirs('/Users/x');
   assert.ok(dirs.some((d) => d.endsWith('/.local/bin')));
-  assert.equal(resolveClaudeCli({ PATH: '/no/such/claude-bin' }), null);
+  assert.equal(resolveClaudeCli({ PATH: '/no/such/claude-bin', OPENZOO_CLAUDE_PATH_ONLY: '1' }), null);
 });
 
 test('GET /v1/models (OpenAI + Claude-shaped) returns the mocked zoo catalog, not opus-5-only', async () => {
