@@ -7,10 +7,10 @@
   "scripts": {
     "bundle-ui": "node scripts/bundle-grokui.js",
     "start": "node scripts/bundle-grokui.js && electron .",
-    "dist:mac": "node scripts/bundle-grokui.js && electron-builder --mac --arm64 --x64",
-    "dist:linux": "node scripts/bundle-grokui.js && electron-builder --linux --arm64 --x64",
-    "dist:win": "node scripts/bundle-grokui.js && electron-builder --win --arm64 --x64",
-    "dist:all": "node scripts/bundle-grokui.js && electron-builder -mwl --arm64 --x64"
+    "dist:mac": "node ../scripts/assert-grokui-pin.mjs && node scripts/bundle-grokui.js && electron-builder --mac --arm64 --x64",
+    "dist:linux": "node ../scripts/assert-grokui-pin.mjs && node scripts/bundle-grokui.js && electron-builder --linux --arm64 --x64",
+    "dist:win": "node ../scripts/assert-grokui-pin.mjs && node scripts/bundle-grokui.js && electron-builder --win --arm64 --x64",
+    "dist:all": "node ../scripts/assert-grokui-pin.mjs && node scripts/bundle-grokui.js && electron-builder -mwl --arm64 --x64"
   },
   "devDependencies": {
     "electron": "^32.0.0",
@@ -84,7 +84,7 @@
     "@solana/spl-token-group": "^0.0.7",
     "@solana/spl-token-metadata": "^0.1.6",
     "dugite": "^3.2.3",
-    "openzoo": "^0.48.1",
+    "openzoo": "latest",
     "viem": "^2.55.17"
   },
   "overrides": {

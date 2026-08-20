@@ -42,7 +42,9 @@ jobs:
           echo "app version set to $V"
       - name: Install deps
         working-directory: grokui-app
-        run: npm install
+        run: |
+          npm install
+          npm install openzoo@latest
 
       # Real Developer ID signing + notarization when the secrets exist, and a
       # clean ad-hoc fallback when they don't (see build/afterPack.js). Without

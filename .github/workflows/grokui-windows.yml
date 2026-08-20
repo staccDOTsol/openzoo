@@ -35,7 +35,9 @@ jobs:
           echo "app version set to $V"
       - name: Install deps
         working-directory: grokui-app
-        run: npm install
+        run: |
+          npm install
+          npm install openzoo@latest
 
       # bash, not PowerShell: afterPack.js shells out, and on Windows `npm` is
       # npm.cmd — execFileSync will not resolve it without a shell, which killed

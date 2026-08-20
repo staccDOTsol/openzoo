@@ -45,6 +45,11 @@ done
 say() { printf '\n\033[1;32m==>\033[0m %s\n' "$*"; }
 die() { printf '\n\033[1;31mFAIL:\033[0m %s\n' "$*" >&2; exit 1; }
 
+# Refuse to pack if grokui-app is not on openzoo@latest. A caret on 0.x is
+# how 1.5.78 shipped last week's sidecar inside the DMG.
+node "$REPO_ROOT/scripts/assert-grokui-pin.mjs" \
+  || die "grokui-app must depend on openzoo latest (not ^0.48.x, not an exact leftover)"
+
 [ -f "$P12" ] || die "no signing cert at $P12 (set OZ_SIGN_DIR)"
 [ -f "$P12_PASS_FILE" ] || die "no p12 password at $P12_PASS_FILE"
 

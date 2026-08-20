@@ -32,19 +32,47 @@ const fs = require('node:fs');
 // themselves, and codesign then walks so many files it dies with
 //   EMFILE: too many open files, open '.../viem/_types/chains/.../bobaSepolia.d.ts'
 // So build the production tree once into a staging dir and copy that.
+function npmSh(cmd, cwd) {
+  // shell:true because on Windows npm is npm.cmd, which execFileSync will not
+  // resolve on its own — the win job died with `spawnSync npm ENOENT`.
+  execFileSync(cmd, { cwd, stdio: 'inherit', shell: true });
+}
+
+function publishedOpenzooVersion() {
+  const out = execFileSync('npm view openzoo version', { encoding: 'utf8', shell: true });
+  const v = String(out).trim().split(/\s+/).pop();
+  if (!/^\d+\.\d+\.\d+$/.test(v)) {
+    throw new Error(`[afterPack] npm view openzoo version returned ${JSON.stringify(out)}`);
+  }
+  return v;
+}
+
+function assertCopiedOpenzoo(dest, published) {
+  const want = published || publishedOpenzooVersion();
+  const bundled = path.join(dest, 'openzoo', 'package.json');
+  if (!fs.existsSync(bundled)) {
+    throw new Error('[afterPack] copied node_modules is missing openzoo — nsis/dmg/AppImage would ship no sidecar');
+  }
+  const got = JSON.parse(fs.readFileSync(bundled, 'utf8')).version;
+  if (got !== want) {
+    throw new Error(`[afterPack] copied openzoo ${got} !== npm view openzoo version ${want}`);
+  }
+}
+
 function prodModules(projectDir) {
   const staging = path.join(projectDir, '.prod-modules');
   const stagedNM = path.join(staging, 'node_modules');
-  if (fs.existsSync(stagedNM)) return stagedNM;
-  fs.mkdirSync(staging, { recursive: true });
-  for (const f of ['package.json', 'package-lock.json']) {
-    const from = path.join(projectDir, f);
-    if (fs.existsSync(from)) fs.copyFileSync(from, path.join(staging, f));
+  if (!fs.existsSync(stagedNM)) {
+    fs.mkdirSync(staging, { recursive: true });
+    for (const f of ['package.json', 'package-lock.json']) {
+      const from = path.join(projectDir, f);
+      if (fs.existsSync(from)) fs.copyFileSync(from, path.join(staging, f));
+    }
+    npmSh('npm install --omit=dev --ignore-scripts --no-audit --no-fund', staging);
   }
-  // shell:true because on Windows npm is npm.cmd, which execFileSync will not
-  // resolve on its own — the win job died with `spawnSync npm ENOENT`.
-  execFileSync('npm install --omit=dev --ignore-scripts --no-audit --no-fund',
-    { cwd: staging, stdio: 'inherit', shell: true });
+  // Always re-resolve the published sidecar. Reusing a cached .prod-modules
+  // (or a lockfile that still says 0.48.x) is how last week's dmg shipped.
+  npmSh('npm install openzoo@latest --omit=dev --ignore-scripts --no-audit --no-fund', staging);
   // --ignore-scripts skips dugite's postinstall, which downloads the
   // embedded git. Finder-launched grokui has no ~/.zshrc PATH, so without
   // this binary `git worktree add` dies. Download it explicitly.
@@ -100,13 +128,18 @@ function prune(nm) {
 
 function copyNodeModules(context) {
   const src = prodModules(context.packager.projectDir);
-  if (!fs.existsSync(src)) return;
+  if (!fs.existsSync(src)) {
+    throw new Error('[afterPack] production node_modules missing — refusing to pack without openzoo');
+  }
   const appDir = context.electronPlatformName === 'darwin'
     ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources', 'app')
     : path.join(context.appOutDir, 'resources', 'app');
   const dest = path.join(appDir, 'node_modules');
   fs.rmSync(dest, { recursive: true, force: true });
   fs.cpSync(src, dest, { recursive: true, dereference: true });
+  // Hard gate for win nsis / mac dmg / linux AppImage: the copied sidecar
+  // must be whatever npm currently publishes, not last week's lockfile.
+  assertCopiedOpenzoo(dest);
 
   // STRIP SYMLINKS THAT ESCAPE THE BUNDLE.
   //
@@ -140,9 +173,14 @@ function copyNodeModules(context) {
   };
   strip(dest);
 
+  assertCopiedOpenzoo(dest);
+
   const n = fs.readdirSync(path.join(dest, '@solana')).length;
   console.log(`[afterPack] copied production node_modules -> ${dest} (@solana: ${n}, stripped ${stripped} escaping symlink(s)/.bin)`);
 }
+
+exports.assertCopiedOpenzoo = assertCopiedOpenzoo;
+exports.publishedOpenzooVersion = publishedOpenzooVersion;
 
 exports.default = async function afterPack(context) {
   copyNodeModules(context);
