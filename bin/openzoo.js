@@ -79,10 +79,8 @@ try {
 } catch { /* older node: fall through to the DNS order below */ }
 try {
   const dns = await import('node:dns');
-  if (!process.env.OPENZOO_DNS_VERBATIM)   dns.setDefaultResultOrder?.('ipv4first');
+  if (!process.env.OPENZOO_DNS_VERBATIM) dns.setDefaultResultOrder?.('ipv4first');
 } catch { /* nothing to do */ }
-// Per-request AbortSignal timeouts (lib/upstream.js) abort hung hops. Do not
-// set fetch `family` there — that would undo Happy Eyeballs above.
 
 const cmd = process.argv[2] || 'proxy';
 
