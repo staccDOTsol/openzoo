@@ -127,12 +127,32 @@ test('isTinyClassify matches the 16-token auto-mode shape', () => {
   assert.equal(isTinyClassify(CLASSIFY), true);
   assert.equal(isTinyClassify(Buffer.from(JSON.stringify(CLASSIFY))), true);
   assert.equal(isTinyClassify({ ...CLASSIFY, max_tokens: 64 }), true);
-  assert.equal(isTinyClassify({ ...CLASSIFY, max_tokens: 65 }), false);
+  assert.equal(isTinyClassify({ ...CLASSIFY, max_tokens: 256 }), true);
   assert.equal(isTinyClassify({ ...CLASSIFY, max_tokens: 0 }), false);
-  assert.equal(isTinyClassify({ model: 'x-ai/grok-4.6', max_tokens: 2000, messages: CLASSIFY.messages }), false);
-  // A body over BIND_MIN is a real turn even at 16 tokens.
-  const big = { ...CLASSIFY, messages: [{ role: 'user', content: 'x'.repeat(20000) }] };
-  assert.equal(isTinyClassify(big), false);
+});
+
+test('3c-shaped grok nubs are tiny (max_tokens 128 or 2000 on a 1-2 message body)', () => {
+  const nub128 = { model: 'x-ai/grok-4.6', max_tokens: 128, messages: CLASSIFY.messages };
+  const nub2000 = { model: 'x-ai/grok-4.6', max_tokens: 2000, messages: CLASSIFY.messages };
+  const nubTwo = {
+    model: 'x-ai/grok-4.6',
+    max_tokens: 2000,
+    messages: [
+      { role: 'system', content: 'Be brief.' },
+      { role: 'user', content: 'Is this safe? yes or no.' },
+    ],
+  };
+  assert.equal(isTinyClassify(nub128), true);
+  assert.equal(isTinyClassify(nub2000), true);
+  assert.equal(isTinyClassify(nubTwo), true);
+  for (const body of [nub128, nub2000, nubTwo]) {
+    const out = rewriteChatModel(body, CATALOG);
+    assert.equal(out.tiny, true, `expected tiny for max_tokens=${body.max_tokens}`);
+    assert.equal(out.raised, false);
+    assert.equal(out.parsed.max_tokens, body.max_tokens);
+    assert.equal(out.parsed.model, 'google/gemini-3.7-flash');
+    assert.equal(REASONING_MODEL_RE.test(out.parsed.model), false);
+  }
 });
 
 test('raiseReasoningMaxTokens itself still floors a 16-token grok ask', () => {
@@ -160,8 +180,16 @@ test('tiny claude-sonnet-5 routes to flash when the catalog has it', () => {
   assert.equal(out.to, 'google/gemini-3.7-flash');
 });
 
-test('real grok max_tokens=2000 still raises to >=4000', () => {
-  const grok = { model: 'x-ai/grok-4.6', max_tokens: 2000, messages: [{ role: 'user', content: 'write the function' }] };
+test('fat grok chat (max_tokens 2000+ and a long transcript) still raises to >=4000', () => {
+  const grok = {
+    model: 'x-ai/grok-4.6',
+    max_tokens: 2000,
+    messages: Array.from({ length: 20 }, (_, i) => ({
+      role: i % 2 ? 'assistant' : 'user',
+      content: `turn ${i} ${'x'.repeat(2000)}`,
+    })),
+  };
+  assert.equal(isTinyClassify(grok), false);
   const bump = raiseReasoningMaxTokens(grok);
   assert.equal(bump.raised, true);
   assert.ok(bump.to >= 4000, `expected floor >=4000, got ${bump.to}`);
@@ -181,7 +209,11 @@ test('OPENZOO_DEFAULT_MODEL does not capture a tiny classify', () => {
     assert.equal(out.parsed.model, 'google/gemini-3.7-flash');
     assert.equal(out.parsed.max_tokens, 16);
     // A real rewrite still honours the override.
-    const chat = rewriteChatModel({ model: 'gpt-4o', max_tokens: 2000, messages: CLASSIFY.messages }, CATALOG);
+    const fatMsgs = Array.from({ length: 20 }, (_, i) => ({
+      role: i % 2 ? 'assistant' : 'user',
+      content: `turn ${i} ${'x'.repeat(500)}`,
+    }));
+    const chat = rewriteChatModel({ model: 'gpt-4o', max_tokens: 2000, messages: fatMsgs }, CATALOG);
     assert.equal(chat.tiny, false);
     assert.equal(chat.parsed.model, 'x-ai/grok-4.6');
     assert.ok(chat.parsed.max_tokens >= 4000);
