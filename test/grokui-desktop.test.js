@@ -103,8 +103,30 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.90');
-  assert.equal(appPkg.version, '1.5.68');
+  assert.equal(ozPkg.version, '0.48.91');
+  assert.equal(appPkg.version, '1.5.69');
+});
+
+test('wallet modal offers Stripe subscriptions next to x402', () => {
+  assert.match(grokui, /Subscribe with a card/);
+  assert.match(grokui, /Subscription key · no x402/);
+  assert.match(grokui, /Most teams want this/);
+  assert.match(grokui, /I already subscribed — paste key/);
+  assert.match(grokui, /\/billing\/tiers/);
+  assert.match(grokui, /\/billing\/checkout/);
+  assert.match(grokui, /\/billing\/key\?session=/);
+  assert.match(grokui, /SUBSCRIPTIONS_PAGE/);
+  const sub = readFileSync(path.join(root, 'lib', 'subscription.js'), 'utf8');
+  assert.match(sub, /https:\/\/zoo\.openzoo\.fun\/subscriptions/);
+  assert.match(grokui, /window\.open\(url, '_blank'/);
+  assert.match(grokui, /id="hSub"/);
+  assert.match(grokui, /subscriptionPublicView/);
+  assert.doesNotMatch(grokui, /\$9\/mo/);
+  assert.doesNotMatch(grokui, /id="assetsBtn"/);
+  assert.match(main, /shell\.openExternal/);
+  const pay = readFileSync(path.join(root, 'lib', 'pay.js'), 'utf8');
+  assert.match(pay, /applySubscriptionHeaders/);
+  assert.match(pay, /stripAuthorization/);
 });
 
 test('HUD and wallet show prepaid credit, not only session spend', () => {
