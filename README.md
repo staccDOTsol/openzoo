@@ -23,35 +23,21 @@ paid $0.002137 (9.5× cheaper than direct) · rail solana · tx 5Kd…
 
 **Cursor** (Settings → Models → OpenAI API): set *Override OpenAI Base URL* to `http://localhost:8402/v1`, API key `sk-openzoo`. (Cursor Hobby can't BYOK; Pro can.)
 
-**Claude Code / grokui Auto** — `openzoo claude` sets the Anthropic API key + base URL to the local OpenZoo proxy (x402 pay-per-call). You do **not** need to authenticate Claude first. grokui orange Auto is this harness, not a `RUN:` text parser. PATH `~/.local/bin` is required on Mac so `claude` is found.
+**openzoo-claude / grokui Auto** — `openzoo claude` boots `:8402` if needed and execs `openzoo-claude` (npx `-y` on first run). Zoo env is `ANTHROPIC_BASE_URL=http://localhost:8402/v1`, `ANTHROPIC_API_KEY` unset, `ANTHROPIC_AUTH_TOKEN` from `~/.openzoo/subscription.json` or `sk-openzoo`. You do **not** need Anthropic's bun `claude` or `claude.ai/install.sh`. grokui orange Auto is this harness, not a `RUN:` text parser.
 
-`GET /v1/models` is the live OpenRouter catalog **after** dropping `:batch`, `$0` / missing prices, and `openzoo-*` twins. Claude Code's `/model` picker (Anthropic-shaped GET) is a short list: current Opus/Sonnet/Haiku-class + a few real gateway models + `openzoo/auto`.
+`GET /v1/models` is the live OpenRouter catalog **after** dropping `:batch`, `$0` / missing prices, and `openzoo-*` twins. The `/model` picker (Anthropic-shaped GET) is a short list: current Opus/Sonnet/Haiku-class + a few real gateway models + `openzoo/auto`.
 
 Mac:
 
 ```
-curl -fsSL https://claude.ai/install.sh | bash
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.7/install.sh | bash
 . "$HOME/.nvm/nvm.sh"
 nvm install 24
 npm i -g openzoo
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 openzoo claude
 ```
 
-Windows — official Claude install, then nvm-windows (https://github.com/coreybutler/nvm-windows — `nvm-setup.exe`). Do not use the unix nvm curl on Windows. Do not source `~/.zshrc`.
-
-PowerShell:
-
-```
-irm https://claude.ai/install.ps1 | iex
-```
-
-CMD:
-
-```
-curl -fsSL https://downloads.claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd
-```
+Windows — nvm-windows (https://github.com/coreybutler/nvm-windows — `nvm-setup.exe`). Do not use the unix nvm curl on Windows. Do not source `~/.zshrc`. Do not install official Claude Code.
 
 Then nvm-windows:
 
