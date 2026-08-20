@@ -44,7 +44,9 @@ jobs:
         working-directory: grokui-app
         run: |
           npm install
-          npm install openzoo@latest
+          npm install openzoo@latest --no-save
+          # npm install otherwise rewrites "latest" to ^0.49.x and assert-grokui-pin dies
+          node -e "const fs=require('fs'); for (const f of ['package.json','package-lock.json']) { const p=JSON.parse(fs.readFileSync(f,'utf8')); if (p.dependencies) p.dependencies.openzoo='latest'; if (p.packages&&p.packages['']&&p.packages[''].dependencies) p.packages[''].dependencies.openzoo='latest'; fs.writeFileSync(f, JSON.stringify(p,null,2)+'\n'); }"
 
       - name: Build
         working-directory: grokui-app
