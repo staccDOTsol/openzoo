@@ -93,7 +93,14 @@ test('auto keeps going instead of parking on a continue note', () => {
   assert.doesNotMatch(grokui, /OZ_AUTO_MAX_STEPS \|\| 8\b/);
   assert.doesNotMatch(grokui, /say "continue" to keep going/);
   assert.match(grokui, /const AUTO_CONTINUE/);
+  assert.match(grokui, /const AUTO_RACE_RETRY/);
   assert.match(grokui, /STALLED_OFFER/);
+  assert.match(grokui, /function isDoneReply/);
+  assert.match(grokui, /function isTransientModelFail/);
+  assert.match(grokui, /function enqueueAutoHop/);
+  assert.match(grokui, /function shouldKeepAuto/);
+  assert.match(grokui, /RACE_EVERY_FAILED/);
+  assert.match(grokui, /kickTurn\(threadId, userText, onEvent\)/);
 });
 
 test('subagents get the root ask, recent turns, and a SEND brief refresh', () => {
@@ -313,3 +320,4 @@ test('the box image does not bake or decrypt encrypted ProofFront', () => {
   assert.doesNotMatch(boot, /OZ_PROOFFRONT_PASS/);
   assert.doesNotMatch(workflow, /PROOFFRONT_URL/);
 });
+
