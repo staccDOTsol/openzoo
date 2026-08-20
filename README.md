@@ -23,7 +23,26 @@ paid $0.002137 (9.5× cheaper than direct) · rail solana · tx 5Kd…
 
 **Cursor** (Settings → Models → OpenAI API): set *Override OpenAI Base URL* to `http://localhost:8402/v1`, API key `sk-openzoo`. (Cursor Hobby can't BYOK; Pro can.)
 
-**Claude Code / any OpenAI-env tool:**
+**Claude Code (zoo catalog, not opus-5-only):**
+
+Prefer this. `ANTHROPIC_API_KEY` stays unset (it would bill api.anthropic.com). Base URL is `http://localhost:8402/v1`. `/model` should list zoo animals from the live OpenRouter catalog (plus `openzoo-*` twins), not a single opus-5.
+
+```bash
+npx openzoo claude
+```
+
+Leave a healthy `:8402` sidecar alone. Manual equivalent:
+
+```bash
+unset ANTHROPIC_API_KEY
+export ANTHROPIC_BASE_URL=http://localhost:8402/v1
+export ANTHROPIC_AUTH_TOKEN=sk-openzoo
+export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
+curl -s "$ANTHROPIC_BASE_URL/models"   # many OpenRouter ids, not 1
+claude                                 # /model lists those zoo animals
+```
+
+**Any OpenAI-env tool:**
 ```bash
 export OPENAI_BASE_URL=http://localhost:8402/v1
 export OPENAI_API_KEY=sk-openzoo

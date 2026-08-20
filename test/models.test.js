@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveModel, isTinyClassify, pickClassifierModel, raiseReasoningMaxTokens, rewriteChatModel, REASONING_MODEL_RE } from '../lib/models.js';
+import { resolveModel, isTinyClassify, pickClassifierModel, raiseReasoningMaxTokens, rewriteChatModel, REASONING_MODEL_RE, displayNameFor, publishModelList, anthropicModelList, modelsListForRequest } from '../lib/models.js';
+import { applyClaudeCodeCatalogEnv } from '../lib/launch.js';
 import { anthropicToOpenAI } from '../lib/anthropic.js';
+
 
 // Hermetic: resolveModel honours OPENZOO_DEFAULT_MODEL, so an ambient value
 // (a dev shell, a project .env) would otherwise flip every family-hint case.
@@ -64,6 +66,36 @@ test('OPENZOO_DEFAULT_MODEL is an explicit override for any rewrite', () => {
     // an env value the zoo does not serve is ignored, not trusted
     process.env.OPENZOO_DEFAULT_MODEL = 'not/a-real-model';
     assert.equal(resolveModel('gpt-4o', CATALOG), 'x-ai/grok-4.6');
+  } finally {
+    delete process.env.OPENZOO_DEFAULT_MODEL;
+  }
+});
+
+test('OPENZOO_DEFAULT_MODEL=opus-5 does not swallow an explicit catalog pick', () => {
+  process.env.OPENZOO_DEFAULT_MODEL = 'anthropic/claude-opus-5';
+  const ids = [...CATALOG, 'anthropic/claude-opus-5'];
+  try {
+    assert.equal(resolveModel('x-ai/grok-4.6', ids), null);
+    assert.equal(resolveModel('openzoo-grok-4.6', ids), 'x-ai/grok-4.6');
+    const grok = rewriteChatModel({
+      model: 'x-ai/grok-4.6',
+      max_tokens: 2000,
+      messages: Array.from({ length: 20 }, (_, i) => ({
+        role: i % 2 ? 'assistant' : 'user',
+        content: `turn ${i} ${'x'.repeat(500)}`,
+      })),
+    }, ids);
+    assert.equal(grok.tiny, false);
+    assert.equal(grok.parsed.model, 'x-ai/grok-4.6');
+    const twin = rewriteChatModel({
+      model: 'openzoo-grok-4.6',
+      max_tokens: 2000,
+      messages: Array.from({ length: 20 }, (_, i) => ({
+        role: i % 2 ? 'assistant' : 'user',
+        content: `turn ${i} ${'x'.repeat(500)}`,
+      })),
+    }, ids);
+    assert.equal(twin.parsed.model, 'x-ai/grok-4.6');
   } finally {
     delete process.env.OPENZOO_DEFAULT_MODEL;
   }
@@ -311,4 +343,148 @@ test('Anthropic Messages opus-5 classify is pinned off opus-5 after translate', 
     const out = rewriteChatModel(converted, ids);
     assertClassifyNotHardBlocked(out);
   }
+});
+
+
+// Mock of GET {OPENZOO_API_BASE}/v1/models (live OpenRouter catalog).
+// Not a product "33-item" list — the real catalog is whatever the gateway
+// returns; augmentModelList then adds openzoo-* twins + ALIAS_IDS.
+
+const ZOO_CATALOG = [
+  'deepseek/deepseek-v4-flash',
+  'meta-llama/llama-4-scout',
+  'z-ai/glm-4.7-flash',
+  'bytedance-seed/seed-2.0-mini',
+  'meta-llama/llama-4-maverick',
+  'z-ai/glm-4.5-air',
+  'minimax/minimax-m2.5',
+  'z-ai/glm-4.6v',
+  'minimax/minimax-m2',
+  'inclusionai/ling-3.0-flash',
+  'deepseek/deepseek-v4-pro-0813',
+  'z-ai/glm-4.7',
+  'google/gemini-3.7-flash',
+  'x-ai/grok-4.3',
+  'moonshotai/kimi-k2.7-code',
+  'z-ai/glm-5',
+  'moonshotai/kimi-k2.6',
+  'mistralai/mistral-large-2512',
+  'bytedance-seed/seed-2.0-code',
+  'qwen/qwen3.8-27b',
+  'anthropic/claude-opus-5',
+  'openai/gpt-5.5',
+  'anthropic/claude-sonnet-5',
+  'x-ai/grok-4.6',
+  'moonshotai/kimi-k3',
+  'anthropic/claude-opus-4.8',
+  'openai/gpt-5.4',
+  'qwen/qwen3.8-max',
+  'x-ai/grok-4.5',
+  'x-ai/grok-4.20',
+  'google/gemini-3.7-pro',
+  'qwen/qwen3.8-2.4t-a95b',
+  'nvidia/nemotron-3.5-lightning',
+];
+
+function zooPayload() {
+  return { object: 'list', data: ZOO_CATALOG.map((id) => ({ id, object: 'model' })) };
+}
+
+function fakeClaudeAliases(ids) {
+  return ids.filter((id) => {
+    if (!/^claude-/i.test(id)) return false;
+    const rest = id.slice('claude-'.length).toLowerCase();
+    return /grok|deepseek|gemini|qwen|llama|glm|kimi|mistral|nemotron|minimax|seed/.test(rest);
+  });
+}
+
+test('publishModelList keeps the full zoo catalog, not a single opus-5', async () => {
+  const { ALIAS_IDS } = await import('../lib/models.js');
+  const published = publishModelList(zooPayload());
+  const ids = published.data.map((m) => m.id);
+  assert.ok(ids.length > 1, `expected a catalog, got ${ids.length} id(s)`);
+  assert.notEqual(ids.length, 1);
+  assert.ok(ids.includes('x-ai/grok-4.6'));
+  assert.ok(ids.includes('deepseek/deepseek-v4-flash'));
+  assert.ok(ids.includes('google/gemini-3.7-flash'));
+  assert.ok(ids.includes('anthropic/claude-opus-5'));
+  for (const id of ZOO_CATALOG) assert.ok(ids.includes(id), `missing ${id}`);
+  assert.equal(ids.filter((id) => id === 'anthropic/claude-opus-5').length, 1);
+  assert.equal(fakeClaudeAliases(ids).length, 0, `must not mint claude-* for non-Anthropic animals: ${fakeClaudeAliases(ids)}`);
+  assert.equal(published.data.find((m) => m.id === 'x-ai/grok-4.6').display_name, 'grok-4.6 (x-ai)');
+  assert.equal(displayNameFor('anthropic/claude-opus-5'), 'claude-opus-5 (anthropic)');
+  // OpenAI clients still see object:list + aliases/twins
+  assert.equal(published.object, 'list');
+  assert.ok(ids.some((id) => id.startsWith('openzoo-')));
+  assert.ok(ALIAS_IDS.every((id) => ids.includes(id)));
+});
+
+test('anthropicModelList uses real zoo ids (Claude Code reads id + display_name)', () => {
+  const shaped = anthropicModelList(zooPayload());
+  const ids = shaped.data.map((m) => m.id);
+  assert.ok(shaped.data.length > 1);
+  assert.ok(ids.includes('x-ai/grok-4.6'));
+  assert.ok(ids.includes('deepseek/deepseek-v4-pro-0813'));
+  assert.ok(ids.includes('anthropic/claude-sonnet-5'));
+  assert.equal(fakeClaudeAliases(ids).length, 0);
+  for (const row of shaped.data) {
+    assert.equal(row.type, 'model');
+    assert.ok(row.display_name);
+  }
+  const grok = shaped.data.find((m) => m.id === 'x-ai/grok-4.6');
+  assert.equal(grok.display_name, 'grok-4.6 (x-ai)');
+  assert.ok(!/^claude-/.test(grok.id));
+});
+
+test('applyClaudeCodeCatalogEnv opts Claude Code into GET /v1/models discovery', async () => {
+  const env = applyClaudeCodeCatalogEnv({
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '0',
+  });
+  assert.equal(env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY, '1');
+  assert.equal(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, undefined);
+  assert.equal(env.ANTHROPIC_MODEL, undefined, 'must not pin a single sonnet/opus');
+  const skipped = applyClaudeCodeCatalogEnv({ OPENZOO_NO_GATEWAY_DISCOVERY: '1' });
+  assert.equal(skipped.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY, undefined);
+  const aliased = applyClaudeCodeCatalogEnv({ ANTHROPIC_MODEL: 'claude-sonnet-5' });
+  assert.equal(aliased.ANTHROPIC_MODEL, 'openzoo-claude-sonnet-5');
+  const grok = applyClaudeCodeCatalogEnv({ ANTHROPIC_MODEL: 'x-ai/grok-4.6' });
+  assert.equal(grok.ANTHROPIC_MODEL, 'x-ai/grok-4.6');
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const { dirname, join } = await import('node:path');
+  const launchSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../lib/launch.js'), 'utf8');
+  assert.doesNotMatch(launchSrc, /\|\| 'claude-sonnet-5'/);
+});
+
+test('GET /v1/models (OpenAI + Claude-shaped) returns the mocked zoo catalog, not opus-5-only', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const { dirname, join } = await import('node:path');
+  const proxySrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../lib/proxy.js'), 'utf8');
+  assert.match(proxySrc, /modelsListForRequest\(payload, req\.headers\)/);
+  assert.match(proxySrc, /path === '\/v1\/models'/);
+
+  // Mocked upstream catalog — same body the proxy publishes after client.fetch.
+  const openai = modelsListForRequest(zooPayload(), {});
+  const ids = openai.data.map((m) => m.id);
+  assert.ok(ids.length >= ZOO_CATALOG.length, `got ${ids.length} models`);
+  assert.ok(ids.includes('x-ai/grok-4.6'));
+  assert.ok(ids.includes('deepseek/deepseek-v4-flash'));
+  assert.ok(ids.includes('anthropic/claude-opus-5'));
+  assert.notEqual(ids.length, 1);
+  assert.ok(!(ids.length === 1 && ids[0] === 'anthropic/claude-opus-5'));
+  assert.equal(fakeClaudeAliases(ids).length, 0);
+  assert.equal(openai.object, 'list');
+  assert.ok(openai.data.find((m) => m.id === 'x-ai/grok-4.6')?.display_name);
+
+  const shaped = modelsListForRequest(zooPayload(), {
+    'anthropic-version': '2023-06-01',
+    'x-app': 'cli',
+  });
+  const cids = shaped.data.map((m) => m.id);
+  assert.ok(cids.includes('x-ai/grok-4.6'), 'Claude-shaped list must keep grok, not filter to claude-*');
+  assert.ok(cids.includes('deepseek/deepseek-v4-pro-0813'));
+  assert.ok(cids.length > 1);
+  assert.equal(fakeClaudeAliases(cids).length, 0);
+  assert.equal(shaped.data.find((m) => m.id === 'x-ai/grok-4.6').type, 'model');
 });
