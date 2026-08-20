@@ -1,6 +1,8 @@
-- Silicon Mac: download the arm64.dmg
+- Silicon Mac users download the arm64.dmg
 - Windows: the exe
 - Linux: the AppImage
+
+#61: Claude/Auto catalog is quoteable ids only (no fable clones, no :batch, no unpriced 500s).
 
 ## Claude Code / Auto
 
