@@ -5,12 +5,18 @@
 // whole client dies (empty sidebar, send is a no-op).
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
-const grokui = readFileSync(join(root, 'lib', 'grokui.mjs'), 'utf8');
+const src = process.argv[2]
+  ? (isAbsolute(process.argv[2]) ? process.argv[2] : resolve(process.argv[2]))
+  : join(root, 'lib', 'grokui.mjs');
+// Windows checkout with core.autocrlf=true turns grokui.mjs into CRLF.
+// The end marker used to be LF-only (`;\n\nconst server`), so indexOf was
+// -1 and 1.5.88 Windows CI printed "APP_HTML template bounds missing".
+const grokui = readFileSync(src, 'utf8').replace(/\r\n/g, '\n');
 const start = grokui.indexOf('const APP_HTML = `');
 const end = grokui.indexOf('`;\n\nconst server = http.createServer', start);
 if (start < 0 || end < start) {

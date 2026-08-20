@@ -123,10 +123,11 @@ test('sitrep is a plus-menu button that opens a wallet-style drawer, not a chat 
 });
 
 test('served APP_HTML <script> is valid JS (node --check)', () => {
-  const start = grokui.indexOf('const APP_HTML = `');
-  const end = grokui.indexOf('`;\n\nconst server = http.createServer', start);
+  const src = grokui.replace(/\r\n/g, '\n');
+  const start = src.indexOf('const APP_HTML = `');
+  const end = src.indexOf('`;\n\nconst server = http.createServer', start);
   assert.ok(start >= 0 && end > start, 'APP_HTML template bounds');
-  const literal = grokui.slice(start + 'const APP_HTML = '.length, end + 1);
+  const literal = src.slice(start + 'const APP_HTML = '.length, end + 1);
   // APP_HTML interpolates SUBSCRIPTIONS_PAGE into an href. Stub it so we
   // can evaluate the template and --check the script the browser actually gets.
   const html = Function('SUBSCRIPTIONS_PAGE', 'return ' + literal)('https://example.test/subscriptions');
@@ -150,6 +151,32 @@ test('served APP_HTML <script> is valid JS (node --check)', () => {
     writeFileSync(file, script);
     const r = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr || r.stdout);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assert-app-html-script accepts a CRLF copy of grokui.mjs (1.5.88 Windows)', () => {
+  // actions/checkout + autocrlf on Windows turns lib/grokui.mjs into CRLF.
+  // The 1.5.88 assert looked for `;\n\nconst server` (LF-only) and printed
+  // "APP_HTML template bounds missing" in 21s. Do not set type:module on
+  // grokui-app/package.json — that is CJS because main.js is require().
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-apphtml-crlf-'));
+  try {
+    const crlf = grokui.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n');
+    const copy = path.join(dir, 'grokui.mjs');
+    writeFileSync(copy, crlf);
+    assert.equal(crlf.indexOf('`;\n\nconst server = http.createServer'), -1);
+    assert.ok(crlf.indexOf('`;\r\n\r\nconst server = http.createServer') >= 0);
+    const r = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-app-html-script.mjs'), copy], {
+      encoding: 'utf8',
+    });
+    assert.equal(r.status, 0, r.stderr || r.stdout);
+    assert.match(r.stdout, /ok: served APP_HTML <script> parses/);
+    const assertSrc = readFileSync(path.join(root, 'scripts', 'assert-app-html-script.mjs'), 'utf8');
+    assert.match(assertSrc, /replace\(\/\\r\\n\/g/);
+    assert.equal(appPkg.type, undefined);
+    assert.equal(JSON.parse(readFileSync(path.join(root, 'lib', 'package.json'), 'utf8')).type, 'module');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
