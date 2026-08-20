@@ -1,0 +1,910 @@
+{
+  "atom_python": {
+    "idx": [
+      2384,
+      821,
+      443,
+      3203,
+      3135,
+      2277,
+      1806,
+      3583
+    ],
+    "sgn": [
+      1.0,
+      1.0,
+      -1.0,
+      1.0,
+      1.0,
+      1.0,
+      -1.0,
+      -1.0
+    ]
+  },
+  "encoder": [
+    {
+      "text": "write a python function",
+      "channels": [
+        [
+          "write",
+          "a",
+          "python",
+          "function"
+        ],
+        [
+          "write_a",
+          "a_python",
+          "python_function"
+        ],
+        [
+          "#writ",
+          "#rite",
+          "#ite ",
+          "#te a",
+          "#e a ",
+          "# a p",
+          "#a py",
+          "# pyt",
+          "#pyth",
+          "#ytho",
+          "#thon",
+          "#hon "
+        ]
+      ],
+      "idf_bucket_python": 2152,
+      "atom_python": {
+        "idx": [
+          2384,
+          821,
+          443,
+          3203,
+          3135,
+          2277,
+          1806,
+          3583
+        ],
+        "sgn": [
+          1.0,
+          1.0,
+          -1.0,
+          1.0,
+          1.0,
+          1.0,
+          -1.0,
+          -1.0
+        ]
+      },
+      "encode": {
+        "n": 4096,
+        "head": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "norm": 1.0,
+        "sha256": "bee27088b66336e8a89f4f3084df987efb05260a70ea71c758eff3bd188bc62e"
+      }
+    },
+    {
+      "text": "write a python fucntion",
+      "channels": [
+        [
+          "write",
+          "a",
+          "python",
+          "fucntion"
+        ],
+        [
+          "write_a",
+          "a_python",
+          "python_fucntion"
+        ],
+        [
+          "#writ",
+          "#rite",
+          "#ite ",
+          "#te a",
+          "#e a ",
+          "# a p",
+          "#a py",
+          "# pyt",
+          "#pyth",
+          "#ytho",
+          "#thon",
+          "#hon "
+        ]
+      ],
+      "idf_bucket_python": 2152,
+      "atom_python": {
+        "idx": [
+          2384,
+          821,
+          443,
+          3203,
+          3135,
+          2277,
+          1806,
+          3583
+        ],
+        "sgn": [
+          1.0,
+          1.0,
+          -1.0,
+          1.0,
+          1.0,
+          1.0,
+          -1.0,
+          -1.0
+        ]
+      },
+      "encode": {
+        "n": 4096,
+        "head": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "norm": 1.0,
+        "sha256": "17dfe0eb780e80776ed8e322bb468bb2abb35a9419021f7f96b8a193eb79c8cd"
+      }
+    },
+    {
+      "text": "summarise this contract and list the obligations",
+      "channels": [
+        [
+          "summarise",
+          "this",
+          "contract",
+          "and",
+          "list",
+          "the",
+          "obligations"
+        ],
+        [
+          "summarise_this",
+          "this_contract",
+          "contract_and",
+          "and_list",
+          "list_the",
+          "the_obligations"
+        ],
+        [
+          "#summ",
+          "#umma",
+          "#mmar",
+          "#mari",
+          "#aris",
+          "#rise",
+          "#ise ",
+          "#se t",
+          "#e th",
+          "# thi",
+          "#this",
+          "#his "
+        ]
+      ],
+      "idf_bucket_python": 2152,
+      "atom_python": {
+        "idx": [
+          2384,
+          821,
+          443,
+          3203,
+          3135,
+          2277,
+          1806,
+          3583
+        ],
+        "sgn": [
+          1.0,
+          1.0,
+          -1.0,
+          1.0,
+          1.0,
+          1.0,
+          -1.0,
+          -1.0
+        ]
+      },
+      "encode": {
+        "n": 4096,
+        "head": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "norm": 1.0,
+        "sha256": "28dc6242f0a6322acc6281c8cf4dd6e1e33574ff697cb91f29564e654907bdf2"
+      }
+    },
+    {
+      "text": "fix it",
+      "channels": [
+        [
+          "fix",
+          "it"
+        ],
+        [
+          "fix_it"
+        ],
+        [
+          "#fix ",
+          "#ix i",
+          "#x it"
+        ]
+      ],
+      "idf_bucket_python": 2152,
+      "atom_python": {
+        "idx": [
+          2384,
+          821,
+          443,
+          3203,
+          3135,
+          2277,
+          1806,
+          3583
+        ],
+        "sgn": [
+          1.0,
+          1.0,
+          -1.0,
+          1.0,
+          1.0,
+          1.0,
+          -1.0,
+          -1.0
+        ]
+      },
+      "encode": {
+        "n": 4096,
+        "head": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "norm": 1.0,
+        "sha256": "8ae656186e6bcb29423ff1342d48e425a2edc199e6658f92599f15968eb4f652"
+      }
+    },
+    {
+      "text": "what is in this screenshot",
+      "channels": [
+        [
+          "what",
+          "is",
+          "in",
+          "this",
+          "screenshot"
+        ],
+        [
+          "what_is",
+          "is_in",
+          "in_this",
+          "this_screenshot"
+        ],
+        [
+          "#what",
+          "#hat ",
+          "#at i",
+          "#t is",
+          "# is ",
+          "#is i",
+          "#s in",
+          "# in ",
+          "#in t",
+          "#n th",
+          "# thi",
+          "#this"
+        ]
+      ],
+      "idf_bucket_python": 2152,
+      "atom_python": {
+        "idx": [
+          2384,
+          821,
+          443,
+          3203,
+          3135,
+          2277,
+          1806,
+          3583
+        ],
+        "sgn": [
+          1.0,
+          1.0,
+          -1.0,
+          1.0,
+          1.0,
+          1.0,
+          -1.0,
+          -1.0
+        ]
+      },
+      "encode": {
+        "n": 4096,
+        "head": [
+          0.0,
+          0.0,
+          0.026308783940302432,
+          0.0,
+          0.0,
+          0.026308783940302432,
+          0.0,
+          0.0
+        ],
+        "norm": 1.0000000000000002,
+        "sha256": "3e141a02dcbe6b5681d60d627862acaeec0ad79076a37c723c19913368caa9a7"
+      }
+    },
+    {
+      "text": "translate this into japanese",
+      "channels": [
+        [
+          "translate",
+          "this",
+          "into",
+          "japanese"
+        ],
+        [
+          "translate_this",
+          "this_into",
+          "into_japanese"
+        ],
+        [
+          "#tran",
+          "#rans",
+          "#ansl",
+          "#nsla",
+          "#slat",
+          "#late",
+          "#ate ",
+          "#te t",
+          "#e th",
+          "# thi",
+          "#this",
+          "#his "
+        ]
+      ],
+      "idf_bucket_python": 2152,
+      "atom_python": {
+        "idx": [
+          2384,
+          821,
+          443,
+          3203,
+          3135,
+          2277,
+          1806,
+          3583
+        ],
+        "sgn": [
+          1.0,
+          1.0,
+          -1.0,
+          1.0,
+          1.0,
+          1.0,
+          -1.0,
+          -1.0
+        ]
+      },
+      "encode": {
+        "n": 4096,
+        "head": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          -0.026281989296224464
+        ],
+        "norm": 1.0,
+        "sha256": "359c788307b3838f20c4e7e5b1e3b5af1fc69dc9c752ae420bfea5f2e0758590"
+      }
+    },
+    {
+      "text": "",
+      "channels": [
+        [],
+        [],
+        []
+      ],
+      "idf_bucket_python": null,
+      "atom_python": {
+        "idx": [
+          2384,
+          821,
+          443,
+          3203,
+          3135,
+          2277,
+          1806,
+          3583
+        ],
+        "sgn": [
+          1.0,
+          1.0,
+          -1.0,
+          1.0,
+          1.0,
+          1.0,
+          -1.0,
+          -1.0
+        ]
+      },
+      "encode": {
+        "n": 4096,
+        "head": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "norm": 0.0,
+        "sha256": "c35020473aed1b4642cd726cad727b63fff2824ad68cedd7ffb73c7cbd890479"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "in": {
+        "text": "write a python function",
+        "allow_free": false,
+        "bindable": true
+      },
+      "out": {
+        "model": "upstage/solar-pro4",
+        "p_success": 0.664,
+        "usd_per_task": 0.000325,
+        "bind_first": false,
+        "cleared_bar": true,
+        "task_class": "code",
+        "runner_up": "creative",
+        "difficulty": "easy",
+        "bar": 0.568,
+        "feasible_models": 388,
+        "catalog_stamp": "2026-08-20T10:58:45Z",
+        "shortlist": [
+          {
+            "model": "upstage/solar-pro4",
+            "p_success": 0.664,
+            "evidence": "prior",
+            "usd_per_task": 0.000325,
+            "relative_cost": 3.99,
+            "context": 524288
+          },
+          {
+            "model": "deepseek/deepseek-v4-flash",
+            "p_success": 0.799,
+            "evidence": "prior",
+            "usd_per_task": 0.000483,
+            "relative_cost": 5.92,
+            "context": 1048576
+          },
+          {
+            "model": "deepseek/deepseek-v4-flash-0731",
+            "p_success": 0.866,
+            "evidence": "prior",
+            "usd_per_task": 0.000763,
+            "relative_cost": 9.36,
+            "context": 1310720
+          },
+          {
+            "model": "xiaomi/mimo-v2.5",
+            "p_success": 0.82,
+            "evidence": "prior",
+            "usd_per_task": 0.000763,
+            "relative_cost": 9.36,
+            "context": 1050000
+          },
+          {
+            "model": "tencent/hy3",
+            "p_success": 0.813,
+            "evidence": "prior",
+            "usd_per_task": 0.001432,
+            "relative_cost": 17.57,
+            "context": 262144
+          }
+        ],
+        "reason": "cheapest of 23 feasible models clearing P>=0.57 for a easy code task",
+        "class_confidence": 0.058,
+        "class_margin": 0.086,
+        "blend": [
+          0.848,
+          0.152
+        ]
+      }
+    },
+    {
+      "in": {
+        "text": "summarise this contract and list the obligations",
+        "allow_free": false,
+        "bindable": true
+      },
+      "out": {
+        "model": "upstage/solar-pro4",
+        "p_success": 0.702,
+        "usd_per_task": 0.000361,
+        "bind_first": false,
+        "cleared_bar": true,
+        "task_class": "longctx",
+        "runner_up": "vision",
+        "difficulty": "easy",
+        "bar": 0.589,
+        "feasible_models": 388,
+        "catalog_stamp": "2026-08-20T10:58:45Z",
+        "shortlist": [
+          {
+            "model": "upstage/solar-pro4",
+            "p_success": 0.702,
+            "evidence": "prior",
+            "usd_per_task": 0.000361,
+            "relative_cost": 3.99,
+            "context": 524288
+          },
+          {
+            "model": "openai/gpt-oss-120b",
+            "p_success": 0.696,
+            "evidence": "prior",
+            "usd_per_task": 0.000511,
+            "relative_cost": 5.65,
+            "context": 131072
+          },
+          {
+            "model": "deepseek/deepseek-v4-flash",
+            "p_success": 0.841,
+            "evidence": "prior",
+            "usd_per_task": 0.000536,
+            "relative_cost": 5.92,
+            "context": 1048576
+          },
+          {
+            "model": "deepseek/deepseek-v4-flash-0731",
+            "p_success": 0.872,
+            "evidence": "prior",
+            "usd_per_task": 0.000847,
+            "relative_cost": 9.36,
+            "context": 1310720
+          },
+          {
+            "model": "xiaomi/mimo-v2.5",
+            "p_success": 0.763,
+            "evidence": "prior",
+            "usd_per_task": 0.000847,
+            "relative_cost": 9.36,
+            "context": 1050000
+          }
+        ],
+        "reason": "cheapest of 31 feasible models clearing P>=0.59 for a easy longctx task",
+        "class_confidence": 0.005,
+        "class_margin": 0.061,
+        "blend": [
+          0.771,
+          0.229
+        ]
+      }
+    },
+    {
+      "in": {
+        "text": "prove this rigorously step by step",
+        "allow_free": false,
+        "bindable": true
+      },
+      "out": {
+        "model": "deepseek/deepseek-v4-flash",
+        "p_success": 0.844,
+        "usd_per_task": 0.000642,
+        "bind_first": false,
+        "cleared_bar": true,
+        "task_class": "reasoning",
+        "runner_up": "agentic",
+        "difficulty": "hard",
+        "bar": 0.812,
+        "feasible_models": 388,
+        "catalog_stamp": "2026-08-20T10:58:45Z",
+        "shortlist": [
+          {
+            "model": "deepseek/deepseek-v4-flash",
+            "p_success": 0.844,
+            "evidence": "prior",
+            "usd_per_task": 0.000642,
+            "relative_cost": 5.92,
+            "context": 1048576
+          },
+          {
+            "model": "deepseek/deepseek-v4-flash-0731",
+            "p_success": 0.878,
+            "evidence": "prior",
+            "usd_per_task": 0.001015,
+            "relative_cost": 9.35,
+            "context": 1310720
+          },
+          {
+            "model": "tencent/hy3",
+            "p_success": 0.844,
+            "evidence": "prior",
+            "usd_per_task": 0.001907,
+            "relative_cost": 17.58,
+            "context": 262144
+          },
+          {
+            "model": "openai/gpt-5.6-luna",
+            "p_success": 0.85,
+            "evidence": "prior",
+            "usd_per_task": 0.00433,
+            "relative_cost": 39.91,
+            "context": 1050000
+          },
+          {
+            "model": "z-ai/glm-5.2",
+            "p_success": 0.817,
+            "evidence": "prior",
+            "usd_per_task": 0.010976,
+            "relative_cost": 101.18,
+            "context": 1048576
+          }
+        ],
+        "reason": "cheapest of 5 feasible models clearing P>=0.81 for a hard reasoning task",
+        "class_confidence": 0.055,
+        "class_margin": 0.093,
+        "blend": [
+          0.865,
+          0.135
+        ]
+      }
+    },
+    {
+      "in": {
+        "text": "what is in this screenshot",
+        "allow_free": false,
+        "bindable": true,
+        "has_image": true
+      },
+      "out": {
+        "model": "xiaomi/mimo-v2.5",
+        "p_success": 0.773,
+        "usd_per_task": 0.000301,
+        "bind_first": false,
+        "cleared_bar": true,
+        "task_class": "vision",
+        "runner_up": "chat",
+        "difficulty": "easy",
+        "bar": 0.543,
+        "feasible_models": 233,
+        "catalog_stamp": "2026-08-20T10:58:45Z",
+        "shortlist": [
+          {
+            "model": "xiaomi/mimo-v2.5",
+            "p_success": 0.773,
+            "evidence": "prior",
+            "usd_per_task": 0.000301,
+            "relative_cost": 2.83,
+            "context": 1050000
+          },
+          {
+            "model": "google/gemma-4-26b-a4b-it",
+            "p_success": 0.661,
+            "evidence": "prior",
+            "usd_per_task": 0.00036,
+            "relative_cost": 3.39,
+            "context": 262144
+          },
+          {
+            "model": "google/gemma-4-31b-it",
+            "p_success": 0.812,
+            "evidence": "prior",
+            "usd_per_task": 0.000361,
+            "relative_cost": 3.4,
+            "context": 262144
+          },
+          {
+            "model": "google/gemini-2.5-flash-lite",
+            "p_success": 0.688,
+            "evidence": "prior",
+            "usd_per_task": 0.000425,
+            "relative_cost": 4.0,
+            "context": 1048576
+          },
+          {
+            "model": "stepfun/step-3.7-flash",
+            "p_success": 0.676,
+            "evidence": "prior",
+            "usd_per_task": 0.001217,
+            "relative_cost": 11.46,
+            "context": 262144
+          }
+        ],
+        "reason": "cheapest of 20 feasible models clearing P>=0.54 for a easy vision task",
+        "class_confidence": 0.077,
+        "class_margin": 0.149,
+        "blend": [
+          0.952,
+          0.048
+        ]
+      }
+    },
+    {
+      "in": {
+        "text": "fix it",
+        "allow_free": false,
+        "bindable": true,
+        "context": "the unit test for parse_json is failing on nested objects"
+      },
+      "out": {
+        "model": "deepseek/deepseek-v4-flash",
+        "p_success": 0.788,
+        "usd_per_task": 0.000137,
+        "bind_first": false,
+        "cleared_bar": true,
+        "task_class": "agentic",
+        "runner_up": "code",
+        "difficulty": "hard",
+        "bar": 0.74,
+        "feasible_models": 388,
+        "catalog_stamp": "2026-08-20T10:58:45Z",
+        "shortlist": [
+          {
+            "model": "deepseek/deepseek-v4-flash",
+            "p_success": 0.788,
+            "evidence": "prior",
+            "usd_per_task": 0.000137,
+            "relative_cost": 5.97,
+            "context": 1048576
+          },
+          {
+            "model": "deepseek/deepseek-v4-flash-0731",
+            "p_success": 0.866,
+            "evidence": "prior",
+            "usd_per_task": 0.000217,
+            "relative_cost": 9.43,
+            "context": 1310720
+          },
+          {
+            "model": "xiaomi/mimo-v2.5",
+            "p_success": 0.823,
+            "evidence": "prior",
+            "usd_per_task": 0.000217,
+            "relative_cost": 9.43,
+            "context": 1050000
+          },
+          {
+            "model": "tencent/hy3",
+            "p_success": 0.831,
+            "evidence": "prior",
+            "usd_per_task": 0.000402,
+            "relative_cost": 17.51,
+            "context": 262144
+          },
+          {
+            "model": "openai/gpt-5.6-luna",
+            "p_success": 0.845,
+            "evidence": "prior",
+            "usd_per_task": 0.00091,
+            "relative_cost": 39.58,
+            "context": 1050000
+          }
+        ],
+        "reason": "cheapest of 10 feasible models clearing P>=0.74 for a hard agentic task",
+        "class_confidence": -0.038,
+        "class_margin": 0.002,
+        "blend": [
+          0.511,
+          0.489
+        ]
+      }
+    },
+    {
+      "in": {
+        "text": "hello",
+        "allow_free": false,
+        "bindable": true
+      },
+      "out": {
+        "model": "meta-llama/llama-3.1-8b-instruct",
+        "p_success": 0.633,
+        "usd_per_task": 1.7e-05,
+        "bind_first": false,
+        "cleared_bar": true,
+        "task_class": "bulk",
+        "runner_up": "translate",
+        "difficulty": "hard",
+        "bar": 0.595,
+        "feasible_models": 388,
+        "catalog_stamp": "2026-08-20T10:58:45Z",
+        "shortlist": [
+          {
+            "model": "meta-llama/llama-3.1-8b-instruct",
+            "p_success": 0.633,
+            "evidence": "prior",
+            "usd_per_task": 1.7e-05,
+            "relative_cost": 2.86,
+            "context": 131072
+          },
+          {
+            "model": "qwen/qwen3.7-flash",
+            "p_success": 0.626,
+            "evidence": "prior",
+            "usd_per_task": 2.5e-05,
+            "relative_cost": 4.22,
+            "context": 1000000
+          },
+          {
+            "model": "deepseek/deepseek-v4-flash",
+            "p_success": 0.652,
+            "evidence": "prior",
+            "usd_per_task": 3.6e-05,
+            "relative_cost": 6.15,
+            "context": 1048576
+          },
+          {
+            "model": "deepseek/deepseek-v4-flash-0731",
+            "p_success": 0.646,
+            "evidence": "prior",
+            "usd_per_task": 5.7e-05,
+            "relative_cost": 9.71,
+            "context": 1310720
+          },
+          {
+            "model": "google/gemma-4-31b-it",
+            "p_success": 0.601,
+            "evidence": "prior",
+            "usd_per_task": 6.6e-05,
+            "relative_cost": 11.14,
+            "context": 262144
+          }
+        ],
+        "reason": "cheapest of 9 feasible models clearing P>=0.60 for a hard bulk task",
+        "class_confidence": 0.005,
+        "class_margin": 0.006,
+        "blend": [
+          0.53,
+          0.47
+        ]
+      }
+    }
+  ],
+  "idf_sample": {
+    "python": 5.4921875,
+    "the": 2.30078125,
+    "bucket_python": 2152
+  },
+  "predict": {
+    "write a python function": [
+      "code",
+      0.05840546563891463,
+      0.08599258259950215
+    ],
+    "translate this into french": [
+      "translate",
+      0.10960179562941502,
+      0.20750009869771674
+    ]
+  }
+}

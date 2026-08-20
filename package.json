@@ -10,7 +10,8 @@
   "files": [
     "bin",
     "lib",
-    "README.md"
+    "README.md",
+    "vendor/modelroute"
   ],
   "engines": {
     "node": ">=18"

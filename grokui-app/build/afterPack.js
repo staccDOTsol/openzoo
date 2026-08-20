@@ -73,12 +73,52 @@ function prodModules(projectDir) {
   // Always re-resolve the published sidecar. Reusing a cached .prod-modules
   // (or a lockfile that still says 0.48.x) is how last week's dmg shipped.
   npmSh('npm install openzoo@latest --omit=dev --ignore-scripts --no-audit --no-fund', staging);
+  overlayRepoOpenzooSidecar(stagedNM, projectDir);
   // --ignore-scripts skips dugite's postinstall, which downloads the
   // embedded git. Finder-launched grokui has no ~/.zshrc PATH, so without
   // this binary `git worktree add` dies. Download it explicitly.
   ensureDugiteGit(stagedNM);
   prune(stagedNM);
   return stagedNM;
+}
+
+// Unpublished sidecar files (modelroute + the rewrite/fallback hooks) must
+// land in node_modules/openzoo even before the next npm publish. grokui's
+// dep stays "latest"; this overlays the repo tree onto that install.
+function overlayRepoOpenzooSidecar(stagedNM, projectDir) {
+  const repo = path.join(projectDir, '..');
+  const dest = path.join(stagedNM, 'openzoo');
+  if (!fs.existsSync(dest)) return;
+  const files = [
+    'lib/modelroute.js',
+    'lib/models.js',
+    'lib/proxy.js',
+    'lib/modelroute/catalog.json',
+    'lib/modelroute/router.json',
+    'lib/modelroute/outcomes.json',
+    'lib/modelroute/README.md',
+    'vendor/modelroute/catalog.json',
+    'vendor/modelroute/router.json',
+    'vendor/modelroute/outcomes.json',
+    'vendor/modelroute/HANDOFF.md',
+    'vendor/modelroute/CURRENT_STATE.md',
+  ];
+  for (const rel of files) {
+    const from = path.join(repo, rel);
+    if (!fs.existsSync(from)) continue;
+    const out = path.join(dest, rel);
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.copyFileSync(from, out);
+  }
+  const pkgPath = path.join(dest, 'package.json');
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const filesField = Array.isArray(pkg.files) ? pkg.files : [];
+    if (!filesField.includes('vendor/modelroute')) {
+      pkg.files = [...filesField, 'vendor/modelroute'];
+      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+    }
+  } catch { /* keep published package.json */ }
 }
 
 function ensureDugiteGit(stagedNM) {
@@ -228,6 +268,7 @@ function copyNodeModules(context) {
   console.log(`[afterPack] copied production node_modules -> ${dest} (@solana: ${n}, stripped ${stripped} escaping symlink(s)/.bin)`);
 }
 
+exports.overlayRepoOpenzooSidecar = overlayRepoOpenzooSidecar;
 exports.assertCopiedOpenzoo = assertCopiedOpenzoo;
 exports.publishedOpenzooVersion = publishedOpenzooVersion;
 exports.packedAppDir = packedAppDir;

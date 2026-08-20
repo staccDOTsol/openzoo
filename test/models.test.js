@@ -107,8 +107,9 @@ test('every shipped alias id resolves against the live-shaped catalog', async ()
     assert.ok(resolveModel(id, CATALOG), `alias ${id} did not resolve`);
   }
   const merged = augmentModelList({ object: 'list', data: CATALOG.map((id) => ({ id })) });
-  // real models + one openzoo-<short> twin each + the harness aliases
-  assert.equal(merged.data.length, CATALOG.length * 2 + ALIAS_IDS.length);
+  // real models + one openzoo-<short> twin each + harness aliases + openzoo/auto
+  assert.equal(merged.data.length, CATALOG.length * 2 + ALIAS_IDS.length + 1);
+  assert.ok(merged.data.some((m) => m.id === 'openzoo/auto'));
   // every twin points at a real model and is prefixed
   const twins = merged.data.filter((m) => m.id.startsWith('openzoo-'));
   assert.equal(twins.length, CATALOG.length);
