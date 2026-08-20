@@ -146,7 +146,9 @@ what it touches:
 
 - `openzoo@0.12.0` → **`openzoo@0.17.0`** (appears twice: copypasta + Wire-it-up).
 - Anywhere a default model is implied, it is now **`anthropic/claude-opus-5`**.
-- Cost section: keep 3× and the rails. Consider adding one honest line —
+- Cost section: wallet path is OpenRouter prices; if the caller saves vs
+  direct, zoo takes 33% of the savings. No 3× markup. Keep the rails.
+  Consider adding one honest line —
   *"Model choice dominates cost far more than corpus size: a flagship is ~34×
   the output price of `deepseek-v4-pro`."* It is true and it builds trust.
 

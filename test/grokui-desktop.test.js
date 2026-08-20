@@ -301,10 +301,13 @@ test('HUD embers when session cogs exceed paid; launched racers stay billed', ()
   assert.doesNotMatch(grokui, /unused grant-back should have kept used cogs/);
   const proxy = readFileSync(path.join(root, 'lib', 'proxy.js'), 'utf8');
   assert.match(proxy, /receiptUsedCogs/);
+  assert.doesNotMatch(proxy, /MARKUP\s*=\s*3/);
   const settle = readFileSync(path.join(root, 'lib', 'racesettle.js'), 'utf8');
   assert.match(settle, /race_unused/);
   assert.match(settle, /receiptUsedCogs/);
   assert.match(settle, /not a user refund/);
+  assert.doesNotMatch(settle, /markup\s*=\s*3/);
+  assert.doesNotMatch(settle, /billedRaw\s*\/\s*markup/);
   assert.match(settle, /function recutRaceByHud/);
   assert.match(settle, /RACE_HUD_TARGET/);
   const brain = readFileSync(path.join(root, 'lib', 'podagent.mjs'), 'utf8');
