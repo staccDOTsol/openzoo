@@ -77,6 +77,7 @@ test('formatSavingLabel prefers spilled x and labels spilled vs session', async 
     assert.ok(under.mult < 1);
 
     console.log(JSON.stringify({ ok: true }));
+    process.exit(0);
   `);
   const out = await runChild(script);
   assert.match(out, /"ok":true/);
@@ -130,6 +131,7 @@ test('/cost prefers spilled x and labels spilled vs session', async () => {
     assert.doesNotMatch(session, /spilled/);
 
     console.log(JSON.stringify({ ok: true }));
+    process.exit(0);
   `);
   const out = await runChild(script);
   assert.match(out, /"ok":true/);
@@ -221,6 +223,7 @@ test('new chat does not reuse another root contextId; SPAWN kids still share', a
     assert.equal(proj.contextId, 'ctx-proj');
 
     console.log(JSON.stringify({ ok: true, chatId: chat.id, projId: proj.id }));
+    process.exit(0);
   `);
   const out = await runChild(script);
   assert.match(out, /"ok":true/);
