@@ -271,6 +271,46 @@
 6,
 6
 ],
+"agentic|thinkingmachines/inkling-small": [
+9,
+9
+],
+"agentic|undi95/remm-slerp-l2-13b": [
+9,
+12
+],
+"agentic|upstage/solar-pro-3": [
+12,
+12
+],
+"agentic|upstage/solar-pro4": [
+12,
+12
+],
+"agentic|writer/palmyra-x5": [
+4,
+4
+],
+"agentic|x-ai/grok-4.6": [
+9,
+9
+],
+"agentic|x-ai/grok-build-0.1": [
+12,
+12
+],
+"agentic|xiaomi/mimo-v2.5": [
+7,
+7
+],
+"agentic|xiaomi/mimo-v2.5-pro": [
+8,
+9
+],
+"agentic|z-ai/glm-5.2": [
+7,
+7
+],
 "bulk|aion-labs/aion-2.0": [
 6,
 10
@@ -544,8 +584,48 @@
 10
 ],
 "bulk|thinkingmachines/inkling": [
+3,
+4
+],
+"bulk|thinkingmachines/inkling-small": [
+5,
+10
+],
+"bulk|undi95/remm-slerp-l2-13b": [
+5,
+10
+],
+"bulk|upstage/solar-pro-3": [
+5,
+10
+],
+"bulk|upstage/solar-pro4": [
+5,
+10
+],
+"bulk|writer/palmyra-x5": [
 2,
-2
+8
+],
+"bulk|x-ai/grok-4.6": [
+5,
+7
+],
+"bulk|x-ai/grok-build-0.1": [
+6,
+10
+],
+"bulk|xiaomi/mimo-v2.5": [
+7,
+9
+],
+"bulk|xiaomi/mimo-v2.5-pro": [
+7,
+10
+],
+"bulk|z-ai/glm-5.2": [
+4,
+8
 ],
 "code|aion-labs/aion-2.0": [
 7,
@@ -808,8 +888,8 @@
 6
 ],
 "code|tencent/hunyuan-a13b-instruct": [
-6,
-7
+7,
+8
 ],
 "code|tencent/hy3": [
 4,
@@ -822,6 +902,46 @@
 "code|thinkingmachines/inkling": [
 3,
 3
+],
+"code|thinkingmachines/inkling-small": [
+7,
+7
+],
+"code|undi95/remm-slerp-l2-13b": [
+2,
+7
+],
+"code|upstage/solar-pro-3": [
+6,
+8
+],
+"code|upstage/solar-pro4": [
+7,
+8
+],
+"code|writer/palmyra-x5": [
+1,
+2
+],
+"code|x-ai/grok-4.6": [
+3,
+3
+],
+"code|x-ai/grok-build-0.1": [
+8,
+8
+],
+"code|xiaomi/mimo-v2.5": [
+4,
+4
+],
+"code|xiaomi/mimo-v2.5-pro": [
+7,
+7
+],
+"code|z-ai/glm-5.2": [
+5,
+5
 ],
 "longctx|aion-labs/aion-2.0": [
 9,
@@ -1080,8 +1200,48 @@
 10
 ],
 "longctx|thinkingmachines/inkling": [
+8,
+8
+],
+"longctx|thinkingmachines/inkling-small": [
+10,
+10
+],
+"longctx|undi95/remm-slerp-l2-13b": [
+10,
+10
+],
+"longctx|upstage/solar-pro-3": [
+2,
+10
+],
+"longctx|upstage/solar-pro4": [
+9,
+10
+],
+"longctx|writer/palmyra-x5": [
+8,
+8
+],
+"longctx|x-ai/grok-4.6": [
 1,
 1
+],
+"longctx|x-ai/grok-build-0.1": [
+10,
+10
+],
+"longctx|xiaomi/mimo-v2.5": [
+10,
+10
+],
+"longctx|xiaomi/mimo-v2.5-pro": [
+9,
+9
+],
+"longctx|z-ai/glm-5.2": [
+10,
+10
 ],
 "reasoning|aion-labs/aion-2.0": [
 22,
@@ -1360,7 +1520,47 @@
 13
 ],
 "reasoning|thinkingmachines/inkling-small": [
+16,
+16
+],
+"reasoning|undi95/remm-slerp-l2-13b": [
+5,
+24
+],
+"reasoning|upstage/solar-pro-3": [
 7,
-7
+24
+],
+"reasoning|upstage/solar-pro4": [
+8,
+24
+],
+"reasoning|writer/palmyra-x5": [
+11,
+11
+],
+"reasoning|x-ai/grok-4.6": [
+22,
+22
+],
+"reasoning|x-ai/grok-build-0.1": [
+24,
+24
+],
+"reasoning|xiaomi/mimo-v2.5": [
+14,
+15
+],
+"reasoning|xiaomi/mimo-v2.5-pro": [
+17,
+18
+],
+"reasoning|z-ai/glm-5.2": [
+20,
+20
+],
+"reasoning|z-ai/glm-5.2:free": [
+2,
+2
 ]
 }
