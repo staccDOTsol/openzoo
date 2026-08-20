@@ -8,7 +8,8 @@ const { brainRace } = await import('../lib/podagent.mjs');
 const {
   receiptUsedCogs, receiptDirectUsd, meterRaceReceipt, capRaceByCredit, doorAcceptsRace,
   resetGatewayRaceProbe, RACE_NO_CREDIT, recutRaceByHud, sessionDollarX,
-  RACE_HUD_TARGET,
+  RACE_HUD_TARGET, receiptSettledBilled, pairActualBilled, isQuoteReserveBilled,
+  SAVINGS_SHARE,
 } = await import('../lib/racesettle.js');
 
 function sleep(ms) {
@@ -466,6 +467,77 @@ test('race_unused is not a user refund; HUD cogs stay house cost', () => {
   assert.equal(atCost.spentUsd, 0.90);
   assert.equal(atCost.cogsUsd, 0.90);
   assert.equal(atCost.directUsd, 0.90);
+});
+
+// MEASURED 2026-08-19: quote reserved 32,000 output tokens at $0.9858;
+// OpenRouter usage.cost was $0.007962 (124× smaller). Pairing the reserve
+// with the metered cost made HUD markupX lie.
+const RESERVE_QUOTE = 0.9858;
+const USAGE_COST = 0.007962;
+
+test('reserved quote ≠ settled: billedWithActual uses post-completion billed', () => {
+  const x = { billedUsd: RESERVE_QUOTE, directUsd: RESERVE_QUOTE, savedUsd: 0 };
+  const usage = { cost: USAGE_COST, prompt_tokens: 40, completion_tokens: 8 };
+  assert.equal(isQuoteReserveBilled(RESERVE_QUOTE, USAGE_COST, x), true);
+  const settled = receiptSettledBilled(x, usage);
+  assert.equal(settled, USAGE_COST);
+  assert.ok(settled !== RESERVE_QUOTE, 'must not add the quote-time reserve');
+  const pair = pairActualBilled(x, usage);
+  assert.equal(pair.upstreamUsd, USAGE_COST);
+  assert.equal(pair.billedUsd, USAGE_COST);
+  const markupX = Number((pair.billedUsd / pair.upstreamUsd).toFixed(2));
+  assert.equal(markupX, 1);
+  assert.ok(markupX < 2, 'markupX is not 124× on a ~1× call');
+  assert.ok(RESERVE_QUOTE / USAGE_COST > 100, 'fixture is the measured 124× lie');
+});
+
+test('explicit settled billed wins over the quote reserve', () => {
+  const x = { billedUsd: RESERVE_QUOTE, billedActual: 0.0106 };
+  const pair = pairActualBilled(x, { cost: USAGE_COST });
+  assert.equal(pair.upstreamUsd, USAGE_COST);
+  assert.equal(pair.billedUsd, 0.0106);
+  const markupX = Number((pair.billedUsd / pair.upstreamUsd).toFixed(2));
+  assert.ok(markupX > 1 && markupX < 2);
+});
+
+test('stream actualUsd pairs with settled billed, not x.billedUsd reserve', () => {
+  const x = { billedUsd: RESERVE_QUOTE, actualUsd: USAGE_COST, savedUsd: 0 };
+  const pair = pairActualBilled(x, undefined);
+  assert.equal(pair.upstreamUsd, USAGE_COST);
+  assert.equal(pair.billedUsd, USAGE_COST);
+});
+
+test('settled cogs + real savings keep 33% share; reserve cogs do not', () => {
+  const cost = 0.01;
+  const saved = 0.90;
+  const honest = cost + SAVINGS_SHARE * saved;
+  const settled = receiptSettledBilled(
+    { billedUsd: honest, cogsUsd: cost, savedUsd: saved, directUsd: cost + saved },
+    { cost },
+  );
+  assert.equal(settled, honest);
+  assert.ok(settled / cost > 2, 'honest 33% of large savings can exceed 2×');
+
+  const reserved = receiptSettledBilled(
+    { billedUsd: RESERVE_QUOTE, cogsUsd: RESERVE_QUOTE, savedUsd: 0 },
+    { cost: USAGE_COST },
+  );
+  assert.equal(reserved, USAGE_COST);
+});
+
+test('tokens used × unit prices replace a reserved billedUsd', () => {
+  const x = {
+    billedUsd: RESERVE_QUOTE,
+    promptPriceUsd: 0.00001,
+    completionPriceUsd: 0.00003,
+  };
+  const usage = { cost: USAGE_COST, prompt_tokens: 100, completion_tokens: 20 };
+  assert.equal(receiptSettledBilled(x, usage), 100 * 0.00001 + 20 * 0.00003);
+});
+
+test('pairActualBilled is null when no real upstream cost was learned', () => {
+  assert.equal(pairActualBilled({ billedUsd: RESERVE_QUOTE }, {}), null);
+  assert.equal(pairActualBilled(undefined, undefined), null);
 });
 
 test('sessionDollarX is the HUD green x (direct/spent)', () => {
