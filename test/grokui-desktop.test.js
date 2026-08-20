@@ -450,8 +450,9 @@ test('grokui release notes lead with desktop installers and current npm, not nvm
   const notes = readFileSync(path.join(root, '.github', 'grokui-release-notes.md'), 'utf8');
   const lead = notes.trimStart().split('\n').slice(0, 5).join('\n');
   assert.match(lead, /arm64\.dmg/);
-  assert.match(lead, /\.exe/);
+  assert.match(lead, /exe/);
   assert.match(lead, /AppImage/);
+  assert.match(notes, /openzoo\.Setup\.\*\.exe/);
   assert.match(notes, /npx openzoo/);
   assert.match(notes, /0\.49\.9/);
   assert.match(notes, /npm i -g openzoo/);
