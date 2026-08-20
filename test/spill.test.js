@@ -35,6 +35,9 @@ import {
   hudDollarX,
   isLiveFileTool,
   LAST_SEND_TIGHTEN,
+  planTranscriptSpill,
+  rememberSpillMemo,
+  lookupSpillMemo,
 } from '../lib/spill.js';
 import { anthropicToOpenAI } from '../lib/anthropic.js';
 
@@ -1574,4 +1577,167 @@ test('in-flight Anthropic tool_result after the ask is not stubbed', () => {
   assert.ok(tool, 'translated tool_result must exist');
   assert.equal(tool.content, body);
   assert.doesNotMatch(tool.content, /\[bound/);
+});
+
+const ALL_TURNS_KNOBS = { keepTail: 8, minTurns: 6, budget: 6000, stubMore: false };
+
+function prefixOf(got, msgs) {
+  if (got.cut <= got.firstSpillable) return [];
+  return msgs.slice(got.firstSpillable, got.cut);
+}
+
+function realRoles(msgs) {
+  return msgs.filter((m) => m.role === 'user' || m.role === 'assistant').map((m) => m.role);
+}
+
+test('short thread with default knobs binds first user/assistant; tail is the last ask', () => {
+  resetAdaptState();
+  const ask = 'what should we do next?';
+  const msgs = [
+    { role: 'system', content: 'You are a coding agent.' },
+    { role: 'user', content: 'hello, please help with tetris' },
+    { role: 'assistant', content: 'Sure — I will start.' },
+    { role: 'user', content: ask },
+  ];
+  const plan = cutTranscript(msgs, ALL_TURNS_KNOBS);
+  const got = applySpillCut(msgs, { knobs: ALL_TURNS_KNOBS, adapt: false, persist: false });
+  assert.ok(plan.cut > plan.firstSpillable, `cut ${plan.cut} must be after firstSpillable ${plan.firstSpillable}`);
+  assert.equal(got.cut, plan.cut);
+  assert.ok(got.prefixChars > 0, 'early turns must be in the bind prefix');
+  const prefix = prefixOf(got, msgs);
+  const tail = tailOf(got);
+  assert.ok(prefix.some((m) => m.role === 'user' && /tetris/.test(m.content)), 'prefix includes the first user turn');
+  assert.ok(prefix.some((m) => m.role === 'assistant'), 'prefix includes the first assistant turn');
+  assert.ok(tail.some((m) => m.content === ask), 'tail contains the last ask');
+  assert.ok(!tail.some((m) => m.role === 'user' && /tetris/.test(m.content)), 'early user turn must not stay in the tail');
+  assert.ok(tail.length < msgs.length, 'early turns are not all kept in the tail');
+});
+
+test('grokui AUTO 1-model hops bind a prefix and forward a tail, not the full thread', () => {
+  resetAdaptState();
+  const hops = [
+    { role: 'system', content: 'You are grokui AUTO.' },
+    { role: 'user', content: 'build a tetris contract' },
+    { role: 'assistant', content: 'I will inspect the repo.' },
+    { role: 'user', content: 'output:\nls\nsrc\nCargo.toml' },
+    { role: 'assistant', content: 'AUTO_CONTINUE — reading Cargo.toml' },
+    { role: 'user', content: 'what is the next compile step?' },
+  ];
+  const got = applySpillCut(hops, { knobs: ALL_TURNS_KNOBS, adapt: false, persist: false });
+  assert.ok(got.cut > got.firstSpillable);
+  assert.ok(got.prefixChars > 0, 'after 2–4 hops the prefix must be non-empty');
+  const tail = tailOf(got);
+  const lastAsk = hops[hops.length - 1].content;
+  assert.ok(tail.some((m) => m.content === lastAsk), 'tail keeps the latest ask');
+  assert.ok(tail.length < hops.length, 'savings path: tail, not the full thread');
+  assert.ok(!tail.some((m) => m.content === 'build a tetris contract'), 'first user turn must be bound, not re-sent');
+  const prefix = prefixOf(got, hops);
+  assert.ok(prefix.some((m) => /tetris contract/.test(m.content)));
+  assert.ok(prefix.some((m) => m.role === 'assistant'));
+});
+
+test('minTurns 6 on a 4-real-turn thread still binds early turns', () => {
+  resetAdaptState();
+  const ask = 'continue from here';
+  const msgs = [
+    { role: 'user', content: 'first ask' },
+    { role: 'assistant', content: 'first reply' },
+    { role: 'user', content: 'second ask' },
+    { role: 'assistant', content: 'second reply' },
+    { role: 'user', content: ask },
+  ];
+  const real = realRoles(msgs);
+  assert.equal(real.length, 5);
+  // 4 real turns before the current ask — the floor must not wait for 6 in the tail.
+  const beforeAsk = realRoles(msgs.slice(0, -1));
+  assert.equal(beforeAsk.length, 4);
+  const plan = cutTranscript(msgs, { keepTail: 8, minTurns: 6, budget: 6000, stubMore: false });
+  const got = applySpillCut(msgs, {
+    knobs: { keepTail: 8, minTurns: 6, budget: 6000, stubMore: false },
+    adapt: false,
+    persist: false,
+  });
+  assert.ok(plan.cut > plan.firstSpillable, 'minTurns must not empty the prefix');
+  assert.ok(got.prefixChars > 0);
+  const prefix = prefixOf(got, msgs);
+  assert.ok(prefix.some((m) => m.content === 'first ask'), 'first user turn is bound');
+  assert.ok(prefix.some((m) => m.content === 'first reply'), 'first assistant turn is bound');
+  assert.ok(tailOf(got).some((m) => m.content === ask), 'last ask stays in the tail');
+});
+
+test('cold-bind: first session call may go unspilled; later call recalls tail + contextId', async () => {
+  resetAdaptState();
+  const memo = new Map();
+  const ledger = new Map();
+  const sessionKey = 'sid:auto-cold-1';
+  const firstMsgs = [
+    { role: 'system', content: 'You are grokui.' },
+    { role: 'user', content: 'build tetris' },
+    { role: 'assistant', content: 'I will start.' },
+    { role: 'user', content: 'next hop please' },
+  ];
+  const t1 = planTranscriptSpill(firstMsgs, {
+    knobs: ALL_TURNS_KNOBS,
+    sessionKey,
+    spillMemo: memo,
+    sessionLedger: ledger,
+  });
+  assert.ok(t1.cut > t1.firstSpillable, 'first call still finds a conversation cut');
+  assert.equal(t1.bindPlan.action, 'cold-bind');
+  assert.equal(t1.bindPlan.send, 'full');
+  assert.ok(!t1.bindPlan.contextId);
+
+  let bindCalls = 0;
+  const fakeBind = async (text) => {
+    bindCalls += 1;
+    return { contextId: 'ctx-cold', hash: 'h-cold', bytes: text.length };
+  };
+  const ready = fakeBind(t1.corpus).then((b) => {
+    rememberSpillMemo(memo, t1.bindPlan.key, { corpus: t1.corpus, contextId: b.contextId, hash: b.hash });
+    return b;
+  });
+  rememberSpillMemo(memo, t1.bindPlan.key, { corpus: t1.corpus, pending: true, ready });
+  const pending = lookupSpillMemo(memo, ledger, { sessionKey, corpus: t1.corpus });
+  assert.equal(pending.pending, true);
+  assert.ok(pending.ready);
+
+  const grownWhilePending = [
+    ...firstMsgs.slice(0, -1),
+    { role: 'assistant', content: 'did a thing' },
+    { role: 'user', content: 'AUTO_CONTINUE' },
+  ];
+  const mid = planTranscriptSpill(grownWhilePending, {
+    knobs: ALL_TURNS_KNOBS,
+    sessionKey,
+    spillMemo: memo,
+    sessionLedger: ledger,
+  });
+  assert.equal(mid.bindPlan.action, 'await-pending');
+  assert.equal(mid.bindPlan.send, 'tail');
+
+  const finished = await ready;
+  assert.equal(finished.contextId, 'ctx-cold');
+  assert.equal(bindCalls, 1);
+
+  const secondMsgs = [
+    ...grownWhilePending,
+    { role: 'assistant', content: 'more work' },
+    { role: 'user', content: 'what is left to compile?' },
+  ];
+  const t2 = planTranscriptSpill(secondMsgs, {
+    knobs: ALL_TURNS_KNOBS,
+    sessionKey,
+    spillMemo: memo,
+    sessionLedger: ledger,
+  });
+  assert.ok(t2.cut > t2.firstSpillable);
+  assert.ok(t2.prefixChars > 0);
+  assert.equal(t2.bindPlan.action, 'recall');
+  assert.equal(t2.bindPlan.send, 'tail');
+  assert.equal(t2.bindPlan.contextId, 'ctx-cold');
+  const tail = tailOf(t2);
+  assert.ok(tail.some((m) => m.content === 'what is left to compile?'));
+  assert.ok(tail.length < secondMsgs.length, 'second call forwards a tail, not the full thread');
+  assert.ok(t2.corpus.startsWith(t1.corpus), 'later prefix continues the bound corpus');
+  assert.ok(t2.bindPlan.append, 'grown transcript appends a delta');
 });
