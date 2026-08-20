@@ -136,7 +136,7 @@ test('HUD sitrep and /cost paint Nx spilled vs Nx session, never unlabeled Nx', 
   assert.match(grokui, /HUD is spilled-call x when any call bound/);
 });
 
-test('always-on bottom-left dock HUD sits above #bar and keeps refreshing after ◎ closes', () => {
+test('always-on dock HUD is a sidebar footer, not over chat or #bar', () => {
   const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
   assert.match(grokui, /id="dockHud"/);
   assert.match(grokui, /data-component="dock-hud"/);
@@ -145,15 +145,15 @@ test('always-on bottom-left dock HUD sits above #bar and keeps refreshing after 
   assert.match(grokui, /id="dockPaid"/);
   assert.match(grokui, /id="dockBind"/);
   assert.match(grokui, /id="dockCalls"/);
-  assert.match(grokui, /#dockHud \{ position: absolute; left: 14px; bottom: 72px; z-index: 200;/);
+  assert.doesNotMatch(grokui, /#dockHud \{ position: absolute; left: 14px; bottom: 72px/);
+  assert.match(grokui, /#dockHud \{ flex: 0 0 auto;/);
   assert.match(grokui, /#dockHud \{[\s\S]*?pointer-events: none/);
   assert.match(grokui, /#hud \{[^}]*z-index: 300/);
   assert.match(appHtml, /function paintDock/);
-  assert.match(appHtml, /function placeDockHud/);
+  assert.doesNotMatch(appHtml, /function placeDockHud/);
   assert.match(appHtml, /function ensureHudTick/);
   assert.match(appHtml, /paintDock\(you\)/);
   assert.match(appHtml, /ensureHudTick\(\)/);
-  assert.match(appHtml, /placeDockHud\(\)/);
   assert.match(appHtml, /spillEl\.className = spillOn \? 'dv hlime' : 'dv'/);
   assert.match(appHtml, /sessEl\.className = 'dv'/);
   assert.match(appHtml, /bindEl\.textContent = bound \? 'yes' : 'no'/);
@@ -161,9 +161,29 @@ test('always-on bottom-left dock HUD sits above #bar and keeps refreshing after 
   const hudBtn = appHtml.indexOf("hudBtn.addEventListener('click'");
   const clearTick = appHtml.indexOf('clearInterval(hudTimer)', hudBtn);
   assert.equal(clearTick, -1, 'closing ◎ must not stop the dock refresh');
+  const sideOpen = grokui.indexOf('<div id="sidebar">');
+  const sideClose = grokui.indexOf('<div id="composeOverlay">');
+  const mainOpen = grokui.indexOf('<div id="main">');
   const dockHtml = grokui.indexOf('id="dockHud"');
-  const barHtml = grokui.indexOf('<div id="bar">');
-  assert.ok(dockHtml > 0 && barHtml > dockHtml, 'dock sits in markup before #bar');
+  const threadsHtml = grokui.indexOf('id="threads"');
+  assert.ok(sideOpen > 0 && dockHtml > sideOpen && dockHtml < sideClose, 'dock lives in #sidebar');
+  assert.ok(threadsHtml > sideOpen && dockHtml > threadsHtml, 'dock is the sidebar footer after the bot list');
+  assert.ok(mainOpen > sideClose, 'sidebar ends before #main');
+  assert.ok(dockHtml < mainOpen, 'dock is not a child of the chat column');
+});
+
+test('header dials Pay and ◎ echo a short system line via /drive', () => {
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.match(appHtml, /function echoSlash/);
+  assert.match(appHtml, /echoSlash\('\/' \+ cmd \+ ' ' \+ value\)/);
+  assert.match(appHtml, /echoSlash\('\/mode ' \+ mode\)/);
+  assert.match(appHtml, /echoSlash\('\/pay'\)/);
+  assert.match(appHtml, /echoSlash\('\/hud'\)/);
+  assert.match(grokui, /if \(cmd === 'pay'\)/);
+  assert.match(grokui, /if \(cmd === 'hud'\)/);
+  assert.match(grokui, /Pay — card checkout or the local wallet\/x402 burner/);
+  assert.match(grokui, /Sitrep — mode \$\{mode\}/);
+  assert.doesNotMatch(appHtml, /task: '\/sitrep'/);
 });
 
 test('served APP_HTML <script> is valid JS (node --check)', () => {
