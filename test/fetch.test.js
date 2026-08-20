@@ -43,8 +43,8 @@ function closeServer(server) {
 }
 
 describe('fetchHeaders + session unwedge', { concurrency: 1 }, () => {
-  test('HEADERS_MS defaults to 30s; credit probe is 2.5s', () => {
-    assert.equal(HEADERS_MS, 30_000);
+  test('HEADERS_MS defaults to 120s; credit probe is 2.5s', () => {
+    assert.equal(HEADERS_MS, 120_000);
     assert.equal(CREDIT_TIMEOUT_MS, 2500);
   });
 
@@ -65,7 +65,8 @@ describe('fetchHeaders + session unwedge', { concurrency: 1 }, () => {
   test('fetchHeaders lets the body stream after headers arrive', async () => {
     const slow = await listen((_req, res) => {
       res.writeHead(200, { 'content-type': 'text/plain' });
-      setTimeout(() => { res.end('streamed'); }, 350);
+      res.write('streamed'); // flush headers now; body may continue past the budget
+      setTimeout(() => { res.end(); }, 350);
     });
     try {
       const res = await fetchHeaders(`http://127.0.0.1:${slow.address().port}/v1/chat`, {}, 150);

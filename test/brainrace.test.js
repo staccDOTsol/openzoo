@@ -371,3 +371,37 @@ test('empty/5xx do not count toward X', async () => {
   assert.deepEqual(classified.slice().sort(), ['ok-one', 'ok-two']);
   assert.equal(text, 'ok-two');
 });
+
+test('fetch-failed racer is retried once and can still fill X', async () => {
+  const tries = {};
+  const classified = [];
+  const text = await brainRace(
+    [{ role: 'user', content: 'q' }],
+    () => {},
+    null,
+    ['flaky', 'good'],
+    2,
+    undefined,
+    () => {},
+    {
+      stream: async (_messages, onDelta, _ctx, model) => {
+        tries[model] = (tries[model] || 0) + 1;
+        if (model === 'flaky' && tries[model] === 1) {
+          await sleep(5);
+          throw new TypeError('fetch failed');
+        }
+        await sleep(10);
+        onDelta(model + '-ok');
+        return model + '-ok';
+      },
+      classify: async (_m, c) => {
+        classified.push(c.model);
+        return c.model === 'flaky' ? 9 : 7;
+      },
+    },
+  );
+  assert.equal(tries.flaky, 2);
+  assert.equal(tries.good, 1);
+  assert.equal(text, 'flaky-ok');
+  assert.deepEqual(classified.slice().sort(), ['flaky', 'good']);
+});

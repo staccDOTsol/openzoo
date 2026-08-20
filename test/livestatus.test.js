@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   clipStatusArg, peekDirectiveStatus, formatModelWait, formatPayStatus,
   formatRaceStatus, parseClassifyScore, pickRaceWinner, createRaceFeed,
-  isRaceCountable, raceLastShip, RACE_EVERY_FAILED,
+  isRaceCountable, raceLastShip, RACE_EVERY_FAILED, shouldRetryRaceArrival,
+  summarizeRaceFailures, raceFailKind,
   startModelWait, readWithIdleTimeout, STREAM_IDLE_MS, STALE_THINKING_MS,
 } from '../lib/livestatus.js';
 
@@ -64,6 +65,8 @@ test('race status counts completions toward X, not mute waiting', () => {
   assert.equal(formatRaceStatus(1, 2), 'racing 1/2 back…');
   assert.equal(formatRaceStatus(2, 2), 'racing 2/2 back…');
   assert.equal(formatRaceStatus(1, 4), 'racing 1/4 back…');
+  // launched-count must never paint as "racing 4/2 back…"
+  assert.equal(formatRaceStatus(4, 2), 'racing 2/2 back…');
 });
 
 test('parseClassifyScore prefers SCORE n and stays in 0–10', () => {
@@ -153,6 +156,10 @@ test('createRaceFeed forwards the fastest alive and replaces on a different winn
   assert.ok(statuses.includes('racing 2/2 back…'));
   feed.onToken('fast', 'ignored after settle');
   assert.equal(deltas.length, 3);
+  feed.onBack();
+  feed.onBack();
+  assert.equal(statuses.filter((s) => s === 'racing 3/2 back…').length, 0);
+  assert.equal(statuses.filter((s) => s === 'racing 4/2 back…').length, 0);
 });
 
 test('createRaceFeed paints a real error when settling a no-text race', () => {
@@ -164,7 +171,34 @@ test('createRaceFeed paints a real error when settling a no-text race', () => {
   assert.equal(deltas.at(-1).meta.replace, true);
 });
 
-test('idle / stale windows stay in the hang-timeout band', () => {
-  assert.ok(STREAM_IDLE_MS >= 45_000 && STREAM_IDLE_MS <= 60_000);
+test('idle / stale windows outlast the 120s first-byte budget', () => {
+  assert.ok(STREAM_IDLE_MS >= 120_000);
   assert.ok(STALE_THINKING_MS >= STREAM_IDLE_MS);
+});
+
+test('onBack after settle cannot paint racing 4/2 onto an idle thread', () => {
+  const statuses = [];
+  const feed = createRaceFeed(() => {}, (s) => statuses.push(s), 2);
+  feed.start();
+  feed.onBack();
+  feed.onBack();
+  feed.settle({ model: 'a', text: 'done' });
+  feed.onBack();
+  feed.onBack();
+  assert.deepEqual(statuses, ['racing 0/2 back…', 'racing 1/2 back…', 'racing 2/2 back…']);
+});
+
+test('fetch-failed / empty / 5xx are retried; pay is not', () => {
+  assert.equal(shouldRetryRaceArrival({ text: '', error: 'fetch failed' }), true);
+  assert.equal(shouldRetryRaceArrival({ text: 'fetch failed' }), true);
+  assert.equal(shouldRetryRaceArrival({ text: '' }), true);
+  assert.equal(shouldRetryRaceArrival({ text: '(upstream error — HTTP 502, try again)' }), true);
+  assert.equal(shouldRetryRaceArrival({ text: '(payment failed — HTTP 402 after 3 retries)' }), false);
+  assert.equal(shouldRetryRaceArrival({ text: 'DONE: ok' }), false);
+  assert.equal(raceFailKind({ text: '', error: 'fetch failed' }), 'fetch failed');
+  assert.deepEqual(summarizeRaceFailures([
+    { text: '', error: 'fetch failed' },
+    { text: '', error: 'fetch failed' },
+    { text: '' },
+  ]), { 'fetch failed': 2, 'empty body': 1 });
 });

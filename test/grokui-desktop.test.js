@@ -106,8 +106,8 @@ test('subagents get the root ask, recent turns, and a SEND brief refresh', () =>
 });
 
 test('openzoo and grokui-app versions bump together', () => {
-  assert.equal(ozPkg.version, '0.48.97');
-  assert.equal(appPkg.version, '1.5.75');
+  assert.equal(ozPkg.version, '0.48.98');
+  assert.equal(appPkg.version, '1.5.76');
 });
 
 test('pay modal lists the card subscribe lane before wallet/x402', () => {
@@ -243,7 +243,7 @@ test('a thinking turn paints live status, not mute dots', () => {
 
 test('a race streams the live racer and can replace the bubble once', () => {
   assert.match(grokui, /ev\.replace/);
-  assert.match(grokui, /brainRace\(callMsgs, emit, t\.contextId, models, need, undefined, emitStatus\)/);
+  assert.match(grokui, /brainRace\(callMsgs, emit, t\.contextId, models, need, undefined, emitStatus/);
   assert.match(grokui, /function kickTurn/);
   assert.match(grokui, /emitToThread\(threadId, ev\)/);
   const brain = readFileSync(path.join(root, 'lib', 'podagent.mjs'), 'utf8');
