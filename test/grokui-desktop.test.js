@@ -301,6 +301,7 @@ test('a race streams the live racer and can replace the bubble once', () => {
   assert.match(live, /fetch failed/);
   const bundle = readFileSync(path.join(root, 'grokui-app', 'scripts', 'bundle-grokui.js'), 'utf8');
   assert.match(bundle, /livestatus\.js/);
+  assert.match(bundle, /racesettle\.js/);
 });
 
 test('harness strips think tags, refuses MCP-as-bash, and does not join absolute dirs', () => {

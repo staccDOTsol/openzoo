@@ -7,7 +7,7 @@ const path = require('node:path');
 const srcDir = path.join(__dirname, '..', '..', 'lib');
 const destDir = path.join(__dirname, '..', 'lib');
 fs.mkdirSync(destDir, { recursive: true });
-for (const f of ['grokui.mjs', 'podagent.mjs', 'livestatus.js', 'worktree.mjs']) {
+for (const f of ['grokui.mjs', 'podagent.mjs', 'livestatus.js', 'worktree.mjs', 'racesettle.js']) {
   const from = path.join(srcDir, f);
   const to = path.join(destDir, f);
   if (!fs.existsSync(from)) {
