@@ -92,9 +92,11 @@ function buildAppMenu() {
 }
 
 const PORT = process.env.OZ_GROKUI_PORT || 4173;
+const LIVE_URL = `http://localhost:${PORT}`;
 let serverProc, proxyProc;
 let serverLog = '';
 let serverExit = null;
+let quitting = false;
 
 function startServer() {
   // ELECTRON_RUN_AS_NODE makes the packaged Electron binary behave as plain
@@ -102,6 +104,7 @@ function startServer() {
   // to launch a second Electron GUI instance instead of running the script.
   // Pipe stdout/stderr so a MODULE_NOT_FOUND (or any listen failure) can be
   // shown in the window instead of leaving "starting…" up forever.
+  if (serverProc) return;
   serverLog = '';
   serverExit = null;
   serverProc = spawn(process.execPath, [grokuiScript()], {
@@ -123,6 +126,15 @@ function startServer() {
   });
   serverProc.on('exit', (code, signal) => {
     serverExit = { code, signal };
+    serverProc = null;
+    if (quitting) return;
+    // Window destroy / renderer abort must not leave :4173 dead. Respawn
+    // and put every open window back on the live UI once /threads answers.
+    setTimeout(() => {
+      if (quitting || serverProc) return;
+      startServer();
+      void reloadOpenWindows();
+    }, 250);
   });
 }
 
@@ -329,7 +341,11 @@ function createWindow() {
     backgroundColor: '#000000',
     titleBarStyle: 'hiddenInset',
     title: 'openzoo',
-    webPreferences: { preload: path.join(__dirname, 'preload.js') },
+    paintWhenInitiallyHidden: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      backgroundThrottling: false,
+    },
   });
   // links in chat bubbles (target="_blank") open in the real browser, not a
   // second app window — Electron blocks window.open by default without this
@@ -337,8 +353,47 @@ function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+  attachRendererGuards(win);
   win.loadURL(startingPage());
   void loadAppWhenReady(win);
+}
+
+function attachRendererGuards(win) {
+  let reloading = false;
+  const reloadLive = () => {
+    if (win.isDestroyed() || quitting || reloading) return;
+    reloading = true;
+    if (!serverProc) startServer();
+    win.loadURL(startingPage());
+    void loadAppWhenReady(win).finally(() => { reloading = false; });
+  };
+  // Measured: Helper (Renderer) EXC_BREAKPOINT / SIGTRAP in V8 GC. The
+  // BrowserWindow stays up with backgroundColor #000 and no UI. Reload the
+  // live grokui URL — do not sit on a black frame.
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[openzoo] renderer gone', details && details.reason, details && details.exitCode);
+    reloadLive();
+  });
+  win.webContents.on('unresponsive', () => {
+    console.error('[openzoo] renderer unresponsive');
+    reloadLive();
+  });
+}
+
+async function loadLiveOrFailed(win) {
+  const ok = await waitFor(`${LIVE_URL}/threads`, 80, 250, () => Boolean(serverExit));
+  if (win.isDestroyed()) return;
+  if (ok) win.loadURL(LIVE_URL);
+  else win.loadURL(failedPage(serverFailDetail()));
+}
+
+async function reloadOpenWindows() {
+  const ok = await waitFor(`${LIVE_URL}/threads`, 80, 250, () => Boolean(serverExit));
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    if (ok) win.loadURL(LIVE_URL);
+    else win.loadURL(failedPage(serverFailDetail()));
+  }
 }
 
 async function loadAppWhenReady(win) {
@@ -347,10 +402,7 @@ async function loadAppWhenReady(win) {
   // starting… forever. ensureProxy still runs (reuse a healthy sidecar,
   // spawn if none) but must not gate loadURL. Chat pays later, after paint.
   void ensureProxy();
-  const ok = await waitFor(`http://localhost:${PORT}/threads`, 80, 250, () => Boolean(serverExit));
-  if (win.isDestroyed()) return;
-  if (ok) win.loadURL(`http://localhost:${PORT}`);
-  else win.loadURL(failedPage(serverFailDetail()));
+  await loadLiveOrFailed(win);
 }
 
 // Unsigned builds can't use Electron's full auto-updater (it requires signed
@@ -382,16 +434,22 @@ app.whenReady().then(() => {
   startServer();
   createWindow();
   checkForUpdates();
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  app.on('activate', () => {
+    if (quitting) return;
+    if (!serverProc) startServer();
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
 });
 
 app.on('window-all-closed', () => {
-  if (serverProc) serverProc.kill();
-  if (proxyProc) proxyProc.kill();
+  // macOS: do not kill grokui or the sidecar. A renderer/GPU abort can
+  // destroy the BrowserWindow; killing :4173/:8402 here left a black
+  // leftover frame that could not reload. Dock re-activate createWindow().
   if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('before-quit', () => {
-  if (serverProc) serverProc.kill();
-  if (proxyProc) proxyProc.kill();
+  quitting = true;
+  if (serverProc) { serverProc.kill(); serverProc = null; }
+  if (proxyProc) { proxyProc.kill(); proxyProc = null; }
 });

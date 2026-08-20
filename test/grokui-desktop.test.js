@@ -286,6 +286,67 @@ test('grokui-app depends on openzoo latest, not a 0.48 caret', () => {
   assert.equal(lock.packages[''].dependencies.openzoo, 'latest');
 });
 
+test('GPU stays on — do not disableHardwareAcceleration', () => {
+  // Software raster made resize painfully slow. Mitigate the renderer
+  // SIGTRAP by respawn/reload, not by turning the GPU off.
+  assert.doesNotMatch(main, /disableHardwareAcceleration/);
+  assert.doesNotMatch(main, /disable-gpu['"`]/);
+  const body = fnBody(main, 'createWindow');
+  assert.match(body, /backgroundThrottling:\s*false/);
+  assert.match(body, /paintWhenInitiallyHidden:\s*true/);
+});
+
+test('darwin window-all-closed does not kill grokui or the sidecar', () => {
+  const start = main.indexOf("app.on('window-all-closed'");
+  const end = main.indexOf("app.on('before-quit'");
+  assert.ok(start >= 0 && end > start, 'window-all-closed and before-quit');
+  const closed = main.slice(start, end);
+  assert.doesNotMatch(closed, /serverProc.*\.kill\(/);
+  assert.doesNotMatch(closed, /proxyProc.*\.kill\(/);
+  assert.match(closed, /process\.platform !== 'darwin'/);
+  assert.match(closed, /app\.quit\(\)/);
+  const beforeQuit = main.slice(end, end + 280);
+  assert.match(beforeQuit, /quitting = true/);
+  assert.match(beforeQuit, /serverProc\.kill\(/);
+  assert.match(beforeQuit, /proxyProc\.kill\(/);
+});
+
+test('grokui respawns if it exits while the app is still running', () => {
+  const body = fnBody(main, 'startServer');
+  assert.match(body, /serverProc\.on\('exit'/);
+  assert.match(body, /if \(quitting\) return/);
+  assert.match(body, /startServer\(\)/);
+  assert.match(body, /reloadOpenWindows/);
+  assert.match(main, /function reloadOpenWindows/);
+  assert.match(main, /LIVE_URL\}\/threads/);
+  assert.match(fnBody(main, 'reloadOpenWindows'), /BrowserWindow\.getAllWindows/);
+  assert.match(fnBody(main, 'reloadOpenWindows'), /loadURL\(LIVE_URL\)/);
+  const activate = main.slice(main.indexOf("app.on('activate'"), main.indexOf("app.on('window-all-closed'"));
+  assert.match(activate, /if \(!serverProc\) startServer\(\)/);
+});
+
+test('render-process-gone and unresponsive reload the live grokui URL', () => {
+  assert.match(main, /function attachRendererGuards/);
+  const body = fnBody(main, 'attachRendererGuards');
+  assert.match(body, /render-process-gone/);
+  assert.match(body, /unresponsive/);
+  assert.match(body, /loadAppWhenReady/);
+  assert.match(body, /startingPage\(\)/);
+  assert.match(fnBody(main, 'createWindow'), /attachRendererGuards\(win\)/);
+  assert.match(fnBody(main, 'loadLiveOrFailed'), /win\.loadURL\(LIVE_URL\)/);
+  assert.doesNotMatch(body, /app\.quit\(\)/);
+});
+
+test('APP_HTML fills the electron window on resize (100% not 100vh)', () => {
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.match(appHtml, /html, body \{[^}]*height: 100%;[^}]*width: 100%;[^}]*overflow: hidden/);
+  assert.match(appHtml, /#sidebar \{[^}]*height: 100%;/);
+  assert.match(appHtml, /#main \{[^}]*flex: 1;[^}]*min-width: 0;[^}]*min-height: 0;[^}]*height: 100%;/);
+  assert.doesNotMatch(appHtml, /#sidebar \{[^}]*height:\s*100vh/);
+  assert.doesNotMatch(appHtml, /#main \{[^}]*height:\s*100vh/);
+  assert.doesNotMatch(appHtml, /height:\s*100vh/);
+});
+
 test('createWindow constructs BrowserWindow before ensureProxy or /threads', () => {
   const body = fnBody(main, 'createWindow');
   const bw = body.indexOf('new BrowserWindow');
@@ -306,7 +367,8 @@ test('loadAppWhenReady does not await ensureProxy or a 402 before grokui', () =>
   assert.doesNotMatch(body, /await\s+ensureProxy/);
   assert.doesNotMatch(body, /\/v1\/session/);
   assert.doesNotMatch(body, /await waitFor\(`http:\/\/127\.0\.0\.1:8402/);
-  assert.match(body, /\/threads/);
+  assert.match(body, /loadLiveOrFailed/);
+  assert.match(fnBody(main, 'loadLiveOrFailed'), /\/threads/);
   assert.match(main, /Reuse only a healthy :8402/);
 });
 
@@ -314,9 +376,11 @@ test('loadAppWhenReady paints the server error instead of sitting on starting…
   assert.match(main, /function failedPage/);
   assert.match(main, /function serverFailDetail/);
   const body = fnBody(main, 'loadAppWhenReady');
-  assert.match(body, /failedPage\(serverFailDetail\(\)\)/);
-  assert.match(body, /serverExit/);
+  assert.match(body, /loadLiveOrFailed/);
   assert.doesNotMatch(body, /await\s+ensureProxy/);
+  const live = fnBody(main, 'loadLiveOrFailed');
+  assert.match(live, /failedPage\(serverFailDetail\(\)\)/);
+  assert.match(live, /serverExit/);
   assert.match(main, /serverProc\.on\('exit'/);
   assert.match(main, /serverLog/);
   assert.match(fnBody(main, 'startServer'), /stdio:\s*\[\s*'ignore',\s*'pipe',\s*'pipe'\s*\]/);
