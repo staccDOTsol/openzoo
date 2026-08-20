@@ -345,20 +345,59 @@ test('selecting text copies it and toasts copied', () => {
   assert.doesNotMatch(grokui, /window\.alert\s*\(/);
 });
 
-test('auto keeps going instead of parking on a continue note', () => {
-  assert.match(grokui, /OZ_AUTO_MAX_STEPS \|\| 500/);
-  assert.doesNotMatch(grokui, /OZ_AUTO_MAX_STEPS \|\| 8\b/);
+test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
+  assert.match(grokui, /from '\.\/claudecode\.js'/);
+  assert.match(grokui, /async function runAutoClaudeTurn/);
+  assert.match(grokui, /t\.runMode === 'auto'/);
+  assert.match(grokui, /usedClaude = true/);
+  assert.match(grokui, /runClaudeCode\(/);
+  assert.match(grokui, /Claude Code via OpenZoo/);
   assert.doesNotMatch(grokui, /say "continue" to keep going/);
   assert.match(grokui, /const AUTO_CONTINUE/);
-  assert.match(grokui, /const AUTO_RACE_RETRY/);
-  assert.match(grokui, /const AUTO_EMPTY_RETRY/);
-  assert.match(grokui, /STALLED_OFFER/);
-  assert.match(grokui, /function isDoneReply/);
-  assert.match(grokui, /function isTransientModelFail/);
-  assert.match(grokui, /function enqueueAutoHop/);
-  assert.match(grokui, /function shouldKeepAuto/);
-  assert.match(grokui, /RACE_EVERY_FAILED/);
   assert.match(grokui, /kickTurn\(threadId, userText, onEvent\)/);
+  const autoFn = fnBody(grokui, 'runAutoClaudeTurn');
+  assert.doesNotMatch(autoFn, /parseRun\(/);
+  assert.doesNotMatch(autoFn, /tryDirective\(/);
+  assert.doesNotMatch(autoFn, /enqueueAutoHop\(/);
+  assert.doesNotMatch(autoFn, /AUTO_DIRECTIVE/);
+  assert.doesNotMatch(autoFn, /fetch\([^)]*chat\/completions/);
+  const launch = readFileSync(path.join(root, 'lib', 'launch.js'), 'utf8');
+  assert.match(launch, /export function claudeZooEnv/);
+  assert.match(launch, /delete env\.ANTHROPIC_API_KEY/);
+  assert.match(launch, /ANTHROPIC_AUTH_TOKEN/);
+  const claude = readFileSync(path.join(root, 'lib', 'claudecode.js'), 'utf8');
+  assert.match(claude, /--output-format/);
+  assert.match(claude, /stream-json/);
+  assert.match(claude, /bypassPermissions/);
+  assert.match(claude, /Do not curl localhost:8402\/v1\/chat\/completions/);
+  assert.doesNotMatch(claude, /spawn\([^)]*curl/);
+});
+
+test('install docs ship Mac nvm+openzoo claude and Windows nvm-windows, not extra steps', () => {
+  const readme = readFileSync(path.join(root, 'README.md'), 'utf8');
+  const notes = readFileSync(path.join(root, '.github', 'grokui-release-notes.md'), 'utf8');
+  for (const src of [readme, notes]) {
+    assert.match(src, /curl -fsSL https:\/\/claude\.ai\/install\.sh \| bash/);
+    assert.match(src, /raw\.githubusercontent\.com\/nvm-sh\/nvm\/v0\.40\.7\/install\.sh/);
+    assert.match(src, /\. "\$HOME\/\.nvm\/nvm\.sh"/);
+    assert.match(src, /nvm install 24/);
+    assert.match(src, /npm i -g openzoo/);
+    assert.match(src, /export PATH="\$HOME\/\.local\/bin:\$PATH"/);
+    assert.match(src, /openzoo claude/);
+    assert.match(src, /irm https:\/\/claude\.ai\/install\.ps1 \| iex/);
+    assert.match(src, /curl -fsSL https:\/\/downloads\.claude\.ai\/install\.cmd -o install\.cmd && install\.cmd && del install\.cmd/);
+    assert.match(src, /coreybutler\/nvm-windows/);
+    assert.match(src, /nvm-setup\.exe/);
+    assert.match(src, /Then nvm-windows:/);
+    assert.match(src, /nvm use 24/);
+    assert.match(src, /Do not use the unix nvm curl on Windows/);
+    assert.match(src, /Do not source `~\/\.zshrc`/);
+    assert.match(src, /(?:\*\*not\*\* need to authenticate Claude first|No Claude login first)/);
+  }
+  const win = readme.slice(readme.indexOf('Windows — official Claude install'));
+  assert.doesNotMatch(win, /source ~\/\.zshrc/);
+  assert.doesNotMatch(win, /claude\.ai\/install\.sh/);
+  assert.doesNotMatch(win, /nvm-sh\/nvm/);
 });
 
 test('subagents get the root ask, recent turns, and a SEND brief refresh', () => {

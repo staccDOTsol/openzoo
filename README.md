@@ -23,23 +23,41 @@ paid $0.002137 (9.5× cheaper than direct) · rail solana · tx 5Kd…
 
 **Cursor** (Settings → Models → OpenAI API): set *Override OpenAI Base URL* to `http://localhost:8402/v1`, API key `sk-openzoo`. (Cursor Hobby can't BYOK; Pro can.)
 
-**Claude Code (zoo catalog, not opus-5-only):**
+**Claude Code / grokui Auto** — `openzoo claude` sets the Anthropic API key + base URL to the local OpenZoo proxy (x402 pay-per-call). You do **not** need to authenticate Claude first. grokui orange Auto is this harness, not a `RUN:` text parser. PATH `~/.local/bin` is required on Mac so `claude` is found.
 
-Prefer this. `ANTHROPIC_API_KEY` stays unset (it would bill api.anthropic.com). Base URL is `http://localhost:8402/v1`. `/model` should list zoo animals from the live OpenRouter catalog (plus `openzoo-*` twins), not a single opus-5.
+Mac:
 
-```bash
-npx openzoo claude
+```
+curl -fsSL https://claude.ai/install.sh | bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.7/install.sh | bash
+. "$HOME/.nvm/nvm.sh"
+nvm install 24
+npm i -g openzoo
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+openzoo claude
 ```
 
-Leave a healthy `:8402` sidecar alone. Manual equivalent:
+Windows — official Claude install, then nvm-windows (https://github.com/coreybutler/nvm-windows — `nvm-setup.exe`). Do not use the unix nvm curl on Windows. Do not source `~/.zshrc`.
 
-```bash
-unset ANTHROPIC_API_KEY
-export ANTHROPIC_BASE_URL=http://localhost:8402/v1
-export ANTHROPIC_AUTH_TOKEN=sk-openzoo
-export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
-curl -s "$ANTHROPIC_BASE_URL/models"   # many OpenRouter ids, not 1
-claude                                 # /model lists those zoo animals
+PowerShell:
+
+```
+irm https://claude.ai/install.ps1 | iex
+```
+
+CMD:
+
+```
+curl -fsSL https://downloads.claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd
+```
+
+Then nvm-windows:
+
+```
+nvm install 24
+nvm use 24
+npm i -g openzoo
+openzoo claude
 ```
 
 **Any OpenAI-env tool:**
