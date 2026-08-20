@@ -15,6 +15,18 @@ const preload = readFileSync(path.join(root, 'grokui-app', 'preload.js'), 'utf8'
 const appPkg = require('../grokui-app/package.json');
 const ozPkg = require('../package.json');
 
+test('grokui app version is 1.6.1 so the next tag sorts above 1.5.99', () => {
+  assert.equal(appPkg.version, '1.6.1');
+  const harness = readFileSync(path.join(root, 'lib', 'harness-install.js'), 'utf8');
+  assert.match(harness, /OPENZOO_CLAUDE_SPEC/);
+  assert.match(harness, /ELECTRON_RUN_AS_NODE/);
+  assert.match(harness, /localBinDir/);
+  assert.doesNotMatch(harness, /claude\.ai\/install/);
+  assert.match(grokui, /ensureHarness/);
+  assert.match(grokui, /shouldSkipHarnessAutostart/);
+  assert.doesNotMatch(readFileSync(path.join(root, 'lib', 'claudecode.js'), 'utf8'), /npx -y openzoo-claude/);
+});
+
 test('the Electron app does not keep a drifting grokui.mjs', () => {
   // A committed copy is how cheap/race/wallet vanished from the packaged app.
   // The live file is lib/grokui.mjs; grokui-app copies it at start/pack time.
@@ -432,29 +444,45 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.match(autoFn, /sessionKey: t\.id/);
   assert.match(autoFn, /isClaudeFallbackReply\(finalText\)/);
   assert.match(autoFn, /return finalText;/);
+  assert.match(autoFn, /result\.missing/);
+  assert.match(grokui, /sidecar starting…/);
+  assert.match(grokui, /function waitForSidecarSession/);
+  assert.match(grokui, /function autoClaudeTurnProducedVisible/);
+  assert.match(fnBody(grokui, 'runTurn'), /usedClaude = false/);
+  assert.match(fnBody(grokui, 'runTurn'), /autoClaudeTurnProducedVisible/);
+  assert.doesNotMatch(fnBody(grokui, 'runTurn'), /if \(threadHasVisibleBotReply\(t\)\)/);
 });
 
 test('install docs ship Mac nvm+openzoo claude and Windows nvm-windows, not official Claude', () => {
   const readme = readFileSync(path.join(root, 'README.md'), 'utf8');
   const notes = readFileSync(path.join(root, '.github', 'grokui-release-notes.md'), 'utf8');
+  assert.match(notes, /Silicon Mac/);
+  assert.match(notes, /arm64\.dmg/);
+  assert.match(notes, /Windows/);
+  assert.match(notes, /\bexe\b/);
+  assert.match(notes, /Linux/);
+  assert.match(notes, /AppImage/);
+  assert.match(notes, /openzoo-claude/);
+  assert.match(notes, /first (?:launch|run)|~\/\.local\/bin/i);
+  assert.doesNotMatch(notes, /npx -y openzoo-claude/);
   for (const src of [readme, notes]) {
     assert.doesNotMatch(src, /curl -fsSL https:\/\/claude\.ai\/install\.sh \| bash/);
     assert.doesNotMatch(src, /irm https:\/\/claude\.ai\/install\.ps1 \| iex/);
     assert.doesNotMatch(src, /downloads\.claude\.ai\/install\.cmd/);
     assert.match(src, /openzoo-claude/);
-    assert.match(src, /raw\.githubusercontent\.com\/nvm-sh\/nvm\/v0\.40\.7\/install\.sh/);
-    assert.match(src, /\. "\$HOME\/\.nvm\/nvm\.sh"/);
-    assert.match(src, /nvm install 24/);
-    assert.match(src, /npm i -g openzoo/);
-    assert.match(src, /openzoo claude/);
-    assert.match(src, /coreybutler\/nvm-windows/);
-    assert.match(src, /nvm-setup\.exe/);
-    assert.match(src, /Then nvm-windows:/);
-    assert.match(src, /nvm use 24/);
-    assert.match(src, /Do not use the unix nvm curl on Windows/);
-    assert.match(src, /Do not source `~\/\.zshrc`/);
-    assert.match(src, /(?:Do not install official Claude Code|Do not curl)/);
   }
+  assert.match(readme, /raw\.githubusercontent\.com\/nvm-sh\/nvm\/v0\.40\.7\/install\.sh/);
+  assert.match(readme, /\. "\$HOME\/\.nvm\/nvm\.sh"/);
+  assert.match(readme, /nvm install 24/);
+  assert.match(readme, /npm i -g openzoo/);
+  assert.match(readme, /openzoo claude/);
+  assert.match(readme, /coreybutler\/nvm-windows/);
+  assert.match(readme, /nvm-setup\.exe/);
+  assert.match(readme, /Then nvm-windows:/);
+  assert.match(readme, /nvm use 24/);
+  assert.match(readme, /Do not use the unix nvm curl on Windows/);
+  assert.match(readme, /Do not source `~\/\.zshrc`/);
+  assert.match(readme, /(?:Do not install official Claude Code|Do not curl)/);
   const win = readme.slice(readme.indexOf('Windows — nvm-windows'));
   assert.doesNotMatch(win, /source ~\/\.zshrc/);
   assert.doesNotMatch(win, /claude\.ai\/install\.sh/);
@@ -702,7 +730,9 @@ test('afterPack overlays sidecar spill/runguard into node_modules/openzoo and bi
   }
   assert.doesNotThrow(() => afterPack.assertOverlaidOpenzoo(dest, root));
   assert.doesNotThrow(() => afterPack.assertPackedLivestatusLoads(dest));
+  assert.doesNotThrow(() => afterPack.assertPackedOpenzooLib(dest));
   assert.equal(existsSync(path.join(dest, 'lib', 'think.js')), true);
+  assert.equal(afterPack.OPENZOO_SIDECAR_REQUIRED.includes('lib/think.js'), true);
   writeFileSync(path.join(dest, 'lib', 'spill.js'), 'stale npm spill\n');
   assert.throws(() => afterPack.assertOverlaidOpenzoo(dest, root), /spill\.js|differ|overlaid/);
   rmSync(path.join(dest, 'lib', 'runguard.js'));
@@ -732,6 +762,16 @@ test('assert-overlaid-openzoo fails a packed tree that still has npm spill.js', 
     });
     assert.equal(ok.status, 0, ok.stderr || ok.stdout);
     assert.match(ok.stdout, /ok overlaid/);
+    const loadOk = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-packed-openzoo-lib.mjs'), packed], {
+      encoding: 'utf8',
+    });
+    assert.equal(loadOk.status, 0, loadOk.stderr || loadOk.stdout);
+    rmSync(path.join(dest, 'lib', 'think.js'));
+    const missingThink = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-packed-openzoo-lib.mjs'), packed], {
+      encoding: 'utf8',
+    });
+    assert.notEqual(missingThink.status, 0);
+    assert.match(missingThink.stderr, /think\.js/);
   } finally {
     rmSync(packed, { recursive: true, force: true });
   }
@@ -742,16 +782,21 @@ test('desktop pack CI walks packed grokui.mjs relatives', () => {
     const yml = readFileSync(path.join(root, '.github', 'workflows', name), 'utf8');
     assert.match(yml, /assert-packed-grokui-lib\.mjs/);
     assert.match(yml, /assert-overlaid-openzoo\.mjs/);
+    assert.match(yml, /assert-packed-openzoo-lib\.mjs/);
     assert.match(yml, /assert-app-html-script\.mjs/);
   }
   const packed = readFileSync(path.join(root, 'scripts', 'assert-packed-grokui-lib.mjs'), 'utf8');
   assert.match(packed, /assert-packed-grokui-esm\.mjs/);
+  const ozLib = readFileSync(path.join(root, 'scripts', 'assert-packed-openzoo-lib.mjs'), 'utf8');
+  assert.match(ozLib, /lib\/think\.js/);
+  assert.match(ozLib, /assertPackedOpenzooLib/);
   const ignore = readFileSync(path.join(root, 'grokui-app', '.gitignore'), 'utf8');
   assert.match(ignore, /^lib\/$/m);
   assert.doesNotMatch(ignore, /lib\/grokui\.mjs/);
   const rel = readFileSync(path.join(root, 'scripts', 'release-mac.sh'), 'utf8');
   assert.match(rel, /assert-packed-grokui-lib/);
   assert.match(rel, /assert-overlaid-openzoo/);
+  assert.match(rel, /assert-packed-openzoo-lib/);
 });
 
 test('assert-packed-grokui-lib fails a 1.5.86-shaped packed tree', () => {
@@ -1136,7 +1181,7 @@ test('ensureProxy reuses a healthy :8402 and autoheals a dead packed sidecar', (
   assert.match(src, /not attaching; grokui will spawn the matching one/);
   assert.match(src, /refusing to attach/);
   assert.match(src, /displaceStaleListener/);
-  assert.match(src, /spawn\(execPath, \[binPath\]/);
+  assert.match(src, /spawn\(execPath, \[binPath\]|spawn\(spec\.cmd, spec\.args/);
   assert.match(src, /ELECTRON_RUN_AS_NODE: '1'/);
   assert.match(src, /OPENZOO_SILENT: '1'/);
   assert.match(src, /stdio: \['ignore', 'pipe', 'pipe'\]/);
@@ -1144,8 +1189,9 @@ test('ensureProxy reuses a healthy :8402 and autoheals a dead packed sidecar', (
   assert.doesNotMatch(src, /npx openzoo@latest/);
   assert.match(src, /sidecar exited/);
   assert.match(src, /respawning/);
-  assert.match(heal, /looksLikeModuleNotFound/);
-  assert.match(heal, /MODULE_NOT_FOUND — not respawning/);
+  assert.match(heal, /looksLikeModuleNotFound|isCannotLoadOutput/);
+  assert.match(heal, /MODULE_NOT_FOUND/);
+  assert.match(heal, /falling back to host node|resolveHostNode/);
   assert.doesNotMatch(heal, /reloadOpenWindows/);
   assert.doesNotMatch(heal, /app\.quit\(/);
   assert.match(main, /createSidecarHealer/);
@@ -1164,6 +1210,7 @@ test('cut and release scripts keep openzoo latest or refuse', () => {
   assert.match(cut, /refuse to cut/);
   assert.match(cut, /assert-packed-grokui-esm\.mjs/);
   assert.match(cut, /assert-overlaid-openzoo\.mjs/);
+  assert.match(cut, /assert-packed-openzoo-lib\.mjs/);
   assert.match(cut, /bundle-grokui\.js/);
   assert.match(rel, /assert-grokui-pin/);
   assert.match(rel, /assert-overlaid-openzoo/);
@@ -1205,12 +1252,14 @@ test('user turns persist to the thread store before the model call', () => {
   assert.match(grokui, /function isClaudeFallbackReply/);
   assert.match(fnBody(grokui, 'isClaudeFallbackReply'), /\(no response\)/);
   assert.match(fnBody(grokui, 'isClaudeFallbackReply'), /upstream HTTP \\d\+/);
-  assert.match(run, /isClaudeFallbackReply\(lastReply\)/);
+  assert.match(run, /isClaudeFallbackReply\(lastReply\)|autoClaudeTurnProducedVisible/);
   assert.match(run, /popClaudeFallbackBot\(t\)/);
   assert.match(run, /claudeFallback = true/);
   assert.match(run, /!claudeFallback && shouldKeepAuto/);
   assert.match(grokui, /function threadHasVisibleBotReply/);
-  assert.match(run, /threadHasVisibleBotReply\(t\)/);
+  assert.match(grokui, /function autoClaudeTurnProducedVisible/);
+  assert.match(run, /autoClaudeTurnProducedVisible/);
+  assert.doesNotMatch(run, /if \(threadHasVisibleBotReply\(t\)\)/);
   const driveStart = grokui.indexOf("req.url === '/drive'");
   const driveEnd = grokui.indexOf('res.writeHead(200, { \'content-type\': \'text/html\' })', driveStart);
   const drive = grokui.slice(driveStart, driveEnd);

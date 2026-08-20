@@ -103,4 +103,14 @@ if (overlay.status !== 0) {
   die('refuse to cut: afterPack overlay list is missing sidecar files');
 }
 
+const packedOz = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-packed-openzoo-lib.mjs')], {
+  cwd: root,
+  encoding: 'utf8',
+});
+if (packedOz.stdout) process.stdout.write(packedOz.stdout);
+if (packedOz.status !== 0) {
+  process.stderr.write(packedOz.stderr || '');
+  die('refuse to cut: packed openzoo lib assert missing think.js / livestatus load');
+}
+
 console.log(`cut grokui ${opts.grokui} / openzoo ${opts.openzoo} (app dep stays latest)`);

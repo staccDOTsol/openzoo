@@ -269,13 +269,16 @@ test('AUTO is Claude Code once; ask still parks pendingRun; ping wakes', async (
     assert.equal(shouldKeepAuto({ runMode: 'auto' }, '(payment required — HTTP 402, the wallet is empty.)'), false);
     assert.equal(isEmptyToolResult('(command output)\\n(no output)'), true);
 
-    const skipPty = newThread('skip-pty-first', null);
+    const skipPty = newThread('try-pty-first', null);
     skipPty.runMode = 'auto';
     let skipClaude = 0;
-    setClaudeRunnerForTest(async () => { skipClaude += 1; return { text: 'pty should skip' }; });
+    setClaudeRunnerForTest(async () => {
+      skipClaude += 1;
+      return { text: '', error: false, paymentFailed: '', sessionId: '' };
+    });
     setBrainAskForTest(() => 'visible from chat');
     await runTurn(skipPty.id, 'hi first');
-    assert.equal(skipClaude, 0, 'first Auto send skips PTY until a visible reply exists');
+    assert.equal(skipClaude, 1, 'first Auto send tries PTY then completions if empty');
     assert.equal(skipPty.history.filter((h) => h.who === 'bot').pop().text, 'visible from chat');
     assert.equal(skipPty.status, 'idle');
 
@@ -620,6 +623,8 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
     assert.equal(isClaudeFallbackReply('error: upstream HTTP 500'), true);
     assert.equal(isClaudeFallbackReply('Wrote hello.txt'), false);
     assert.equal(isClaudeFallbackReply('(payment required — HTTP 402, the wallet is empty.)'), false);
+    assert.equal(isClaudeFallbackReply('openzoo-claude is installing. Auto will use chat until the harness is ready.'), true);
+    assert.equal(isClaudeFallbackReply('openzoo-claude CLI not found. install with npx'), true);
 
     const emptyCases = [
       { text: '', error: false },
@@ -652,16 +657,50 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
       assert.equal(quiet.status, 'idle');
     }
 
-    let skipClaude = 0;
-    setClaudeRunnerForTest(async () => { skipClaude += 1; return { text: 'pty skipped' }; });
-    setBrainAskForTest(() => 'skip pty until visible reply');
-    const freshAuto = newThread('skip-pty-persist', null);
+    let firstPty = 0;
+    setClaudeRunnerForTest(async () => {
+      firstPty += 1;
+      return { text: '', error: false, paymentFailed: '', sessionId: '', missing: false };
+    });
+    setBrainAskForTest(() => 'try pty then completions');
+    const freshAuto = newThread('try-pty-first', null);
     freshAuto.runMode = 'auto';
     await runTurn(freshAuto.id, 'hi');
-    assert.equal(skipClaude, 0, 'empty-history Auto skips PTY');
+    assert.equal(firstPty, 1, 'empty-history Auto still tries PTY');
     assert.equal(freshAuto.history.filter((h) => h.who === 'user').length, 1);
-    assert.equal(freshAuto.history.filter((h) => h.who === 'bot').pop().text, 'skip pty until visible reply');
+    assert.equal(freshAuto.history.filter((h) => h.who === 'bot').pop().text, 'try pty then completions');
     assert.equal(freshAuto.status, 'idle');
+
+    let secondPty = 0;
+    setClaudeRunnerForTest(async () => {
+      secondPty += 1;
+      return { text: '(no response)', error: false, paymentFailed: '', sessionId: '' };
+    });
+    setBrainAskForTest(() => 'second send still completions');
+    await runTurn(freshAuto.id, 'hi again');
+    assert.equal(secondPty, 1, 'thread with a bot row still tries PTY');
+    const secondUsers = freshAuto.history.filter((h) => h.who === 'user');
+    assert.equal(secondUsers.length, 2);
+    assert.equal(secondUsers[1].text, 'hi again');
+    assert.equal(freshAuto.history.filter((h) => h.who === 'bot').pop().text, 'second send still completions');
+    assert.doesNotMatch(freshAuto.history.map((h) => h.text).join('\\n'), /\\(no response\\)/);
+    assert.equal(freshAuto.status, 'idle');
+
+    let missingPty = 0;
+    setClaudeRunnerForTest(async () => {
+      missingPty += 1;
+      return { text: 'openzoo-claude is installing. Auto will use chat until the harness is ready.', missing: true, error: true, paymentFailed: '', sessionId: '' };
+    });
+    setBrainAskForTest(() => 'missing cli uses chat');
+    const missAuto = newThread('missing-cli', null);
+    missAuto.runMode = 'auto';
+    missAuto.history.push({ who: 'bot', text: 'prior visible reply' });
+    await runTurn(missAuto.id, 'still answer me');
+    assert.equal(missingPty, 1);
+    assert.equal(missAuto.history.filter((h) => h.who === 'user').length, 1);
+    assert.equal(missAuto.history.filter((h) => h.who === 'bot').pop().text, 'missing cli uses chat');
+    assert.doesNotMatch(missAuto.history.map((h) => h.text).join('\\n'), /npx -y openzoo-claude/);
+    assert.equal(missAuto.status, 'idle');
 
     let askClaude = 0;
     setClaudeRunnerForTest(async () => {
