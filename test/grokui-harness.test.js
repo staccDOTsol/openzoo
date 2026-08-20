@@ -95,6 +95,9 @@ test('parseRun, think-tag strip, inDir, MCP-as-bash refuse', async () => {
       await new Promise((r) => setTimeout(r, 50));
     }
     if (!ready) { console.error('grokui did not start'); process.exit(1); }
+    const harness = await (await fetch('http://127.0.0.1:' + ${uiPort} + '/harness')).json();
+    assert.equal(typeof harness.ready, 'boolean');
+    assert.equal(typeof harness.installing, 'boolean');
     const t = await (await fetch('http://127.0.0.1:' + ${uiPort} + '/threads', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'HarnessBot' }),

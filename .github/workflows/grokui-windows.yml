@@ -63,14 +63,18 @@ jobs:
         shell: bash
         run: |
           set -eu
-          ls -lh grokui-app/dist/*.exe
+          ls -lh grokui-app/dist/*.exe grokui-app/dist/*.msi
           [ "$(find grokui-app/dist -name '*.exe' | wc -l)" -gt 0 ] \
-            || { echo 'FAIL: no installer produced'; exit 1; }
+            || { echo 'FAIL: no NSIS exe produced'; exit 1; }
+          [ "$(find grokui-app/dist -name '*.msi' | wc -l)" -gt 0 ] \
+            || { echo 'FAIL: no MSI produced'; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
           name: openzoo-grokui-win-installer
-          path: grokui-app/dist/*.exe
+          path: |
+            grokui-app/dist/*.exe
+            grokui-app/dist/*.msi
           if-no-files-found: error
 
       - name: Publish installer to the release
@@ -88,7 +92,7 @@ jobs:
             echo "release not ready (attempt $i) — retrying"; sleep $((i * 10))
           done
           for i in 1 2 3 4 5 6; do
-            if gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber grokui-app/dist/*.exe; then
+            if gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber grokui-app/dist/*.exe grokui-app/dist/*.msi; then
               echo "uploaded"; exit 0
             fi
             echo "upload failed (attempt $i) — retrying"; sleep $((i * 10))

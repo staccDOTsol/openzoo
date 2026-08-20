@@ -422,31 +422,55 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.match(autoFn, /sessionKey: t\.id/);
 });
 
-test('install docs ship Mac nvm+openzoo claude and Windows nvm-windows, not extra steps', () => {
+test('install docs lead with dmg/exe/msi/AppImage and first-run, not a curl recipe', () => {
   const readme = readFileSync(path.join(root, 'README.md'), 'utf8');
   const notes = readFileSync(path.join(root, '.github', 'grokui-release-notes.md'), 'utf8');
+  const lead = notes.trim().split('\n').slice(0, 6).join('\n');
+  assert.match(lead, /arm64\.dmg/);
+  assert.match(lead, /exe or msi|exe\/msi/i);
+  assert.match(lead, /AppImage/);
+  assert.match(lead, /installs Claude, Node 24, and openzoo on first run/i);
+  assert.match(lead, /Do not paste the old nvm\/curl recipe/);
   for (const src of [readme, notes]) {
-    assert.match(src, /curl -fsSL https:\/\/claude\.ai\/install\.sh \| bash/);
-    assert.match(src, /raw\.githubusercontent\.com\/nvm-sh\/nvm\/v0\.40\.7\/install\.sh/);
-    assert.match(src, /\. "\$HOME\/\.nvm\/nvm\.sh"/);
-    assert.match(src, /nvm install 24/);
-    assert.match(src, /npm i -g openzoo/);
-    assert.match(src, /export PATH="\$HOME\/\.local\/bin:\$PATH"/);
     assert.match(src, /openzoo claude/);
-    assert.match(src, /irm https:\/\/claude\.ai\/install\.ps1 \| iex/);
-    assert.match(src, /curl -fsSL https:\/\/downloads\.claude\.ai\/install\.cmd -o install\.cmd && install\.cmd && del install\.cmd/);
-    assert.match(src, /coreybutler\/nvm-windows/);
-    assert.match(src, /nvm-setup\.exe/);
-    assert.match(src, /Then nvm-windows:/);
-    assert.match(src, /nvm use 24/);
-    assert.match(src, /Do not use the unix nvm curl on Windows/);
-    assert.match(src, /Do not source `~\/\.zshrc`/);
     assert.match(src, /(?:\*\*not\*\* need to authenticate Claude first|No Claude login first)/);
+    assert.doesNotMatch(src, /curl -fsSL https:\/\/claude\.ai\/install\.sh \| bash/);
+    assert.doesNotMatch(src, /raw\.githubusercontent\.com\/nvm-sh\/nvm/);
+    assert.doesNotMatch(src, /irm https:\/\/claude\.ai\/install\.ps1 \| iex/);
+    assert.doesNotMatch(src, /Tell.*curl nvm|paste the old recipe/i);
   }
-  const win = readme.slice(readme.indexOf('Windows — official Claude install'));
-  assert.doesNotMatch(win, /source ~\/\.zshrc/);
-  assert.doesNotMatch(win, /claude\.ai\/install\.sh/);
-  assert.doesNotMatch(win, /nvm-sh\/nvm/);
+  assert.match(readme, /Silicon Mac → arm64\.dmg/);
+  assert.match(readme, /Windows → exe\/msi/);
+  assert.match(readme, /Linux → AppImage/);
+  assert.doesNotMatch(readme, /source ~\/\.zshrc/);
+});
+
+test('Windows pack ships MSI alongside NSIS exe; grokui first-run installs the harness after paint', () => {
+  const targets = JSON.stringify(appPkg.build.win.target);
+  assert.match(targets, /nsis/);
+  assert.match(targets, /msi/);
+  const winYml = readFileSync(path.join(root, '.github', 'workflows', 'grokui-windows.yml'), 'utf8');
+  assert.match(winYml, /\*\.msi/);
+  assert.match(winYml, /no MSI produced/);
+  assert.match(grokui, /void kickHarnessAutostart\(\)/);
+  assert.match(grokui, /same rule as :8402/);
+  const listen = grokui.slice(grokui.indexOf('server.listen'), grokui.indexOf('export {'));
+  assert.match(listen, /void kickHarnessAutostart/);
+  assert.doesNotMatch(listen, /await\s+ensureHarness/);
+  assert.doesNotMatch(listen, /await\s+kickHarnessAutostart/);
+  assert.match(grokui, /req\.url === '\/harness'/);
+  assert.match(grokui, /id="harnessBar"/);
+  assert.match(grokui, /Installing Claude…/);
+  assert.match(grokui, /refreshHarnessBar/);
+  assert.match(grokui, /from '\.\/harness-install\.js'/);
+  const claude = readFileSync(path.join(root, 'lib', 'claudecode.js'), 'utf8');
+  assert.doesNotMatch(claude, /curl -fsSL https:\/\/claude\.ai\/install\.sh/);
+  const launch = readFileSync(path.join(root, 'lib', 'launch.js'), 'utf8');
+  const setupAt = launch.indexOf("if (argv.includes('--setup'))");
+  const setupBlock = launch.slice(setupAt, launch.indexOf('return;', setupAt) + 8);
+  assert.match(setupBlock, /applyOpenzooClaudeSetup/);
+  assert.doesNotMatch(setupBlock, /startProxy/);
+  assert.doesNotMatch(setupBlock, /spawn\(/);
 });
 
 test('subagents get the root ask, recent turns, and a SEND brief refresh', () => {
@@ -556,6 +580,7 @@ test('createWindow constructs BrowserWindow before ensureProxy or /threads', () 
   assert.ok(bw >= 0, 'createWindow constructs BrowserWindow');
   const before = body.slice(0, bw);
   assert.doesNotMatch(before, /await\s+ensureProxy/);
+  assert.doesNotMatch(before, /await\s+ensureHarness/);
   assert.doesNotMatch(before, /waitFor\s*\(/);
   assert.doesNotMatch(before, /\/threads/);
   assert.doesNotMatch(main, /spawn\([^)]*npx/);
@@ -568,11 +593,13 @@ test('loadAppWhenReady does not await ensureProxy or a 402 before grokui', () =>
   assert.match(main, /win\.loadURL\(startingPage\(\)\)/);
   assert.match(body, /void ensureProxy\(\)/);
   assert.doesNotMatch(body, /await\s+ensureProxy/);
+  assert.doesNotMatch(body, /await\s+ensureHarness/);
   assert.doesNotMatch(body, /\/v1\/session/);
   assert.doesNotMatch(body, /await waitFor\(`http:\/\/127\.0\.0\.1:8402/);
   assert.match(body, /loadLiveOrFailed/);
   assert.match(fnBody(main, 'loadLiveOrFailed'), /\/threads/);
   assert.match(main, /void ensureProxy\(\)/);
+  assert.match(main, /do not await it here/);
 });
 
 test('loadAppWhenReady paints the server error instead of sitting on starting…', () => {
