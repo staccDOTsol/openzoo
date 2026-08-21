@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,18 +23,58 @@ test('html autopreview is wired in grokui.mjs', () => {
   assert.match(grokuiSrc, /The harness will preview/);
   assert.match(grokuiSrc, /await previewAck\(originId, rel\)/);
   assert.match(grokuiSrc, /id="agentPreview"/);
+  assert.match(grokuiSrc, /id="agentPreviewClose"/);
   assert.match(grokuiSrc, /function showAgentPreview/);
+  assert.match(grokuiSrc, /function hideAgentPreview/);
   assert.match(grokuiSrc, /function pullAgentPreview/);
+  assert.match(grokuiSrc, /function bouncePreviewFocus/);
+  assert.match(grokuiSrc, /function bindPreviewFocusGuard/);
+  assert.match(grokuiSrc, /function focusMessageComposer/);
   assert.match(grokuiSrc, /function htmlRelFromText/);
   assert.match(grokuiSrc, /function findPlayableHtmlRel/);
   assert.match(grokuiSrc, /body\.agent-mode #agentPreview\.show/);
-  assert.match(grokuiSrc, /allow-scripts allow-same-origin allow-pointer-lock allow-forms/);
+  assert.match(grokuiSrc, /allow-scripts allow-same-origin allow-forms/);
+  assert.doesNotMatch(grokuiSrc, /allow-pointer-lock/);
+  assert.match(grokuiSrc, /tabindex="-1"/);
+  assert.match(grokuiSrc, /hideAgentPreview\(true\)/);
+  assert.match(grokuiSrc, /showAgentPreview\(ev\.url, ev\.rel, true\)/);
   assert.match(grokuiSrc, /\/threads\\\/\(\[\^\/\]\+\)\\\/preview/);
   assert.doesNotMatch(grokuiSrc, /Workspace server is still starting — try again in a second/);
   // A second `const chatHeader` in the same <script> is a SyntaxError and
   // kills the whole UI — including the preview iframe we just added.
   const script = grokuiSrc.split('const APP_HTML')[1] || '';
   assert.equal((script.match(/const chatHeader/g) || []).length, 1);
+});
+
+test('Agent preview chrome has an X and iframe cannot steal Message focus', () => {
+  const src = grokuiSrc.replace(/\r\n/g, '\n');
+  const start = src.indexOf('const APP_HTML = `');
+  const end = src.indexOf('`;\n\nconst server = http.createServer', start);
+  assert.ok(start >= 0 && end > start, 'APP_HTML template bounds');
+  const literal = src.slice(start + 'const APP_HTML = '.length, end + 1);
+  assert.doesNotMatch(literal, /"\\r"|'\\r'/);
+  const html = Function('SUBSCRIPTIONS_PAGE', 'return ' + literal)('https://example.test/subscriptions');
+  assert.match(html, /id="agentPreviewClose"/);
+  assert.match(html, /aria-label="Close preview"/);
+  assert.match(html, /id="agentPreviewFrame"[^>]*tabindex="-1"/);
+  assert.match(html, /id="agentPreviewFrame"[^>]*sandbox="allow-scripts allow-same-origin allow-forms"/);
+  assert.doesNotMatch(html, /allow-pointer-lock/);
+  assert.match(html, /function bouncePreviewFocus/);
+  assert.match(html, /function focusMessageComposer/);
+  assert.match(html, /hideAgentPreview\(true\)/);
+  assert.match(html, /html-preview-close/);
+  let close = html.lastIndexOf('</script>');
+  let open = html.lastIndexOf('<script>', close);
+  const script = html.slice(open + '<script>'.length, close);
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-preview-focus-'));
+  try {
+    const file = path.join(dir, 'apphtml.js');
+    writeFileSync(file, script);
+    const r = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr || r.stdout);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('WRITE of html acks a live localhost URL that serves the file', async () => {
