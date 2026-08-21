@@ -1,9 +1,12 @@
 'use strict';
 
 // Keep the packed :8402 sidecar alive after launch.
-// Occupied TCP is not health — /v1/session must answer. Occupied + null
-// session is wedged: displace then spawn (same as a stale version). Do not
-// attach. Empty-wallet HTTP 402 still means the sidecar is up (Pay opens).
+// Occupied TCP is not health — /v1/session must answer. A single session
+// timeout is not displace: need N consecutive failures (~6–10s). Occupied
+// + N null sessions is wedged: kill THAT child, displace :8402, spawn on
+// 8402 only. Never walk 8403–8406. Do not attach. Empty-wallet HTTP 402
+// still means the sidecar is up (Pay opens). HUD heal-sidecar IPC is
+// debounced (~15s) so a 2s HUD tick cannot SIGTERM a live listener.
 // Do not pkill/relaunch the Electron window to heal — only this child.
 //
 // macOS/Linux: prefer host Node running the packed bin so the sidecar is
@@ -26,6 +29,9 @@ const DEFAULT_BACKOFF_MS = 250;
 const MAX_BACKOFF_MS = 8000;
 const HEALTH_MS = 2000;
 const IMMEDIATE_EXIT_MS = 2000;
+const SESSION_FAILS_TO_DISPLACE = 3;
+const HEAL_DEBOUNCE_MS = 15_000;
+const OWNED_START_GRACE_MS = 8000;
 
 const MODULE_NOT_FOUND_RE = /MODULE_NOT_FOUND|ERR_MODULE_NOT_FOUND|Cannot find module/i;
 
@@ -296,9 +302,12 @@ function createSidecarHealer({
   env = process.env,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
+  nowFn = Date.now,
   backoffMs = DEFAULT_BACKOFF_MS,
   maxBackoffMs = MAX_BACKOFF_MS,
   healthMs = HEALTH_MS,
+  sessionFailsToDisplace = SESSION_FAILS_TO_DISPLACE,
+  healDebounceMs = HEAL_DEBOUNCE_MS,
 } = {}) {
   let owned = null;
   let ensuring = false;
@@ -306,6 +315,9 @@ function createSidecarHealer({
   let timer = null;
   let nextAt = 0;
   let backoff = backoffMs;
+  let failStreak = 0;
+  let lastIpcEnsureAt = 0;
+  let lastDisplaceAt = 0;
   // host-node | packed | packed-node | path-openzoo
   let spawnMode = defaultSpawnMode(env, resolveHostNodeFn, platform);
   let packedUnbootable = false;
@@ -429,7 +441,7 @@ function createSidecarHealer({
     owned = childProc;
     lastSpawnHealthy = false;
     childProc._ozKind = spec.kind;
-    childProc._ozStartedAt = Date.now();
+    childProc._ozStartedAt = nowFn();
     childProc._ozDetached = Boolean(spec.opts && spec.opts.detached);
     let stderr = '';
     if (childProc.stderr && typeof childProc.stderr.on === 'function') {
@@ -463,81 +475,127 @@ function createSidecarHealer({
     return childProc;
   }
 
-  async function ensure() {
+  async function spawnAndWait() {
+    spawnSidecar();
+    if (!owned) {
+      schedule(bumpBackoff());
+      return { reused: false, healthy: false, wedged: false, child: null, spawned: false, spawnMode, failStreak };
+    }
+    const up = waitForSession
+      ? await waitForSession(() => stopped || !owned)
+      : true;
+    if (up) {
+      lastSpawnHealthy = true;
+      failStreak = 0;
+      backoff = backoffMs;
+      schedule(healthMs);
+      return { reused: false, healthy: true, wedged: false, child: owned, spawned: true, spawnMode, failStreak };
+    }
+    schedule(bumpBackoff());
+    return { reused: false, healthy: false, wedged: false, child: owned, spawned: true, spawnMode, failStreak };
+  }
+
+  async function ensure(reason) {
     if (stopped || ensuring) return { skipped: true };
+    // HUD heal-sidecar IPC: minimum ~15s between ensure/displace.
+    // Health poll (no reason) still ticks every HEALTH_MS to count misses.
+    if (reason === 'ipc') {
+      const now = nowFn();
+      if (lastIpcEnsureAt && (now - lastIpcEnsureAt) < healDebounceMs) {
+        return { skipped: true, debounced: true, failStreak };
+      }
+      lastIpcEnsureAt = now;
+    }
     ensuring = true;
     try {
       const session = await fetchSession();
       if (shouldAttach(session, { sidecarIsAttachable, expectedVersion })) {
+        failStreak = 0;
         backoff = backoffMs;
         schedule(healthMs);
-        return { reused: true, healthy: true, wedged: false, child: null };
+        return { reused: true, healthy: true, wedged: false, child: owned, failStreak };
       }
-      // /v1/session timeout (2–3s) == dead. LISTEN alone is not health.
-      // A wedged owned child can peg CPU / block the event loop and still
-      // look "alive". Kill THAT sidecar only — never pkill OCC / openzoo-claude PTYs.
-      const starting = owned && !lastSpawnHealthy && owned._ozStartedAt
-        && (Date.now() - owned._ozStartedAt) < 8000;
-      if (owned && !session && !starting) {
-        log('[openzoo] /v1/session timeout — owned :8402 is dead; killing sidecar only (not OCC PTYs)');
-        try { owned.kill(); } catch { /* gone */ }
-        owned = null;
-        lastSpawnHealthy = false;
-      }
+      // Session body but not attachable = stale version. Displace now
+      // (this is not a probe timeout).
       if (session) {
+        failStreak = 0;
         const expected = typeof expectedVersion === 'function' ? expectedVersion() : expectedVersion;
         log(
           `[openzoo] :8402 is a stale sidecar (openzoo ${session.version || 'unknown'} < ${expected}) — not attaching; grokui will spawn the matching one`,
         );
+        const now = nowFn();
+        if (lastDisplaceAt && (now - lastDisplaceAt) < healDebounceMs) {
+          schedule(healthMs);
+          return { skipped: true, debounced: true, failStreak, child: owned };
+        }
+        lastDisplaceAt = now;
         const displaced = await displaceStale(8402);
         if (!displaced) {
           log('[openzoo] failed to displace stale :8402 — refusing to attach');
           schedule(bumpBackoff());
-          return { reused: false, healthy: false, wedged: false, child: owned };
+          return { reused: false, healthy: false, wedged: false, child: owned, failStreak };
         }
         if (owned) {
           try { owned.kill(); } catch { /* already gone */ }
           owned = null;
         }
+        return spawnAndWait();
       }
-      // Our child is still starting (or hung). Do not treat that as wedged
+      // owned mid-start: wait. Do not treat a slow first listen as wedged
       // and do not spawn a second packed sidecar over it.
-      if (owned) {
+      const starting = owned && !lastSpawnHealthy && owned._ozStartedAt
+        && (nowFn() - owned._ozStartedAt) < OWNED_START_GRACE_MS;
+      if (starting) {
         schedule(healthMs);
-        return { reused: false, healthy: false, wedged: false, child: owned };
+        return { reused: false, healthy: false, wedged: false, child: owned, waiting: true, failStreak };
       }
-      // Occupied + null session is a leftover / TIME_WAIT / half-killed
-      // Electron-as-node child — not a live sidecar. Same as stale-version:
-      // displace, then spawn. Do not attach. 402 already returned above.
-      if (await portOccupied()) {
+
+      const occupied = await portOccupied();
+      // Nothing listening and nothing owned: first boot. Spawn now.
+      if (!owned && !occupied) {
+        failStreak = 0;
+        return spawnAndWait();
+      }
+
+      // Null session + owned or occupied: count consecutive probe misses.
+      // One 2–3s timeout is a hung fly keep-alive, not a dead process.
+      failStreak += 1;
+      if (failStreak < sessionFailsToDisplace) {
+        log(`[openzoo] /v1/session miss ${failStreak}/${sessionFailsToDisplace} — not displacing a live listener`);
+        schedule(healthMs);
+        return { reused: false, healthy: false, wedged: false, child: owned, failStreak };
+      }
+
+      const now = nowFn();
+      if (lastDisplaceAt && (now - lastDisplaceAt) < healDebounceMs) {
+        schedule(healthMs);
+        return { skipped: true, debounced: true, failStreak, child: owned };
+      }
+      lastDisplaceAt = now;
+
+      // N consecutive failures: kill THAT child, displace :8402, spawn
+      // on 8402 only. Never leave orphans on 8405/8406.
+      if (owned) {
+        log(`[openzoo] /v1/session failed ${sessionFailsToDisplace} times — owned :8402 is dead; killing sidecar only (not OCC PTYs)`);
+        try { owned.kill(); } catch { /* gone */ }
+        owned = null;
+        lastSpawnHealthy = false;
+      }
+      if (occupied || await portOccupied()) {
         log('[openzoo] :8402 is listening but /v1/session did not answer — not reusing a wedged proxy; displacing then spawning');
         const displaced = await displaceStale(8402);
         if (!displaced) {
           log('[openzoo] failed to displace wedged :8402 — refusing to attach');
           schedule(bumpBackoff());
-          return { reused: false, healthy: false, wedged: true, child: null };
+          return { reused: false, healthy: false, wedged: true, child: null, failStreak };
         }
       }
-      spawnSidecar();
-      if (!owned) {
-        schedule(bumpBackoff());
-        return { reused: false, healthy: false, wedged: false, child: null, spawned: false, spawnMode };
-      }
-      const up = waitForSession
-        ? await waitForSession(() => stopped || !owned)
-        : true;
-      if (up) {
-        lastSpawnHealthy = true;
-        backoff = backoffMs;
-        schedule(healthMs);
-        return { reused: false, healthy: true, wedged: false, child: owned, spawned: true, spawnMode };
-      }
-      schedule(bumpBackoff());
-      return { reused: false, healthy: false, wedged: false, child: owned, spawned: true, spawnMode };
+      failStreak = 0;
+      return spawnAndWait();
     } catch (e) {
       log('[openzoo] proxy ensure failed:', e && e.message);
       schedule(bumpBackoff());
-      return { reused: false, healthy: false, error: e };
+      return { reused: false, healthy: false, error: e, failStreak };
     } finally {
       ensuring = false;
     }
@@ -583,4 +641,7 @@ module.exports = {
   MAX_BACKOFF_MS,
   HEALTH_MS,
   IMMEDIATE_EXIT_MS,
+  SESSION_FAILS_TO_DISPLACE,
+  HEAL_DEBOUNCE_MS,
+  OWNED_START_GRACE_MS,
 };

@@ -549,7 +549,12 @@ test('Agent mode is Claude Code via OpenZoo, not the RUN: text harness', () => {
     const autoAt = run.indexOf('if (isAgentMode(t))');
     assert.ok(waitAt >= 0, 'runTurn waits for :8402');
     assert.ok(autoAt < 0 || waitAt < autoAt, 'Chat as well as Agent waits for :8402');
+    assert.match(run, /recoverSidecarAsk/);
+    assert.match(run, /recoverSidecarAsk\(e, \(\) => ask\(\)/);
   }
+  assert.match(grokui, /async function recoverSidecarAsk/);
+  assert.match(fnBody(grokui, 'recoverSidecarAsk'), /waitForSidecarSession/);
+  assert.match(fnBody(grokui, 'recoverSidecarAsk'), /return await askFn\(\)/);
   assert.match(grokui, /function autoClaudeTurnProducedVisible/);
   assert.match(fnBody(grokui, 'runTurn'), /usedClaude = false/);
   assert.match(fnBody(grokui, 'runTurn'), /isAutoPtyPending/);
@@ -714,6 +719,10 @@ test('preload exposes heal-sidecar so unreachable UI can respawn :8402', () => {
   assert.match(grokui, /electronAPI\.healSidecar/);
   assert.match(grokui, /function requestSidecarHeal/);
   assert.match(grokui, /sidecar starting…['"]\) requestSidecarHeal|streamStatus === 'sidecar starting…'/);
+  assert.match(grokui, /lastHealAt/);
+  assert.match(grokui, /now - lastHealAt < 15000/);
+  assert.match(main, /HEAL_IPC_MS = 15_000/);
+  assert.match(main, /ensure\('ipc'\)/);
 });
 
 test('render-process-gone and unresponsive reload the live grokui URL', () => {
@@ -782,7 +791,7 @@ test('GET /v1/models is unpaid — never client.fetch wrap-walk', () => {
   const start = proxy.indexOf("path === '/v1/models'");
   const end = proxy.indexOf("const probe = req.method === 'GET'", start);
   const block = proxy.slice(start, end);
-  assert.match(block, /fetchHeaders/);
+  assert.match(block, /fetchProbe/);
   assert.doesNotMatch(block, /await client\.fetch/);
   assert.match(block, /modelsListForRequest\(payload, req\.headers\)/);
   assert.match(block, /modelsListForRequest\(\{ object: 'list', data: \[\] \}/);
@@ -1387,6 +1396,9 @@ test('ensureProxy reuses a healthy :8402 and autoheals a dead packed sidecar', (
   // Occupied-port + hung session is NOT reuse — ping must time out.
   assert.match(src, /not reusing a wedged proxy/);
   assert.match(heal, /displacing then spawning/);
+  assert.match(heal, /SESSION_FAILS_TO_DISPLACE/);
+  assert.match(heal, /HEAL_DEBOUNCE_MS/);
+  assert.match(heal, /not displacing a live listener/);
   assert.match(src, /Ping must time out/);
   // Occupied+healthy is not enough: compare listener version to shipped openzoo.
   assert.doesNotMatch(main, /if \(await pingUrl\('http:\/\/127\.0\.0\.1:8402\/v1\/session'\)\) return/);
