@@ -64,7 +64,7 @@ test('findPackedNodePty loads node-pty from NSIS extraResources tree', () => {
     const packed = resolvePackedOpenzooClaude({
       execPath: exe,
       resourcesPath: resources,
-      env: { HOME: path.join(dir, 'no-home'), OZ_PACKED_RESOURCES: resources, OPENZOO_CLAUDE_PATH_ONLY: '1' },
+      env: { HOME: path.join(dir, 'no-home'), OZ_PACKED_RESOURCES: resources },
       libDir: path.join(dir, 'no-lib'),
     });
     assert.ok(packed);

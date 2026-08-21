@@ -46,7 +46,6 @@ test('ensureAgentPty reuses a live PTY; packed resolve; CLAUDE_SLASH has goal', 
     env: {
       HOME: path.join(packed.dir, 'no-home'),
       OZ_PACKED_RESOURCES: packed.resources,
-      OPENZOO_CLAUDE_PATH_ONLY: '1',
       PATH: '/usr/bin',
     },
     execPath: packed.exe,

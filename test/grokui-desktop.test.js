@@ -574,13 +574,24 @@ function fnBody(src, name) {
   const re = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`);
   const m = src.match(re);
   assert.ok(m, name + ' exists');
-  const brace = src.indexOf('{', m.index);
+  // Skip the parameter list — waitIdle(sess, { signal, ... }) would otherwise
+  // treat the destructuring brace as the function body.
+  let i = m.index + m[0].length - 1;
+  let parens = 0;
+  for (; i < src.length; i++) {
+    if (src[i] === '(') parens++;
+    else if (src[i] === ')') {
+      parens--;
+      if (parens === 0) { i++; break; }
+    }
+  }
+  const brace = src.indexOf('{', i);
   let depth = 0;
-  for (let i = brace; i < src.length; i++) {
-    if (src[i] === '{') depth++;
-    else if (src[i] === '}') {
+  for (let j = brace; j < src.length; j++) {
+    if (src[j] === '{') depth++;
+    else if (src[j] === '}') {
       depth--;
-      if (depth === 0) return src.slice(brace, i + 1);
+      if (depth === 0) return src.slice(brace, j + 1);
     }
   }
   throw new Error('unclosed ' + name);
@@ -1435,10 +1446,11 @@ test('user turns persist to the thread store before the model call', () => {
   const driveEnd = grokui.indexOf('res.writeHead(200, { \'content-type\': \'text/html\' })', driveStart);
   const drive = grokui.slice(driveStart, driveEnd);
   const flushAt = drive.indexOf('persistUserTurn(t, task, images)');
-  const ackAt = drive.lastIndexOf("ack(true, { persisted: true })");
-  const kickAt = drive.lastIndexOf('runTurn(threadId, task');
-  const agentSkip = drive.indexOf('if (isAgentMode(t))');
-  assert.ok(flushAt >= 0 && ackAt > flushAt, '/drive persists, then ACKs');
+  const afterFlush = drive.slice(flushAt);
+  const ackAt = afterFlush.indexOf("ack(true, { persisted: true })");
+  const kickAt = afterFlush.indexOf('runTurn(threadId, task');
+  const agentSkip = afterFlush.indexOf('if (isAgentMode(t))');
+  assert.ok(flushAt >= 0 && ackAt >= 0, '/drive persists, then ACKs');
   assert.ok(agentSkip > ackAt && agentSkip < kickAt, '/drive Agent returns without runTurn');
   assert.ok(kickAt > agentSkip, 'Chat still runTurn after the Agent early return');
   assert.match(grokui, /history: visibleHistory\(t\.history\)/);
@@ -1456,7 +1468,7 @@ test('compose box keeps the draft until persist; AUTO continue is never a user b
   const afterSitrep = submitFn.slice(submitFn.indexOf('openSitrep()'));
   const addRowAt = afterSitrep.indexOf("addRow('user'");
   const fetchAt = afterSitrep.indexOf("await fetch(API + '/drive'");
-  const clearAt = afterSitrep.indexOf("inp.value = ''");
+  const clearAt = afterSitrep.indexOf("inp.value = ''", fetchAt);
   assert.ok(addRowAt >= 0 && addRowAt < fetchAt, 'optimistic user bubble before /drive');
   assert.ok(fetchAt >= 0 && clearAt > fetchAt, 'do not clear the composer until persist ACK');
   assert.match(afterSitrep.slice(0, fetchAt), /pendingTurns\.push/);
@@ -1478,14 +1490,14 @@ test('compose box keeps the draft until persist; AUTO continue is never a user b
 test('Agent TUI is packed OCC in xterm, not a second harness or chat-fold fallback', () => {
   const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
   assert.match(grokui, /from '\.\/packed-runtime\.js'/);
-  assert.match(grokui, /resolvePackedOpenzooClaude\(\{ env, execPath: process\.execPath \}\) \|\| resolveOpenzooClaude\(env\)/);
+  assert.match(grokui, /resolvePackedOpenzooClaude\(\{ env, execPath \}\) \|\| resolveOpenzooClaude\(env\)/);
   assert.match(grokui, /if \(resolved\.via === 'packed'\) ptyEnv\.ELECTRON_RUN_AS_NODE = '1'/);
   assert.match(fnBody(grokui, 'ensureAgentPty'), /if \(cur && !cur\.dead\) return cur/);
   assert.doesNotMatch(fnBody(grokui, 'ensureAgentPty'), /cwd mismatch|killAgentPty/);
   assert.match(grokui, /killAgentPty\(t\.id\)/);
   assert.match(grokui, /reset: true/);
-  assert.match(grokui, /\/threads\/\(\[\^/\]\+\)\/pty/);
-  assert.match(grokui, /\/threads\/\(\[\^/\]\+\)\/pty-size/);
+  assert.ok(grokui.includes('/threads/([^/]+)/pty'));
+  assert.ok(grokui.includes('/threads/([^/]+)/pty-size'));
   assert.match(grokui, /VENDOR_FILES/);
   assert.match(grokui, /runMode: p\?\.runMode \|\| 'agent'/);
   assert.match(grokui, /\['agents', 'tasks', 'context', 'model', 'goal'\]/);

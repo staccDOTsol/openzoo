@@ -540,7 +540,7 @@ function assertPackedNodePty(appDir, context = {}) {
   const roots = [
     path.join(appDir, 'node_modules', 'node-pty'),
   ];
-  if (context.electronPlatformName) {
+  if (context.electronPlatformName && context.appOutDir) {
     roots.push(path.join(extraResourcesDir(context), 'node-pty'));
   }
   const ptyDir = roots.find((d) => fs.existsSync(path.join(d, 'package.json')));
