@@ -221,6 +221,62 @@ test('tiny claude-sonnet-5 routes to flash when the catalog has it', () => {
   assert.equal(out.to, 'google/gemini-3.7-flash');
 });
 
+test('Auto never pins to flash / ling / llama / nemo, even when the body looks tiny', () => {
+  const ids = [
+    ...CATALOG,
+    'inclusionai/ling-2.6-flash',
+    'meta-llama/llama-3.1-8b-instruct',
+    'mistralai/mistral-nemo',
+  ];
+  const banned = [
+    'google/gemini-3.7-flash',
+    'inclusionai/ling-2.6-flash',
+    'meta-llama/llama-3.1-8b-instruct',
+    'mistralai/mistral-nemo',
+  ];
+  const bodies = [
+    {
+      model: 'openzoo/auto',
+      max_tokens: 16,
+      messages: [{ role: 'user', content: 'Is this command safe? Reply yes or no.' }],
+    },
+    {
+      model: 'openzoo/auto',
+      max_tokens: 16384,
+      messages: [{ role: 'user', content: 'Classify this task in one word.' }],
+    },
+    {
+      model: 'openzoo/auto',
+      max_tokens: 2000,
+      messages: Array.from({ length: 8 }, (_, i) => ({
+        role: i % 2 ? 'assistant' : 'user',
+        content: `turn ${i} ${'please review this function '.repeat(20)}`,
+      })),
+    },
+    {
+      model: 'auto',
+      max_tokens: 16,
+      messages: [{ role: 'user', content: 'yes or no' }],
+    },
+  ];
+  assert.equal(isTinyClassify(bodies[0]), true);
+  assert.equal(isTinyClassify(bodies[1]), true);
+  assert.equal(isTinyClassify(bodies[2]), false);
+  for (const body of bodies) {
+    const out = rewriteChatModel(body, ids);
+    assert.equal(out.auto, true, JSON.stringify(body.model));
+    assert.equal(out.tiny, false);
+    assert.equal(out.to, 'openzoo/auto');
+    assert.equal(out.parsed.model, 'openzoo/auto');
+    assert.equal(out.raised, false);
+    assert.equal(out.parsed.max_tokens, body.max_tokens);
+    for (const id of banned) assert.notEqual(out.parsed.model, id, id);
+  }
+  const nonAuto = rewriteChatModel(CLASSIFY, ids);
+  assert.equal(nonAuto.tiny, true);
+  assert.equal(nonAuto.parsed.model, 'google/gemini-3.7-flash');
+});
+
 test('fat grok chat (max_tokens 2000+ and a long transcript) still raises to >=4000', () => {
   const grok = {
     model: 'x-ai/grok-4.6',
@@ -790,4 +846,173 @@ test('POST /v1/messages model=claude-opus-5 does not 500 unavailable', async (t)
   assert.equal(fat.status, 200, `fat claude-opus-5 expected 200, got ${fat.status} ${fatText}`);
   const last = seen[seen.length - 1];
   assert.equal(last.model, 'anthropic/claude-opus-5');
+});
+
+test('POST openzoo/auto stays openzoo/auto upstream; 429 does not local-fallback', async (t) => {
+  const http = await import('node:http');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const fs = await import('node:fs');
+  const { config } = await import('../lib/config.js');
+  const { resetZooModelIdsCache } = await import('../lib/models.js');
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oz-auto-pass-'));
+  const prev = {
+    apiBase: config.apiBase,
+    port: config.port,
+    walletPath: config.walletPath,
+    noTopup: process.env.OPENZOO_NO_AUTOTOPUP,
+    sessionPath: process.env.OPENZOO_SESSION_PATH,
+  };
+  process.env.OPENZOO_NO_AUTOTOPUP = '1';
+  process.env.OPENZOO_NO_OPEN = '1';
+  process.env.OPENZOO_SESSION_PATH = path.join(tmp, 'session.json');
+  config.walletPath = path.join(tmp, 'wallet.json');
+
+  const seen = [];
+  const catalog = {
+    object: 'list',
+    data: [
+      { id: 'google/gemini-3.7-flash', object: 'model', pricing: { prompt: 1e-7, completion: 4e-7 } },
+      { id: 'inclusionai/ling-2.6-flash', object: 'model', pricing: { prompt: 1e-7, completion: 4e-7 } },
+      { id: 'meta-llama/llama-3.1-8b-instruct', object: 'model', pricing: { prompt: 1e-7, completion: 4e-7 } },
+      { id: 'mistralai/mistral-nemo', object: 'model', pricing: { prompt: 1e-7, completion: 4e-7 } },
+      { id: 'x-ai/grok-4.6', object: 'model', pricing: { prompt: 1e-6, completion: 2e-6 } },
+    ],
+  };
+  const completion = {
+    id: 'chatcmpl-auto',
+    object: 'chat.completion',
+    choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+    usage: { prompt_tokens: 8, completion_tokens: 1 },
+  };
+  const banned = [
+    'google/gemini-3.7-flash',
+    'inclusionai/ling-2.6-flash',
+    'meta-llama/llama-3.1-8b-instruct',
+    'mistralai/mistral-nemo',
+  ];
+
+  const up = await new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      if (req.method === 'GET' && req.url.split('?')[0] === '/v1/models') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(catalog));
+        return;
+      }
+      let buf = '';
+      req.on('data', (c) => { buf += c; });
+      req.on('end', () => {
+        let body = {};
+        try { body = JSON.parse(buf || '{}'); } catch { body = {}; }
+        seen.push({ path: req.url, model: body.model, max_tokens: body.max_tokens });
+        if (/rate.?limit/i.test(JSON.stringify(body.messages || []))) {
+          res.writeHead(429, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: { message: 'rate limited' } }));
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ...completion, model: body.model }));
+      });
+    });
+    server.listen(0, '127.0.0.1', () => resolve(server));
+    server.on('error', reject);
+  });
+
+  resetZooModelIdsCache();
+  config.apiBase = `http://127.0.0.1:${up.address().port}`;
+  config.port = 0;
+  const { startProxy } = await import('../lib/proxy.js');
+  const proxy = await startProxy({ silent: true, autoTunnel: false });
+  t.after(async () => {
+    await new Promise((resolve) => {
+      try { proxy.server?.closeAllConnections?.(); } catch { /* already */ }
+      if (!proxy.server) { resolve(); return; }
+      proxy.server.close(() => resolve());
+      setTimeout(resolve, 400).unref?.();
+    });
+    await new Promise((resolve) => {
+      try { up.closeAllConnections?.(); } catch { /* already */ }
+      up.close(() => resolve());
+      setTimeout(resolve, 400).unref?.();
+    });
+    config.apiBase = prev.apiBase;
+    config.port = prev.port;
+    config.walletPath = prev.walletPath;
+    if (prev.noTopup == null) delete process.env.OPENZOO_NO_AUTOTOPUP;
+    else process.env.OPENZOO_NO_AUTOTOPUP = prev.noTopup;
+    if (prev.sessionPath == null) delete process.env.OPENZOO_SESSION_PATH;
+    else process.env.OPENZOO_SESSION_PATH = prev.sessionPath;
+    resetZooModelIdsCache();
+  });
+
+  const port = proxy.server.address().port;
+  const postChat = (body) => fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  const cases = [
+    {
+      model: 'openzoo/auto',
+      max_tokens: 2000,
+      messages: Array.from({ length: 8 }, (_, i) => ({
+        role: i % 2 ? 'assistant' : 'user',
+        content: `turn ${i} ${'please review this function '.repeat(20)}`,
+      })),
+    },
+    {
+      model: 'openzoo/auto',
+      max_tokens: 16,
+      messages: [{ role: 'user', content: 'Is this command safe? Reply yes or no.' }],
+    },
+    {
+      model: 'openzoo/auto',
+      max_tokens: 16384,
+      messages: [{ role: 'user', content: 'Classify this task in one word.' }],
+    },
+  ];
+
+  for (const body of cases) {
+    const before = seen.length;
+    const r = await postChat(body);
+    const text = await r.text();
+    assert.equal(r.status, 200, `auto ${body.max_tokens} expected 200, got ${r.status} ${text}`);
+    const hits = seen.slice(before).filter((h) => h.model != null);
+    assert.ok(hits.length >= 1, `expected upstream POST for max_tokens=${body.max_tokens}`);
+    for (const hit of hits) {
+      assert.equal(hit.model, 'openzoo/auto', JSON.stringify(hit));
+      for (const id of banned) assert.notEqual(hit.model, id);
+    }
+  }
+
+  const namedBefore = seen.length;
+  const named = await postChat({
+    model: 'x-ai/grok-4.6',
+    max_tokens: 2000,
+    messages: Array.from({ length: 8 }, (_, i) => ({
+      role: i % 2 ? 'assistant' : 'user',
+      content: `turn ${i} ${'please review this function '.repeat(20)}`,
+    })),
+  });
+  assert.equal(named.status, 200, await named.text());
+  const namedHits = seen.slice(namedBefore).filter((h) => h.model != null);
+  assert.ok(namedHits.length >= 1);
+  for (const hit of namedHits) {
+    assert.equal(hit.model, 'x-ai/grok-4.6');
+    for (const id of banned) assert.notEqual(hit.model, id);
+  }
+
+  const before429 = seen.length;
+  const limited = await postChat({
+    model: 'openzoo/auto',
+    max_tokens: 256,
+    messages: [{ role: 'user', content: 'please rate-limit this Auto turn' }],
+  });
+  assert.equal(limited.status, 429, await limited.text());
+  const after429 = seen.slice(before429).filter((h) => h.model != null);
+  assert.equal(after429.length, 1, `429 must not local-fallback Auto: ${JSON.stringify(after429)}`);
+  assert.equal(after429[0].model, 'openzoo/auto');
+  for (const id of banned) assert.notEqual(after429[0].model, id);
 });
