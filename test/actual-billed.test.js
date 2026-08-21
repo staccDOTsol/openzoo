@@ -102,7 +102,7 @@ describe('billedWithActual is post-completion billed, not the quote reserve', { 
     assert.match(proxy, /pairActualBilled/);
     assert.match(proxy, /applySessionMeter/);
     assert.match(proxy, /userChargedUsd/);
-    assert.match(proxy, /receipt\.ok is NOT the gate/);
+    assert.match(proxy, /receipt\.ok must not drop a billed/);
     assert.doesNotMatch(proxy, /billedWithActual \+= Number\(data\?\.x402\?\.billedUsd\)/);
     assert.doesNotMatch(proxy, /billedWithActual \+= x\.billedUsd/);
   });

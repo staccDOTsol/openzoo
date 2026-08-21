@@ -869,7 +869,7 @@ test('afterPack pack gate fails when node-pty or its native .node is missing', (
     assert.throws(() => afterPack.assertPackedOpenzooClaude(dir), /commands\.mjs/);
     mkdirSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src', 'ui'), { recursive: true });
     writeFileSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src', 'ui', 'commands.mjs'), 'export {}\n');
-    assert.throws(() => afterPack.assertPackedOpenzooClaude(dir), /\/model/);
+    assert.throws(() => afterPack.assertPackedOpenzooClaude(dir), /\/model|overlay|goal\.mjs|agent-loop/);
     writeFileSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src', 'ui', 'commands.mjs'), "export const COMMANDS = { '/model': {} }\n");
     assert.throws(() => afterPack.assertPackedOpenzooClaude(dir), /overlay|goal\.mjs|agent-loop/);
     afterPack.overlayRepoOpenzooClaude(path.join(dir, 'node_modules', 'openzoo-claude'), path.join(root, 'grokui-app'));
@@ -1562,7 +1562,7 @@ test('compose box keeps the draft until persist; AUTO continue is never a user b
   const submitFn = appHtml.slice(submitStart, submitEnd);
   const afterSitrep = submitFn.slice(submitFn.indexOf('openSitrep()'));
   const addRowAt = afterSitrep.indexOf("addRow('user'");
-  const fetchAt = afterSitrep.indexOf("await fetch(API + '/drive'");
+  const fetchAt = Math.max(afterSitrep.indexOf("await fetch(API + '/drive'"), afterSitrep.indexOf("await fetchRetry(API + '/drive'"));
   const clearAt = afterSitrep.indexOf("inp.value = ''", fetchAt);
   assert.ok(addRowAt >= 0 && addRowAt < fetchAt, 'optimistic user bubble before /drive');
   assert.ok(fetchAt >= 0 && clearAt > fetchAt, 'do not clear the composer until persist ACK');

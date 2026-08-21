@@ -111,9 +111,7 @@ export function sanitizePoisonedHistory(messages, state = {}) {
     out.push(m);
   }
   const inject = String(state.goal || '').trim() || lastStringUserText(src);
-  if (!hasRealUserText(out) && inject) {
-    out.push({ role: 'user', content: inject });
-  } else if (inject) {
+  if (inject) {
     const last = out[out.length - 1];
     const onlyTools = last
       && last.role === 'user'
@@ -122,6 +120,8 @@ export function sanitizePoisonedHistory(messages, state = {}) {
       && last.content.every((b) => b && b.type === 'tool_result');
     if (onlyTools) {
       last.content = [{ type: 'text', text: inject }, ...last.content];
+    } else if (!hasRealUserText(out)) {
+      out.push({ role: 'user', content: inject });
     }
   }
   return out;

@@ -108,26 +108,51 @@ test('WRITE of html acks a live localhost URL that serves the file', async () =>
 });
 
 test('htmlRelFromText and findPlayableHtmlRel see OCC writes and existing index.html', async () => {
-  process.env.OZ_GROKUI_PORT = String(19100 + Math.floor(Math.random() * 500));
-  process.env.OZ_AGENT_PORTS = '0';
-  const { htmlRelFromText, findPlayableHtmlRel, newThread } = await import(path.join(root, 'lib/grokui.mjs'));
   const dir = mkdtempSync(path.join(tmpdir(), 'oz-agent-html-'));
   mkdirSync(path.join(dir, 'tetris-game'), { recursive: true });
   writeFileSync(path.join(dir, 'tetris-game', 'index.html'), '<!doctype html><title>t</title>');
-  const t = newThread('AgentPreview');
-  t.dir = dir;
-  assert.equal(findPlayableHtmlRel(t.id), 'tetris-game/index.html');
-  writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>root</title>');
-  assert.equal(findPlayableHtmlRel(t.id), 'index.html');
-  assert.equal(
-    htmlRelFromText('File written: ' + path.join(dir, 'tetris-game', 'index.html'), t.id),
-    'tetris-game/index.html',
-  );
-  assert.equal(htmlRelFromText('Wrote missing.html (120 bytes) to ' + dir, t.id), '');
-  writeFileSync(path.join(dir, 'play.html'), '<!doctype html>');
-  assert.equal(htmlRelFromText('File updated: ' + path.join(dir, 'play.html'), t.id), 'play.html');
-  assert.equal(
-    htmlRelFromText('\x1b[32mFile written: ' + path.join(dir, 'index.html') + '\x1b[0m', t.id),
-    'index.html',
-  );
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 19100 + Math.floor(Math.random() * 500);
+  writeFileSync(script, `
+    process.env.OZ_WORKSPACE_DIR = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    const path = await import('node:path');
+    const { writeFileSync } = await import('node:fs');
+    const { htmlRelFromText, findPlayableHtmlRel, newThread } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+    const dir = ${JSON.stringify(dir)};
+    const t = newThread('AgentPreview');
+    t.dir = dir;
+    const nested = findPlayableHtmlRel(t.id);
+    writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>root</title>');
+    const rootIdx = findPlayableHtmlRel(t.id);
+    const fromWrite = htmlRelFromText('File written: ' + path.join(dir, 'tetris-game', 'index.html'), t.id);
+    const missing = htmlRelFromText('Wrote missing.html (120 bytes) to ' + dir, t.id);
+    writeFileSync(path.join(dir, 'play.html'), '<!doctype html>');
+    const updated = htmlRelFromText('File updated: ' + path.join(dir, 'play.html'), t.id);
+    const ansi = htmlRelFromText('\\x1b[32mFile written: ' + path.join(dir, 'index.html') + '\\x1b[0m', t.id);
+    console.log(JSON.stringify({ nested, rootIdx, fromWrite, missing, updated, ansi }));
+    process.exit(0);
+  `);
+  const out = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script], { cwd: root, env: { ...process.env, OZ_AGENT_PORTS: '0' } });
+    let buf = '';
+    child.stdout.on('data', (d) => { buf += d; });
+    child.stderr.on('data', (d) => { buf += d; });
+    const t = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('preview rel timed out: ' + buf)); }, 15000);
+    child.on('exit', (code) => {
+      clearTimeout(t);
+      if (code !== 0) reject(new Error('preview rel exited ' + code + ': ' + buf));
+      else resolve(buf);
+    });
+  });
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result');
+  const r = JSON.parse(line);
+  assert.equal(r.nested, 'tetris-game/index.html');
+  assert.equal(r.rootIdx, 'index.html');
+  assert.equal(r.fromWrite, 'tetris-game/index.html');
+  assert.equal(r.missing, '');
+  assert.equal(r.updated, 'play.html');
+  assert.equal(r.ansi, 'index.html');
 });

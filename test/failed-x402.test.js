@@ -40,6 +40,8 @@ function closeServer(server) {
 async function startAgainst(upstream, t) {
   const prevPort = config.port;
   const prevBase = config.apiBase;
+  const prevSession = process.env.OPENZOO_SESSION_PATH;
+  process.env.OPENZOO_SESSION_PATH = path.join(tmp, `session-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
   config.apiBase = `http://127.0.0.1:${upstream.address().port}`;
   config.port = 0;
   const { startProxy } = await import('../lib/proxy.js');
@@ -49,6 +51,8 @@ async function startAgainst(upstream, t) {
     await closeServer(upstream);
     config.port = prevPort;
     config.apiBase = prevBase;
+    if (prevSession == null) delete process.env.OPENZOO_SESSION_PATH;
+    else process.env.OPENZOO_SESSION_PATH = prevSession;
   });
   assert.ok(proxy.server);
   return { port: proxy.server.address().port, spent: proxy.spent };
