@@ -11,6 +11,7 @@ import {
   spawnClaudeInteractive, setClaudeRunnerForTest, runClaudeCode, waitIdle,
   sanitizeClaudeCanvas, looksBinaryCanvas, canvasHttpErrorLine,
   WAIT_IDLE_HARD_MS, setNodePtyLoaderForTest, setPtyPlatformForTest,
+  hasLiveClaudeSession, closeClaudeSession, isToolRunningLine,
 } from '../lib/claudecode.js';
 import { claudeZooEnv } from '../lib/launch.js';
 import { CANVAS_PTY_RECIPE } from '../lib/packed-runtime.js';
@@ -34,6 +35,7 @@ test('claudeInteractiveArgs is the TUI, not --print stream-json', () => {
   assert.ok(args.includes('s1'));
   assert.ok(!args.includes('write hello'), 'prompt is written to PTY stdin, not argv');
   assert.deepEqual([...GROKUI_RESERVED_SLASH], ['mode', 'tier', 'help', 'dir']);
+  assert.ok(!GROKUI_RESERVED_SLASH.includes('goal'), '/goal is a Claude slash — write it to PTY stdin');
 });
 
 test('claudeInteractiveArgs never passes --model openzoo/auto', () => {
@@ -144,6 +146,20 @@ test('sanitizeClaudeCanvas never paints dumps, reminders, or binary 400s', () =>
   assert.doesNotMatch(sanitizeClaudeCanvas('RUN: mkdir -p foo\nWRITE: a.txt'), /RUN:|WRITE:/);
   assert.equal(sanitizeClaudeCanvas('{"type":"tool_use","file_path":"/tmp/x"}'), '');
   assert.doesNotMatch(sanitizeClaudeCanvas('SPAWN: kid | go'), /SPAWN:/);
+  assert.equal(isToolRunningLine('[LS] running...'), true);
+  assert.equal(isToolRunningLine('[Read] running...'), true);
+  assert.equal(isToolRunningLine('[Bash] running...'), true);
+  assert.doesNotMatch(
+    sanitizeClaudeCanvas('Hello\n[LS] running...\n[Read] running...\n[Bash] running...\nDone'),
+    /\[LS\]|\[Read\]|\[Bash\]|running\.\.\./,
+  );
+  assert.doesNotMatch(
+    sanitizeClaudeCanvas('ok\n<tool-use>{"name":"Bash"}</tool-use>\nmore'),
+    /tool-use|Bash/,
+  );
+  const trail = foldTuiText('[LS] running...\n[Read] running...\n[Bash] running...\nThe files are ready.\n> ');
+  assert.match(trail.text, /The files are ready/);
+  assert.doesNotMatch(trail.text, /\[LS\]|\[Read\]|\[Bash\]|running\.\.\./);
 });
 
 test('foldTuiText strips ANSI, folds thinking, drops tool JSON', () => {
@@ -272,19 +288,34 @@ test('waitIdle hard-cap settles when think events never stop', async () => {
   assert.ok(elapsed < 900, `think loop must not hang waitIdle, got ${elapsed}ms`);
 });
 
-test('waitIdle finishes early on visible assistant text and idle', async () => {
-  const sess = mockPtySession();
+test('waitIdle does not finish early on a question or dummy write + idle', async () => {
+  const question = mockPtySession();
   const t0 = Date.now();
-  const p = waitIdle(sess, { hardCapMs: 5_000, minWait: 10, promptWaitMs: 5_000 });
+  const q = waitIdle(question, { hardCapMs: 350, minWait: 10, promptWaitMs: 5_000 });
   setTimeout(() => {
-    sess.paint({ text: 'Wrote hello.txt', term: 'Wrote hello.txt\n> ' });
-    sess.emit({ kind: 'tui', text: 'Wrote hello.txt' });
-  }, 25);
-  await p;
-  const elapsed = Date.now() - t0;
-  assert.ok(elapsed < 600, `visible+idle must finish early, got ${elapsed}ms`);
-  assert.equal(sess.screenText().text, 'Wrote hello.txt');
-  assert.notEqual(sess.screenText().text, '(no response)');
+    question.paint({
+      text: 'what would you like to do?',
+      term: 'what would you like to do?\n> ',
+    });
+    question.emit({ kind: 'tui', text: 'what would you like to do?' });
+  }, 20);
+  await q;
+  const qElapsed = Date.now() - t0;
+  assert.ok(qElapsed >= 280, `question+idle must not complete the send, got ${qElapsed}ms`);
+  assert.match(question.screenText().text, /what would you like to do/);
+  assert.notEqual(question.screenText().text, '(no response)');
+
+  const dummy = mockPtySession();
+  const d0 = Date.now();
+  const d = waitIdle(dummy, { hardCapMs: 350, minWait: 10, promptWaitMs: 5_000 });
+  setTimeout(() => {
+    dummy.paint({ text: 'Wrote dummy.txt', term: 'Wrote dummy.txt\n> ' });
+    dummy.emit({ kind: 'tui', text: 'Wrote dummy.txt' });
+  }, 20);
+  await d;
+  const dElapsed = Date.now() - d0;
+  assert.ok(dElapsed >= 280, `dummy write+idle must not complete the send, got ${dElapsed}ms`);
+  assert.equal(dummy.dead, false);
 });
 
 test('runClaudeCode override and missing CLI', async () => {
@@ -301,8 +332,11 @@ test('runClaudeCode override and missing CLI', async () => {
     env: { ...process.env, PATH: '/no/claude/here', OPENZOO_CLAUDE_PATH_ONLY: '1' },
   });
   assert.equal(miss.missing, true);
-  assert.match(miss.text, /openzoo-claude is installing|CLI not found/);
-  assert.match(CLAUDE_MISSING, /openzoo-claude is installing/);
+  assert.equal(miss.ptyPending, true);
+  assert.equal(miss.text, PTY_PENDING);
+  assert.equal(CLAUDE_MISSING, PTY_PENDING);
+  assert.match(PTY_PENDING, /Auto is starting/);
+  assert.doesNotMatch(miss.text, /will use chat/);
   assert.doesNotMatch(CLAUDE_MISSING, /npx -y openzoo-claude/);
   assert.doesNotMatch(CLAUDE_MISSING, /npm i -g/);
   assert.doesNotMatch(CLAUDE_MISSING, /install\.sh/);
@@ -396,6 +430,89 @@ test('spawnClaudeInteractive reply + idle is that reply, not (no response)', asy
   assert.match(r.text, /The files are written/);
   assert.notEqual(r.text.trim(), '(no response)');
   assert.doesNotMatch(r.text, /\(no response\)/);
+});
+
+function writeQuestionIdleClaude(dir) {
+  const cli = path.join(dir, 'openzoo-claude');
+  writeFileSync(cli, `#!/usr/bin/env node
+process.stdout.write('session_id=sess-ask-1\\n> ');
+let buf = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (d) => {
+  buf += d;
+  const parts = buf.split(/\\r\\n|\\n|\\r/);
+  buf = parts.pop() || '';
+  for (const raw of parts) {
+    const line = raw.replace(/\\r/g, '').trim();
+    if (!line) continue;
+    process.stdout.write('what would you like to do?\\n> ');
+  }
+});
+`);
+  chmodSync(cli, 0o755);
+  return cli;
+}
+
+function writeGoalClaude(dir) {
+  const cli = path.join(dir, 'openzoo-claude');
+  writeFileSync(cli, `#!/usr/bin/env node
+process.stdout.write('session_id=sess-goal-1\\n> ');
+let buf = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (d) => {
+  buf += d;
+  const parts = buf.split(/\\r\\n|\\n|\\r/);
+  buf = parts.pop() || '';
+  for (const raw of parts) {
+    const line = raw.replace(/\\r/g, '').trim();
+    if (!line) continue;
+    if (line.startsWith('/goal')) process.stdout.write('goal accepted: ' + line + '\\nworking\\n> ');
+    else process.stdout.write('got:' + line + '\\n> ');
+  }
+});
+`);
+  chmodSync(cli, 0o755);
+  return cli;
+}
+
+test('runClaudeCode stays on liveSessions after a question — not (no response)', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-pty-live-q-'));
+  writeQuestionIdleClaude(dir);
+  const key = 'live-question';
+  try {
+    const r = await runClaudeCode({
+      prompt: 'hi',
+      cwd: dir,
+      sessionKey: key,
+      env: { ...process.env, PATH: dir, OPENZOO_CLAUDE_PATH_ONLY: '1', TERM: 'xterm-256color' },
+      waitIdleMs: 400,
+      stayLive: false,
+    });
+    assert.match(String(r.text || ''), /what would you like to do/i);
+    assert.notEqual(String(r.text || '').trim(), '(no response)');
+    assert.doesNotMatch(String(r.text || ''), /\(no response\)/);
+    assert.equal(r.live, true);
+    assert.equal(hasLiveClaudeSession(key), true);
+  } finally {
+    closeClaudeSession(key);
+  }
+});
+
+test('spawnClaudeInteractive writes /goal to PTY stdin', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-pty-goal-'));
+  const cli = writeGoalClaude(dir);
+  const r = await spawnClaudeInteractive({
+    cli,
+    args: ['--permission-mode', 'bypassPermissions'],
+    cwd: dir,
+    env: { ...process.env, TERM: 'xterm-256color' },
+    prompt: '/goal ship the work',
+    waitIdleMs: 4000,
+  });
+  assert.match(r.text, /goal accepted/);
+  assert.match(r.text, /\/goal ship the work/);
+  assert.doesNotMatch(r.text, /wizard removed/);
+  assert.notEqual(r.text.trim(), '(no response)');
 });
 
 test('spawnClaudeInteractive infinite think settles at waitIdle hard-cap', async () => {

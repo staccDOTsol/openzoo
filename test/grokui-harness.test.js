@@ -248,9 +248,20 @@ test('AUTO is Claude Code once; ask still parks pendingRun; ping wakes', async (
       handleSlash, isGrokuiOwnedSlash, shouldKeepAuto,
       isDoneReply, isTransientModelFail, isEmptyToolResult,
       isPaymentFailed, isEmptyWalletPayment,
+      isAgentMode, normalizeRunMode, runModeLabel,
     } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
-
+    assert.equal(normalizeRunMode('agent'), 'agent');
+    assert.equal(normalizeRunMode('auto'), 'agent');
+    assert.equal(normalizeRunMode('chat'), 'chat');
+    assert.equal(normalizeRunMode('ask'), 'chat');
+    assert.equal(isAgentMode('auto'), true);
+    assert.equal(isAgentMode('agent'), true);
+    assert.equal(isAgentMode({ runMode: 'auto' }), true);
+    assert.equal(isAgentMode({ runMode: 'ask' }), false);
+    assert.equal(runModeLabel({ runMode: 'auto' }), 'agent');
     assert.equal(isGrokuiOwnedSlash('/mode auto', 'auto'), true);
+    assert.equal(isGrokuiOwnedSlash('/mode agent', 'agent'), true);
+    assert.equal(isGrokuiOwnedSlash('/mode chat', 'chat'), true);
     assert.equal(isGrokuiOwnedSlash('/tier cheap', 'auto'), true);
     assert.equal(isGrokuiOwnedSlash('/help', 'auto'), true);
     assert.equal(isGrokuiOwnedSlash('/dir /tmp', 'auto'), true);
@@ -259,6 +270,10 @@ test('AUTO is Claude Code once; ask still parks pendingRun; ping wakes', async (
     assert.equal(isGrokuiOwnedSlash('/context', 'auto'), false);
     assert.equal(isGrokuiOwnedSlash('/model opus', 'auto'), false);
     assert.equal(isGrokuiOwnedSlash('/model opus', 'ask'), true);
+    assert.equal(isGrokuiOwnedSlash('/model opus', 'chat'), true);
+    assert.equal(isGrokuiOwnedSlash('/goal', 'agent'), false);
+    assert.equal(isGrokuiOwnedSlash('/goal', 'auto'), false);
+    assert.equal(isGrokuiOwnedSlash('/goal do the work', 'auto'), false);
     assert.equal(isGrokuiOwnedSlash('/cost', 'auto'), true);
 
     assert.equal(isDoneReply('DONE: shipped'), true);
@@ -267,19 +282,39 @@ test('AUTO is Claude Code once; ask still parks pendingRun; ping wakes', async (
     assert.equal(isEmptyWalletPayment('openzoo wallet underfunded: this call needs more'), true);
     assert.equal(isPaymentFailed('(payment failed — HTTP 402 after 3 retries, though the wallet holds 12 USDC)'), true);
     assert.equal(shouldKeepAuto({ runMode: 'auto' }, '(payment required — HTTP 402, the wallet is empty.)'), false);
+    assert.equal(shouldKeepAuto({ runMode: 'agent' }, '(payment required — HTTP 402, the wallet is empty.)'), false);
+    const modeThread = newThread('mode-rename', null);
+    const setAgent = await handleSlash('/mode agent', modeThread);
+    assert.match(setAgent, /Run mode set to agent/);
+    assert.equal(modeThread.runMode, 'agent');
+    assert.doesNotMatch(setAgent, /\\bAuto\\b/);
+    const setAutoAlias = await handleSlash('/mode auto', modeThread);
+    assert.match(setAutoAlias, /Run mode set to agent/);
+    assert.equal(modeThread.runMode, 'agent');
+    const setChat = await handleSlash('/mode chat', modeThread);
+    assert.match(setChat, /Run mode set to chat/);
+    assert.equal(modeThread.runMode, 'chat');
+    const setAskAlias = await handleSlash('/mode ask', modeThread);
+    assert.match(setAskAlias, /Run mode set to chat/);
+    assert.equal(modeThread.runMode, 'chat');
     assert.equal(isEmptyToolResult('(command output)\\n(no output)'), true);
 
     const skipPty = newThread('try-pty-first', null);
     skipPty.runMode = 'auto';
     let skipClaude = 0;
+    let skipBrain = 0;
     setClaudeRunnerForTest(async () => {
       skipClaude += 1;
-      return { text: '', error: false, paymentFailed: '', sessionId: '' };
+      return { text: '', error: false, paymentFailed: '', sessionId: '', ptyPending: true, missing: true };
     });
-    setBrainAskForTest(() => 'visible from chat');
+    setBrainAskForTest(() => { skipBrain += 1; return 'visible from chat'; });
     await runTurn(skipPty.id, 'hi first');
-    assert.equal(skipClaude, 1, 'first Auto send tries PTY then completions if empty');
-    assert.equal(skipPty.history.filter((h) => h.who === 'bot').pop().text, 'visible from chat');
+    assert.ok(skipClaude >= 1, 'first Auto send stays on the PTY');
+    assert.equal(skipBrain, 0, 'empty PTY must not steal the send with chat/completions');
+    const skipBot = skipPty.history.filter((h) => h.who === 'bot').pop();
+    assert.ok(skipBot);
+    assert.match(skipBot.text, /Auto is starting/);
+    assert.doesNotMatch(skipBot.text, /visible from chat/);
     assert.equal(skipPty.status, 'idle');
 
     const auto = newThread('auto-keep', null);
@@ -332,7 +367,8 @@ test('AUTO is Claude Code once; ask still parks pendingRun; ping wakes', async (
     errBot.runMode = 'auto';
     errBot.history.push({ who: 'bot', text: 'prior visible reply' });
     const errPainted = [];
-    setBrainAskForTest(() => 'recovered via chat');
+    let errBrain = 0;
+    setBrainAskForTest(() => { errBrain += 1; return 'recovered via chat'; });
     setClaudeRunnerForTest(async ({ onEvent }) => {
       onEvent?.({ kind: 'init', sessionId: 'sess-400', model: 'openzoo-claude' });
       onEvent?.({ kind: 'think', text: '' });
@@ -349,9 +385,10 @@ test('AUTO is Claude Code once; ask still parks pendingRun; ping wakes', async (
     const errUsers = errBot.history.filter((h) => h.who === 'user');
     assert.equal(errUsers.length, 1);
     assert.equal(errUsers[0].text, 'do work');
+    assert.equal(errBrain, 0, 'HTTP 400 on the PTY must not steal Auto with chat/completions');
     assert.equal(errBot.history[errBot.history.length - 1].who, 'bot');
-    assert.equal(errBot.history[errBot.history.length - 1].text, 'recovered via chat');
-    assert.doesNotMatch(errBot.history.map((h) => h.text).join('\\n'), /gzip-body|API Error|\\uFFFD|upstream HTTP|\\(no response\\)/);
+    assert.equal(errBot.history[errBot.history.length - 1].text, 'upstream HTTP 400');
+    assert.doesNotMatch(errBot.history.map((h) => h.text).join('\\n'), /gzip-body|API Error|\\uFFFD|recovered via chat|\\(no response\\)/);
     assert.ok(errPainted.some((e) => e.type === 'think'));
     assert.ok(errPainted.some((e) => e.type === 'tool' && /Read secret\\.bin/.test(e.detail)));
     assert.equal(errBot.status, 'idle');
@@ -515,9 +552,10 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
     releaseHang('ok from model');
     await turnP;
 
-    setBrainAskForTest(() => 'ok from chat after empty pty');
+    let persistBrain = 0;
+    setBrainAskForTest(() => { persistBrain += 1; return 'ok from chat after empty pty'; });
     setClaudeRunnerForTest(async () => {
-      return { text: '', error: 'upstream HTTP 500', paymentFailed: '', sessionId: '' };
+      return { text: '', error: true, paymentFailed: '', sessionId: '', ptyPending: true, missing: true };
     });
     const auto = newThread('persist-auto', null);
     auto.runMode = 'auto';
@@ -531,9 +569,10 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
     assert.equal(vis.some((h) => h.who === 'user' && h.text === 'do the job even if 500'), true);
     assert.equal(vis.some((h) => isHarnessUserText(h.text)), false);
     assert.ok((auto.messages || []).some((m) => m.role === 'user' && m.content === 'do the job even if 500'));
+    assert.equal(persistBrain, 0, 'Auto must not steal the send with chat/completions');
     assert.equal(auto.history[auto.history.length - 1].who, 'bot');
-    assert.equal(auto.history[auto.history.length - 1].text, 'ok from chat after empty pty');
-    assert.doesNotMatch(auto.history.map((h) => h.text).join('\\n'), /\\(no response\\)|upstream HTTP/);
+    assert.match(auto.history[auto.history.length - 1].text, /Auto is starting/);
+    assert.doesNotMatch(auto.history.map((h) => h.text).join('\\n'), /\\(no response\\)|ok from chat after empty pty/);
     assert.equal(auto.status, 'idle');
 
     let autoEntered = false;
@@ -623,14 +662,12 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
     assert.equal(isClaudeFallbackReply('error: upstream HTTP 500'), true);
     assert.equal(isClaudeFallbackReply('Wrote hello.txt'), false);
     assert.equal(isClaudeFallbackReply('(payment required — HTTP 402, the wallet is empty.)'), false);
-    assert.equal(isClaudeFallbackReply('openzoo-claude is installing. Auto will use chat until the harness is ready.'), true);
+    assert.equal(isClaudeFallbackReply('Auto is starting…'), true);
     assert.equal(isClaudeFallbackReply('openzoo-claude CLI not found. install with npx'), true);
 
     const emptyCases = [
+      { text: '', error: false, ptyPending: true, missing: true },
       { text: '', error: false },
-      { text: '(no response)', error: false },
-      { text: 'upstream HTTP 400', error: true },
-      { text: 'API Error: 400 ' + '\\uFFFD'.repeat(12), error: true },
     ];
     for (const [i, ret] of emptyCases.entries()) {
       const asks = [];
@@ -640,66 +677,72 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
       });
       setClaudeRunnerForTest(async () => ({
         text: ret.text, error: ret.error, paymentFailed: '', sessionId: 'sess-empty-' + i,
+        ptyPending: ret.ptyPending, missing: ret.missing,
       }));
       const quiet = newThread('pty-quiet-' + i, null);
       quiet.runMode = 'auto';
       quiet.model = 'openzoo/auto';
       quiet.history.push({ who: 'bot', text: 'prior visible reply' });
       await runTurn(quiet.id, 'hi');
-      assert.equal(asks.length, 1, 'empty Claude must fall through to chat-completions: ' + JSON.stringify(ret));
-      assert.equal(asks[0], 'hi');
+      assert.equal(asks.length, 0, 'empty Claude must stay on the PTY, never chat/completions: ' + JSON.stringify(ret));
       const users = quiet.history.filter((h) => h.who === 'user');
       assert.equal(users.length, 1, 'must not idle with two user his');
       assert.equal(users[0].text, 'hi');
       const bots = quiet.history.filter((h) => h.who === 'bot');
-      assert.equal(bots[bots.length - 1].text, 'hi from ask/auto');
-      assert.doesNotMatch(quiet.history.map((h) => h.text).join('\\n'), /\\(no response\\)|upstream HTTP/);
+      assert.match(bots[bots.length - 1].text, /Auto is starting/);
+      assert.doesNotMatch(quiet.history.map((h) => h.text).join('\\n'), /hi from ask\\/auto|\\(no response\\)/);
       assert.equal(quiet.status, 'idle');
     }
 
     let firstPty = 0;
+    let firstBrain = 0;
     setClaudeRunnerForTest(async () => {
       firstPty += 1;
-      return { text: '', error: false, paymentFailed: '', sessionId: '', missing: false };
+      return { text: '', error: false, paymentFailed: '', sessionId: '', missing: false, ptyPending: true };
     });
-    setBrainAskForTest(() => 'try pty then completions');
+    setBrainAskForTest(() => { firstBrain += 1; return 'try pty then completions'; });
     const freshAuto = newThread('try-pty-first', null);
     freshAuto.runMode = 'auto';
     await runTurn(freshAuto.id, 'hi');
-    assert.equal(firstPty, 1, 'empty-history Auto still tries PTY');
+    assert.ok(firstPty >= 1, 'empty-history Auto still tries PTY');
+    assert.equal(firstBrain, 0, 'must not fall through to completions');
     assert.equal(freshAuto.history.filter((h) => h.who === 'user').length, 1);
-    assert.equal(freshAuto.history.filter((h) => h.who === 'bot').pop().text, 'try pty then completions');
+    assert.match(freshAuto.history.filter((h) => h.who === 'bot').pop().text, /Auto is starting/);
     assert.equal(freshAuto.status, 'idle');
 
     let secondPty = 0;
+    let secondBrain = 0;
     setClaudeRunnerForTest(async () => {
       secondPty += 1;
-      return { text: '(no response)', error: false, paymentFailed: '', sessionId: '' };
+      return { text: '', error: false, paymentFailed: '', sessionId: '', ptyPending: true };
     });
-    setBrainAskForTest(() => 'second send still completions');
+    setBrainAskForTest(() => { secondBrain += 1; return 'second send still completions'; });
     await runTurn(freshAuto.id, 'hi again');
-    assert.equal(secondPty, 1, 'thread with a bot row still tries PTY');
+    assert.ok(secondPty >= 1, 'thread with a bot row still tries PTY');
+    assert.equal(secondBrain, 0);
     const secondUsers = freshAuto.history.filter((h) => h.who === 'user');
     assert.equal(secondUsers.length, 2);
     assert.equal(secondUsers[1].text, 'hi again');
-    assert.equal(freshAuto.history.filter((h) => h.who === 'bot').pop().text, 'second send still completions');
+    assert.match(freshAuto.history.filter((h) => h.who === 'bot').pop().text, /Auto is starting/);
     assert.doesNotMatch(freshAuto.history.map((h) => h.text).join('\\n'), /\\(no response\\)/);
     assert.equal(freshAuto.status, 'idle');
 
     let missingPty = 0;
+    let missingBrain = 0;
     setClaudeRunnerForTest(async () => {
       missingPty += 1;
-      return { text: 'openzoo-claude is installing. Auto will use chat until the harness is ready.', missing: true, error: true, paymentFailed: '', sessionId: '' };
+      return { text: 'Auto is starting…', missing: true, ptyPending: true, error: true, paymentFailed: '', sessionId: '' };
     });
-    setBrainAskForTest(() => 'missing cli uses chat');
+    setBrainAskForTest(() => { missingBrain += 1; return 'missing cli uses chat'; });
     const missAuto = newThread('missing-cli', null);
     missAuto.runMode = 'auto';
     missAuto.history.push({ who: 'bot', text: 'prior visible reply' });
     await runTurn(missAuto.id, 'still answer me');
-    assert.equal(missingPty, 1);
+    assert.ok(missingPty >= 1);
+    assert.equal(missingBrain, 0, 'missing openzoo-claude must not steal Auto with chat');
     assert.equal(missAuto.history.filter((h) => h.who === 'user').length, 1);
-    assert.equal(missAuto.history.filter((h) => h.who === 'bot').pop().text, 'missing cli uses chat');
-    assert.doesNotMatch(missAuto.history.map((h) => h.text).join('\\n'), /npx -y openzoo-claude/);
+    assert.match(missAuto.history.filter((h) => h.who === 'bot').pop().text, /Auto is starting/);
+    assert.doesNotMatch(missAuto.history.map((h) => h.text).join('\\n'), /npx -y openzoo-claude|missing cli uses chat/);
     assert.equal(missAuto.status, 'idle');
 
     setBrainAskForTest(() => { throw new Error('real Claude reply must not fall through to completions'); });
@@ -739,6 +782,76 @@ test('user message is on disk before the model call; 500 does not rewrite it as 
   assert.ok(line, 'child printed a JSON result: ' + out);
   const r = JSON.parse(line);
   assert.equal(r.ok, true);
+});
+
+test('Auto canvas is model text only; /goal goes to the PTY; live session does not park', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-auto-canvas-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 25500 + Math.floor(Math.random() * 2000);
+  writeFileSync(script, `
+    process.env.HOME = ${JSON.stringify(dir)};
+    process.env.OZ_WORKSPACE_DIR = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    const assert = (await import('node:assert/strict')).default;
+    const {
+      newThread, runTurn, setBrainAskForTest, setClaudeRunnerForTest,
+      isGrokuiOwnedSlash, PTY_PENDING,
+    } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+    const { GROKUI_RESERVED_SLASH } = await import(${JSON.stringify(path.join(root, 'lib/claudecode.js'))});
+
+    assert.deepEqual([...GROKUI_RESERVED_SLASH], ['mode', 'tier', 'help', 'dir']);
+    assert.equal(GROKUI_RESERVED_SLASH.includes('goal'), false);
+    assert.equal(isGrokuiOwnedSlash('/goal ship it', 'auto'), false);
+    assert.equal(PTY_PENDING, 'Auto is starting…');
+
+    let brain = 0;
+    setBrainAskForTest(() => { brain += 1; return 'stolen by Ask'; });
+    const prompts = [];
+    const painted = [];
+    setClaudeRunnerForTest(async ({ prompt, onEvent, stayLive }) => {
+      prompts.push(String(prompt || ''));
+      assert.equal(stayLive, true, 'Auto send stays on the live PTY');
+      onEvent?.({
+        kind: 'tui',
+        text: '[LS] running...\\n[Read] running...\\n[Bash] running...\\nThe tree is ready.',
+      });
+      return {
+        text: 'The tree is ready.\\n[LS] running...\\n<system-reminder>nope</system-reminder>',
+        sessionId: 'sess-canvas', error: false, paymentFailed: '', live: false,
+      };
+    });
+    const bot = newThread('canvas-auto', null);
+    bot.runMode = 'auto';
+    await runTurn(bot.id, '/goal list the repo', (ev) => painted.push(ev));
+    assert.equal(brain, 0, 'Auto /goal must not hit chat/completions');
+    assert.ok(prompts.some((p) => p.includes('/goal list the repo')), '/goal is written to the PTY prompt');
+    const last = bot.history.filter((h) => h.who === 'bot').pop();
+    assert.match(last.text, /The tree is ready/);
+    assert.doesNotMatch(last.text, /\\[LS\\]|\\[Read\\]|\\[Bash\\]|running\\.\\.\\.|system-reminder|stolen by Ask/);
+    assert.doesNotMatch(painted.map((e) => e.delta || e.text || '').join('\\n'), /\\[LS\\] running|\\[Bash\\] running/);
+
+    const live = newThread('live-park', null);
+    live.runMode = 'auto';
+    setClaudeRunnerForTest(async () => {
+      return {
+        text: 'what would you like to do?',
+        sessionId: 'sess-live', error: false, paymentFailed: '', live: true,
+      };
+    });
+    await runTurn(live.id, 'start the job');
+    assert.equal(brain, 0);
+    assert.match(live.history.filter((h) => h.who === 'bot').pop().text, /what would you like to do/);
+    assert.doesNotMatch(live.history.map((h) => h.text).join('\\n'), /stolen by Ask|\\(no response\\)/);
+    console.log(JSON.stringify({ ok: true, prompts: prompts.length, brain }));
+    process.exit(0);
+  `);
+  const out = await runChild(script);
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result: ' + out);
+  const r = JSON.parse(line);
+  assert.equal(r.ok, true);
+  assert.equal(r.brain, 0);
 });
 
 test('Claude Task/Agent tools become sidebar agents, including nested kids', async () => {
