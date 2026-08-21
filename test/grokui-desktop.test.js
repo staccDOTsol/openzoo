@@ -15,8 +15,8 @@ const preload = readFileSync(path.join(root, 'grokui-app', 'preload.js'), 'utf8'
 const appPkg = require('../grokui-app/package.json');
 const ozPkg = require('../package.json');
 
-test('grokui app version is 1.6.7 so the next tag sorts above 1.5.99', () => {
-  assert.equal(appPkg.version, '1.6.7');
+test('grokui app version is 1.6.8 so the next tag sorts above 1.5.99', () => {
+  assert.equal(appPkg.version, '1.6.8');
   const harness = readFileSync(path.join(root, 'lib', 'harness-install.js'), 'utf8');
   assert.match(harness, /OPENZOO_CLAUDE_SPEC/);
   assert.match(harness, /ELECTRON_RUN_AS_NODE/);
@@ -1318,6 +1318,9 @@ test('ensureProxy reuses a healthy :8402 and autoheals a dead packed sidecar', (
   assert.match(heal, /falling back to host node|resolveHostNode/);
   assert.match(heal, /\.local['"`].*bin|localBinNode/);
   assert.match(heal, /detached:\s*true/);
+  assert.match(heal, /win32NeedsShell|\.cmd\|bat|shell:\s*true/);
+  assert.match(heal, /detached \+ piped stdio hangs|win32DetachedPipeHang/);
+  assert.match(main, /copyPackedRuntimeToHome/);
   assert.match(heal, /Do not SIGTERM a healthy detached sidecar|must not SIGTERM/);
   assert.doesNotMatch(heal, /timer\.unref/);
   assert.doesNotMatch(heal, /reloadOpenWindows/);

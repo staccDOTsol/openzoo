@@ -588,7 +588,7 @@ test('claudeZooEnv is the openzoo claude writer: gateway token, no Anthropic API
     HOME: '/tmp',
   }, { port: 8402 });
   assert.equal(env.ANTHROPIC_API_KEY, undefined);
-  assert.equal(env.ANTHROPIC_BASE_URL, 'http://localhost:8402/v1');
+  assert.equal(env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:8402/v1');
   assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'sk-openzoo');
   assert.equal(env.DISABLE_COMPACT, '1');
   assert.equal(env.DISABLE_AUTO_COMPACT, '1');
