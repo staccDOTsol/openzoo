@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -22,6 +22,14 @@ test('html autopreview is wired in grokui.mjs', () => {
   assert.match(grokuiSrc, /can't preview/);
   assert.match(grokuiSrc, /The harness will preview/);
   assert.match(grokuiSrc, /await previewAck\(originId, rel\)/);
+  assert.match(grokuiSrc, /id="agentPreview"/);
+  assert.match(grokuiSrc, /function showAgentPreview/);
+  assert.match(grokuiSrc, /function pullAgentPreview/);
+  assert.match(grokuiSrc, /function htmlRelFromText/);
+  assert.match(grokuiSrc, /function findPlayableHtmlRel/);
+  assert.match(grokuiSrc, /body\.agent-mode #agentPreview\.show/);
+  assert.match(grokuiSrc, /allow-scripts allow-same-origin allow-pointer-lock allow-forms/);
+  assert.match(grokuiSrc, /\/threads\\\/\(\[\^\/\]\+\)\\\/preview/);
   assert.doesNotMatch(grokuiSrc, /Workspace server is still starting — try again in a second/);
   // A second `const chatHeader` in the same <script> is a SyntaxError and
   // kills the whole UI — including the preview iframe we just added.
@@ -97,4 +105,29 @@ test('WRITE of html acks a live localhost URL that serves the file', async () =>
   assert.doesNotMatch(r.txt, /Preview:/);
   assert.match(r.edited, /Preview: http:\/\/localhost:\d+\//);
   assert.match(r.html2, /fries vs birds/);
+});
+
+test('htmlRelFromText and findPlayableHtmlRel see OCC writes and existing index.html', async () => {
+  process.env.OZ_GROKUI_PORT = String(19100 + Math.floor(Math.random() * 500));
+  process.env.OZ_AGENT_PORTS = '0';
+  const { htmlRelFromText, findPlayableHtmlRel, newThread } = await import(path.join(root, 'lib/grokui.mjs'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-agent-html-'));
+  mkdirSync(path.join(dir, 'tetris-game'), { recursive: true });
+  writeFileSync(path.join(dir, 'tetris-game', 'index.html'), '<!doctype html><title>t</title>');
+  const t = newThread('AgentPreview');
+  t.dir = dir;
+  assert.equal(findPlayableHtmlRel(t.id), 'tetris-game/index.html');
+  writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>root</title>');
+  assert.equal(findPlayableHtmlRel(t.id), 'index.html');
+  assert.equal(
+    htmlRelFromText('File written: ' + path.join(dir, 'tetris-game', 'index.html'), t.id),
+    'tetris-game/index.html',
+  );
+  assert.equal(htmlRelFromText('Wrote missing.html (120 bytes) to ' + dir, t.id), '');
+  writeFileSync(path.join(dir, 'play.html'), '<!doctype html>');
+  assert.equal(htmlRelFromText('File updated: ' + path.join(dir, 'play.html'), t.id), 'play.html');
+  assert.equal(
+    htmlRelFromText('\x1b[32mFile written: ' + path.join(dir, 'index.html') + '\x1b[0m', t.id),
+    'index.html',
+  );
 });

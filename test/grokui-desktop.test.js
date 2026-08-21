@@ -24,8 +24,8 @@ const preload = readFileSync(path.join(root, 'grokui-app', 'preload.js'), 'utf8'
 const appPkg = require('../grokui-app/package.json');
 const ozPkg = require('../package.json');
 
-test('grokui app version is 1.6.12 so the next tag sorts above 1.5.99', () => {
-  assert.equal(appPkg.version, '1.6.12');
+test('grokui app version is 1.6.13 so the next tag sorts above 1.5.99', () => {
+  assert.equal(appPkg.version, '1.6.13');
   const harness = readFileSync(path.join(root, 'lib', 'harness-install.js'), 'utf8');
   assert.match(harness, /OPENZOO_CLAUDE_SPEC/);
   assert.match(harness, /ELECTRON_RUN_AS_NODE/);
@@ -871,6 +871,8 @@ test('afterPack pack gate fails when node-pty or its native .node is missing', (
     writeFileSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src', 'ui', 'commands.mjs'), 'export {}\n');
     assert.throws(() => afterPack.assertPackedOpenzooClaude(dir), /\/model/);
     writeFileSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src', 'ui', 'commands.mjs'), "export const COMMANDS = { '/model': {} }\n");
+    assert.throws(() => afterPack.assertPackedOpenzooClaude(dir), /overlay|goal\.mjs|agent-loop/);
+    afterPack.overlayRepoOpenzooClaude(path.join(dir, 'node_modules', 'openzoo-claude'), path.join(root, 'grokui-app'));
     assert.doesNotThrow(() => afterPack.assertPackedOpenzooClaude(dir));
     assert.throws(() => afterPack.assertPackedNodePty(dir, { electronPlatformName: 'win32' }), /conpty|OpenConsole/);
     writeFileSync(path.join(dir, 'node_modules', 'node-pty', 'build', 'Release', 'conpty.node'), Buffer.from([0]));
@@ -948,6 +950,36 @@ test('afterPack overlays sidecar spill/runguard into node_modules/openzoo and bi
   assert.throws(() => afterPack.assertOverlaidOpenzoo(dest, root), /spill\.js|differ|overlaid/);
   rmSync(path.join(dest, 'lib', 'runguard.js'));
   assert.throws(() => afterPack.assertOverlaidOpenzoo(dest, root), /runguard\.js/);
+});
+
+test('afterPack overlays OCC agent-loop/goal onto packed openzoo-claude', () => {
+  const afterPack = require('../grokui-app/build/afterPack.js');
+  assert.ok(Array.isArray(afterPack.OPENZOO_CLAUDE_OVERLAY));
+  assert.equal(afterPack.OPENZOO_CLAUDE_OVERLAY.includes('v2/src/core/agent-loop.mjs'), true);
+  assert.equal(afterPack.OPENZOO_CLAUDE_OVERLAY.includes('v2/src/core/goal.mjs'), true);
+  const appDir = mkdtempSync(path.join(tmpdir(), 'oz-occ-overlay-'));
+  const dest = path.join(appDir, 'node_modules', 'openzoo-claude');
+  mkdirSync(path.join(dest, 'v2', 'src', 'core'), { recursive: true });
+  mkdirSync(path.join(dest, 'v2', 'src', 'ui'), { recursive: true });
+  writeFileSync(path.join(dest, 'package.json'), JSON.stringify({
+    name: 'openzoo-claude', version: '2.0.2',
+    bin: { 'openzoo-claude': 'v2/src/index.mjs' },
+  }));
+  writeFileSync(path.join(dest, 'v2', 'src', 'index.mjs'), 'export {}\n');
+  writeFileSync(path.join(dest, 'v2', 'src', 'ui', 'commands.mjs'), "export const COMMANDS = { '/model': {} }\n");
+  writeFileSync(path.join(dest, 'v2', 'src', 'core', 'agent-loop.mjs'), 'export function callAnthropic() {}\n');
+  afterPack.overlayRepoOpenzooClaude(dest, path.join(root, 'grokui-app'));
+  for (const rel of afterPack.OPENZOO_CLAUDE_OVERLAY) {
+    assert.equal(
+      readFileSync(path.join(dest, rel), 'utf8'),
+      readFileSync(path.join(root, 'vendor', 'openzoo-claude', rel), 'utf8'),
+      rel,
+    );
+  }
+  assert.doesNotThrow(() => afterPack.assertOverlaidOpenzooClaude(dest, root));
+  assert.doesNotThrow(() => afterPack.assertPackedOpenzooClaude(appDir));
+  writeFileSync(path.join(dest, 'v2', 'src', 'core', 'agent-loop.mjs'), 'stale npm loop\n');
+  assert.throws(() => afterPack.assertOverlaidOpenzooClaude(dest, root), /agent-loop|differ|overlaid/);
 });
 
 test('assert-overlaid-openzoo fails a packed tree that still has npm spill.js', () => {
@@ -1200,7 +1232,9 @@ test('HUD embers when session cogs exceed paid; launched racers stay billed', ()
   assert.match(grokui, /cogsOver/);
   assert.match(grokui, /cogs above paid/);
   assert.match(grokui, /you pay for every entrant we actually launched/);
-  assert.match(grokui, /failures still cost us/);
+  assert.match(grokui, /failures still cost you/);
+  assert.match(grokui, /house bug/);
+  assert.doesNotMatch(grokui, /failures still cost us/);
   assert.doesNotMatch(grokui, /unused grant-back should have kept used cogs/);
   const proxy = readFileSync(path.join(root, 'lib', 'proxy.js'), 'utf8');
   assert.match(proxy, /receiptUsedCogs/);
@@ -1208,7 +1242,11 @@ test('HUD embers when session cogs exceed paid; launched racers stay billed', ()
   const settle = readFileSync(path.join(root, 'lib', 'racesettle.js'), 'utf8');
   assert.match(settle, /race_unused/);
   assert.match(settle, /receiptUsedCogs/);
+  assert.match(settle, /userChargedUsd/);
   assert.match(settle, /not a user refund/);
+  assert.match(settle, /Failures still cost the/);
+  assert.match(proxy, /applySessionMeter/);
+  assert.match(proxy, /userChargedUsd/);
   assert.doesNotMatch(settle, /markup\s*=\s*3/);
   assert.doesNotMatch(settle, /billedRaw\s*\/\s*markup/);
   assert.match(settle, /function recutRaceByHud/);
@@ -1561,10 +1599,18 @@ test('Agent TUI is packed OCC in xterm, not a second harness or chat-fold fallba
   assert.match(grokui, /\/model openzoo\/auto/);
   assert.match(grokui, /\/model x-ai\/grok-4\.6/);
   assert.match(appHtml, /#agentTerm \{ flex: 1; min-height: 0; display: none; \}/);
-  assert.match(appHtml, /body\.agent-mode #agentTerm \{ display: flex; flex-direction: column; overflow: hidden; \}/);
+  assert.match(appHtml, /body\.agent-mode #agentTerm \{ display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; \}/);
   assert.match(appHtml, /body\.agent-mode #log \{ display: none; \}/);
+  assert.match(appHtml, /id="agentPreview"/);
+  assert.match(appHtml, /id="agentPreviewFrame"/);
+  assert.match(appHtml, /body\.agent-mode #agentPreview\.show/);
+  assert.match(appHtml, /function showAgentPreview/);
+  assert.match(appHtml, /function pullAgentPreview/);
+  assert.match(appHtml, /ev\.type === 'preview'/);
   assert.doesNotMatch(appHtml, /body\.agent-mode #row-input \{ display: none/);
-  assert.match(appHtml, /body\.agent-mode #bar \{ position: absolute; left: 0; right: 0; bottom: 0;/);
+  assert.match(appHtml, /body\.agent-mode #bar \{ position: relative;/);
+  assert.match(appHtml, /lastPtyReset/);
+  assert.match(appHtml, /replay === lastPtyReset/);
   assert.match(appHtml, /disableStdin:\s*true/);
   assert.doesNotMatch(appHtml, /agentTerm\.onData/);
   assert.match(appHtml, /dirPickBtn/);
@@ -1615,6 +1661,8 @@ test('Agent TUI is packed OCC in xterm, not a second harness or chat-fold fallba
   assert.match(afterPack, /assertPackedVendorXterm/);
   assert.match(afterPack, /v2\/src\/ui\/commands\.mjs/);
   assert.match(afterPack, /\/model/);
+  assert.match(afterPack, /goal\.mjs/);
+  assert.match(afterPack, /fetchRetry/);
   assert.match(afterPack, /assertWindowsConptyFiles/);
   const src = grokui.replace(/\r\n/g, '\n');
   const start = src.indexOf('const APP_HTML = `');

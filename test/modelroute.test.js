@@ -13,6 +13,8 @@ import {
   Outcomes,
   route,
   routeChatBody,
+  routeInputFromChat,
+  isNoToolDumpId,
   fallbackChain,
   isRetryableStatus,
   outcomeFromResponse,
@@ -440,6 +442,33 @@ test('sidecar wires /route, openzoo/auto rewrite, fallback, and outcomes', () =>
   assert.match(src, /allow_free: false/);
   assert.match(src, /bindable: true/);
   assert.match(src, /allow_ids: ids/);
+  assert.match(src, /needs_tools: routed\.needs_tools/);
+  assert.match(src, /isNoToolDumpId/);
   const libPkg = JSON.parse(readFileSync(path.join(root, 'lib', 'package.json'), 'utf8'));
   assert.equal(libPkg.type, 'module');
+});
+
+test('routeInputFromChat skips tool_result-only lastUser and sets needs_tools', () => {
+  const body = {
+    model: 'openzoo/auto',
+    tools: [{ type: 'function', function: { name: 'LS' } }],
+    messages: [
+      { role: 'user', content: 'list the repo and keep going' },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'tu1', name: 'LS' }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu1', content: '.' }] },
+    ],
+  };
+  const input = routeInputFromChat(body);
+  assert.equal(input.text, 'list the repo and keep going');
+  assert.equal(input.needs_tools, true);
+  const noSchema = routeInputFromChat({
+    model: 'openzoo/auto',
+    messages: body.messages,
+  });
+  assert.equal(noSchema.needs_tools, true);
+  assert.equal(noSchema.text, 'list the repo and keep going');
+  const empty = routeInputFromChat({ messages: [{ role: 'user', content: 'hi' }] });
+  assert.equal(empty.needs_tools, undefined);
+  assert.equal(isNoToolDumpId('nex-agi/nex-n2-mini'), true);
+  assert.equal(isNoToolDumpId('x-ai/grok-4.6'), false);
 });

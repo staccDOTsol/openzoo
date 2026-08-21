@@ -35,6 +35,12 @@ if (typeof afterPack.assertPackedNodePty !== 'function') {
 if (typeof afterPack.assertPackedOpenzooClaude !== 'function') {
   fail('afterPack.assertPackedOpenzooClaude missing');
 }
+if (!Array.isArray(afterPack.OPENZOO_CLAUDE_OVERLAY) || !afterPack.OPENZOO_CLAUDE_OVERLAY.includes('v2/src/core/agent-loop.mjs')) {
+  fail('afterPack.OPENZOO_CLAUDE_OVERLAY must include agent-loop.mjs');
+}
+if (typeof afterPack.overlayRepoOpenzooClaude !== 'function') {
+  fail('overlayRepoOpenzooClaude missing');
+}
 if (typeof afterPack.assertPackedVendorXterm !== 'function') {
   fail('afterPack.assertPackedVendorXterm missing');
 }
