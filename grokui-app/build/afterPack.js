@@ -491,10 +491,16 @@ function assertPackedOpenzooClaude(appDir) {
   if (entry && !fs.existsSync(path.join(dir, entry))) {
     throw new Error(`[afterPack] packed openzoo-claude missing bin ${entry}`);
   }
-  for (const rel of ['v2/src/goal.mjs', 'v2/src/ui/commands.mjs']) {
+  // Published openzoo-claude@2.0.2 ships slashes in v2/src/ui/commands.mjs
+  // (including '/model'). It does not ship v2/src/goal.mjs.
+  for (const rel of ['v2/src/ui/commands.mjs']) {
     if (!fs.existsSync(path.join(dir, rel))) {
-      throw new Error(`[afterPack] packed openzoo-claude missing ${rel} — /goal must be a real OCC slash`);
+      throw new Error(`[afterPack] packed openzoo-claude missing ${rel} — OCC slashes must ship in the packed tree`);
     }
+  }
+  const commands = fs.readFileSync(path.join(dir, 'v2', 'src', 'ui', 'commands.mjs'), 'utf8');
+  if (!commands.includes("'/model'")) {
+    throw new Error("[afterPack] packed openzoo-claude v2/src/ui/commands.mjs has no '/model' slash");
   }
   const entryAbs = entry ? path.join(dir, entry) : path.join(dir, 'v2', 'src', 'index.mjs');
   if (fs.existsSync(entryAbs)) {
