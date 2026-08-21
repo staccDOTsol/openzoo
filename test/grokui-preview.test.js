@@ -197,10 +197,10 @@ test('htmlRelFromText and findPlayableHtmlRel see OCC writes and existing index.
   assert.equal(r.ansi, 'index.html');
 });
 
-test('Agent mode loads zoo.openzoo.fun/ide/session in #agentPreview; 401 locks / Pay', () => {
+test('Agent mode loads zoo.openzoo.fun/api/ide/session in #agentPreview; 401 locks / Pay', () => {
   assert.match(grokuiSrc, /from '\.\/hosted-ide\.js'/);
   assert.match(grokuiSrc, /openStoredIdeSession/);
-  assert.match(grokuiSrc, /req\.method === 'POST' && req\.url === '\/ide\/session'/);
+  assert.match(grokuiSrc, /idePath === '\/api\/ide\/session'/);
   assert.match(grokuiSrc, /function openAgentIde/);
   assert.match(grokuiSrc, /function lockAgentIde/);
   assert.match(grokuiSrc, /function showAgentIde/);
@@ -215,7 +215,7 @@ test('Agent mode loads zoo.openzoo.fun/ide/session in #agentPreview; 401 locks /
   assert.match(grokuiSrc, /hideAgentPreview\(true\)/);
   assert.match(grokuiSrc, /shouldKeepIdeFocus/);
   assert.match(grokuiSrc, /agentIdeClicked/);
-  const ideRoute = grokuiSrc.slice(grokuiSrc.indexOf("req.url === '/ide/session'"), grokuiSrc.indexOf("req.url === '/ide/session'") + 800);
+  const ideRoute = grokuiSrc.slice(grokuiSrc.indexOf("idePath === '/api/ide/session'"), grokuiSrc.indexOf("idePath === '/api/ide/session'") + 800);
   assert.match(ideRoute, /openStoredIdeSession/);
   assert.doesNotMatch(ideRoute, /ANTHROPIC_API_KEY:/);
   assert.doesNotMatch(grokuiSrc, /pkill/);
@@ -225,7 +225,7 @@ test('Agent mode loads zoo.openzoo.fun/ide/session in #agentPreview; 401 locks /
   const literal = src.slice(start + 'const APP_HTML = '.length, end + 1);
   const html = Function('SUBSCRIPTIONS_PAGE', 'return ' + literal)('https://example.test/subscriptions');
   assert.match(html, /function openAgentIde/);
-  assert.match(html, /API \+ '\/ide\/session'/);
+  assert.match(html, /API \+ '\/api\/ide\/session'/);
   assert.match(html, /method: 'POST'/);
   assert.match(html, /function lockAgentIde/);
   assert.match(html, /id="agentPreviewClose"/);
@@ -258,7 +258,7 @@ test('narrow viewport Agent IDE is full-bleed; Close X stays; desktop iframe unc
   assert.match(html, /viewport-fit=cover/);
 });
 
-test('grokui POST /ide/session is 401 without a subscription key', async () => {
+test('grokui POST/GET /api/ide/session is 401 without a subscription key', async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'oz-ide-401-'));
   const script = path.join(dir, 'run.mjs');
   const uiPort = 19200 + Math.floor(Math.random() * 500);
@@ -280,12 +280,19 @@ test('grokui POST /ide/session is 401 without a subscription key', async () => {
       await new Promise((r) => setTimeout(r, 50));
     }
     if (!ready) { console.error(JSON.stringify({ error: 'grokui did not start' })); process.exit(1); }
-    const miss = await fetch('http://127.0.0.1:' + uiPort + '/ide/session', {
+    const miss = await fetch('http://127.0.0.1:' + uiPort + '/api/ide/session', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
     });
     const body = await miss.json();
+    const doorHits = [];
     const door = await new Promise((resolve) => {
       const s = http.createServer((req, res) => {
+        doorHits.push({ method: req.method, url: req.url, auth: req.headers.authorization });
+        if (req.url !== '/api/ide/session') {
+          res.writeHead(404, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'not the door' }));
+          return;
+        }
         if (req.headers.authorization !== 'Bearer oz_test_ide_keyxx') {
           res.writeHead(401, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ error: 'unauthorized' }));
@@ -298,12 +305,17 @@ test('grokui POST /ide/session is 401 without a subscription key', async () => {
     });
     process.env.OPENZOO_SUBSCRIPTION_KEY = 'oz_test_ide_keyxx';
     process.env.OPENZOO_IDE_ORIGIN = 'http://127.0.0.1:' + door.port;
-    const ok = await fetch('http://127.0.0.1:' + uiPort + '/ide/session', {
+    const ok = await fetch('http://127.0.0.1:' + uiPort + '/api/ide/session', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
     });
+    const got = await fetch('http://127.0.0.1:' + uiPort + '/api/ide/session', { method: 'GET' });
+    const gotBody = await got.json();
     const okBody = await ok.json();
     await new Promise((r) => door.s.close(r));
-    console.log(JSON.stringify({ status: miss.status, body, okStatus: ok.status, okBody }));
+    console.log(JSON.stringify({
+      status: miss.status, body, okStatus: ok.status, okBody,
+      getStatus: got.status, gotBody, doorHits,
+    }));
     process.exit(0);
   `);
   const out = await new Promise((resolve, reject) => {
@@ -330,5 +342,9 @@ test('grokui POST /ide/session is 401 without a subscription key', async () => {
   assert.equal(r.okBody.id, 'ide-x');
   assert.equal(Object.prototype.hasOwnProperty.call(r.okBody, 'password'), false);
   assert.equal(JSON.stringify(r.okBody).includes('oz_test'), false);
+  assert.equal(r.getStatus, 200);
+  assert.equal(r.gotBody.url, 'https://box.example/ide?password=pw');
+  assert.deepEqual(r.doorHits.map((h) => h.url), ['/api/ide/session', '/api/ide/session']);
+  assert.deepEqual(r.doorHits.map((h) => h.method).sort(), ['GET', 'POST']);
 });
 

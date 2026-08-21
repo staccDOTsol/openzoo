@@ -1616,8 +1616,8 @@ test('Agent TUI is packed OCC in xterm, not a second harness or chat-fold fallba
   assert.match(appHtml, /function openAgentIde/);
   assert.match(appHtml, /function lockAgentIde/);
   assert.match(appHtml, /function shouldKeepIdeFocus/);
-  assert.match(appHtml, /API \+ '\/ide\/session'/);
-  assert.match(grokui, /req\.url === '\/ide\/session'/);
+  assert.match(appHtml, /API \+ '\/api\/ide\/session'/);
+  assert.match(grokui, /idePath === '\/api\/ide\/session'/);
   assert.match(grokui, /openStoredIdeSession/);
   assert.match(grokui, /from '\.\/hosted-ide\.js'/);
   assert.doesNotMatch(grokui, /pkill/);

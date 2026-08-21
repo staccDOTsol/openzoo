@@ -25,10 +25,11 @@ function listen(handler) {
   });
 }
 
-test('public door is zoo.openzoo.fun/ide/session, not fly.dev', () => {
+test('public door is zoo.openzoo.fun/api/ide/session, not /ide/session', () => {
   assert.equal(IDE_PUBLIC_ORIGIN, 'https://zoo.openzoo.fun');
-  assert.equal(IDE_SESSION_PATH, '/ide/session');
-  assert.equal(ideSessionEndpoint(), 'https://zoo.openzoo.fun/ide/session');
+  assert.equal(IDE_SESSION_PATH, '/api/ide/session');
+  assert.equal(ideSessionEndpoint(), 'https://zoo.openzoo.fun/api/ide/session');
+  assert.doesNotMatch(ideSessionEndpoint(), /https:\/\/zoo\.openzoo\.fun\/ide\/session$/);
   assert.doesNotMatch(ideSessionEndpoint(), /fly\.dev/);
   assert.doesNotMatch(ideSessionEndpoint(), /x402-tokens/);
   assert.equal(ideOrigin({ OPENZOO_IDE_ORIGIN: 'https://ide.test' }), 'https://ide.test');
@@ -80,7 +81,7 @@ test('createIdeSession: no key is 401 and does not hit the network', async () =>
 test('createIdeSession POSTs Bearer subscription key; never ANTHROPIC_API_KEY', async () => {
   const door = await listen(async (req, res) => {
     assert.equal(req.method, 'POST');
-    assert.equal(req.url, '/ide/session');
+    assert.equal(req.url, '/api/ide/session');
     assert.equal(req.headers.authorization, 'Bearer oz_live_good_key_xxxxxx');
     assert.equal(req.headers['anthropic-api-key'], undefined);
     res.writeHead(200, { 'content-type': 'application/json' });
@@ -129,6 +130,24 @@ test('createIdeSession: door 401 → 401; empty url is not an open session', asy
   assert.equal(down.status, 503);
 });
 
+test('createIdeSession GET hits /api/ide/session with Bearer and no body', async () => {
+  let seen;
+  const out = await createIdeSession({
+    key: 'oz_live_get_key_xxxxxx',
+    method: 'GET',
+    fetchImpl: async (url, init) => {
+      seen = { url, init };
+      return { status: 200, json: async () => ({ url: 'https://box.example/ide', id: 'g1' }) };
+    },
+  });
+  assert.equal(out.ok, true);
+  assert.match(seen.url, /\/api\/ide\/session$/);
+  assert.equal(seen.init.method, 'GET');
+  assert.equal(seen.init.body, undefined);
+  assert.equal(seen.init.headers.authorization, 'Bearer oz_live_get_key_xxxxxx');
+  assert.equal(JSON.stringify(seen.init.headers).includes('ANTHROPIC'), false);
+});
+
 test('openStoredIdeSession uses the stored subscription key, not ANTHROPIC_API_KEY', async () => {
   let seen;
   const out = await openStoredIdeSession({
@@ -139,7 +158,8 @@ test('openStoredIdeSession uses the stored subscription key, not ANTHROPIC_API_K
     },
   });
   assert.equal(out.ok, true);
-  assert.match(seen.url, /\/ide\/session$/);
+  assert.match(seen.url, /\/api\/ide\/session$/);
+  assert.doesNotMatch(seen.url, /openzoo\.fun\/ide\/session/);
   assert.equal(seen.init.headers.authorization, 'Bearer oz_from_file_keyxx');
   assert.equal(seen.init.headers.ANTHROPIC_API_KEY, undefined);
   assert.equal(JSON.stringify(seen.init.headers).includes('ANTHROPIC'), false);
@@ -150,7 +170,8 @@ test('hosted-ide.js never mentions ANTHROPIC_API_KEY as a header value', () => {
   assert.match(src, /Never ANTHROPIC_API_KEY/);
   assert.match(src, /Bearer/);
   assert.match(src, /zoo\.openzoo\.fun/);
-  assert.match(src, /\/ide\/session/);
+  assert.match(src, /\/api\/ide\/session/);
+  assert.doesNotMatch(src, /POST \/ide\/session/);
   assert.doesNotMatch(src, /ANTHROPIC_API_KEY:/);
   assert.doesNotMatch(src, /headers\.ANTHROPIC/);
   assert.doesNotMatch(src, /console\.(log|info|debug|error).*key/);
