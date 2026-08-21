@@ -140,6 +140,36 @@ test('hosted OCC: 401 without Bearer; no session; query token refused', async ()
   }
 });
 
+test('/api/occ is not a second primary door — Android retargets to /occ', async () => {
+  const home = tmp();
+  const pty = fakePty();
+  const started = await listen({
+    root: home,
+    verify: fakeVerify(['oz_alice_key_xxxxxx']),
+    spawn: pty.spawn,
+    log: () => {},
+  });
+  const alice = { authorization: 'Bearer oz_alice_key_xxxxxx', 'content-type': 'application/json' };
+  try {
+    const wrong = await fetch(started.url + '/api/occ/sessions', {
+      method: 'POST',
+      headers: alice,
+      body: JSON.stringify({ threadId: 't', name: 'n' }),
+    });
+    assert.equal(wrong.status, 404);
+    assert.equal(started.sessions.size, 0);
+    const right = await fetch(started.url + '/occ/sessions', {
+      method: 'POST',
+      headers: alice,
+      body: JSON.stringify({ threadId: 't', name: 'n' }),
+    });
+    assert.equal(right.status, 200);
+    assert.ok((await right.json()).id);
+  } finally {
+    await closeServer(started);
+  }
+});
+
 test('iOS door: create session, /goal message SSE, upload, stop, isolation', async () => {
   const home = tmp();
   const pty = fakePty();
