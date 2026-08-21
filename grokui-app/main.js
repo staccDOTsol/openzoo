@@ -29,6 +29,8 @@ ipcMain.handle('copy-text', (_event, text) => {
   return true;
 });
 
+ipcMain.handle('read-text', () => clipboard.readText());
+
 // On Windows/Linux, Ctrl+C/V/X/A do nothing in inputs unless Menu items with
 // these roles exist. macOS needs the same roles for Cmd+C in a packaged .app.
 function buildAppMenu() {

@@ -35,6 +35,10 @@ if (/"\\r"|'\\r'/.test(literal) || /\r/.test(literal)) {
   console.error('FAIL: APP_HTML template contains a CR / "\\r" — use String.fromCharCode(13)');
   process.exit(1);
 }
+if (/\u001b/.test(literal) || /\\x1b|\\u001b/.test(literal)) {
+  console.error('FAIL: APP_HTML template contains an ESC literal — use String.fromCharCode(27)');
+  process.exit(1);
+}
 let close = html.lastIndexOf('</script>');
 let open = html.lastIndexOf('<script>', close);
 if (open < 0 || close < open) {
