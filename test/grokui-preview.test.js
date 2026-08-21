@@ -196,3 +196,115 @@ test('htmlRelFromText and findPlayableHtmlRel see OCC writes and existing index.
   assert.equal(r.updated, 'play.html');
   assert.equal(r.ansi, 'index.html');
 });
+
+test('Agent mode loads zoo.openzoo.fun/ide/session in #agentPreview; 401 locks / Pay', () => {
+  assert.match(grokuiSrc, /from '\.\/hosted-ide\.js'/);
+  assert.match(grokuiSrc, /openStoredIdeSession/);
+  assert.match(grokuiSrc, /POST && req\.url === '\/ide\/session'/);
+  assert.match(grokuiSrc, /function openAgentIde/);
+  assert.match(grokuiSrc, /function lockAgentIde/);
+  assert.match(grokuiSrc, /function showAgentIde/);
+  assert.match(grokuiSrc, /function shouldKeepIdeFocus/);
+  assert.match(grokuiSrc, /function clearAgentIde/);
+  assert.match(grokuiSrc, /body\.agent-mode\.agent-ide #agentPreview\.show/);
+  assert.match(grokuiSrc, /body\.agent-mode\.agent-ide #agentTerm \{ display: none; \}/);
+  assert.match(grokuiSrc, /body\.agent-mode\.agent-locked #agentTerm \{ display: none; \}/);
+  assert.match(grokuiSrc, /status === 401/);
+  assert.match(grokuiSrc, /lockAgentIde\(\)/);
+  assert.match(grokuiSrc, /openWallet\(\)/);
+  assert.match(grokuiSrc, /hideAgentPreview\(true\)/);
+  assert.match(grokuiSrc, /shouldKeepIdeFocus/);
+  assert.match(grokuiSrc, /agentIdeClicked/);
+  const ideRoute = grokuiSrc.slice(grokuiSrc.indexOf("req.url === '/ide/session'"), grokuiSrc.indexOf("req.url === '/ide/session'") + 800);
+  assert.match(ideRoute, /openStoredIdeSession/);
+  assert.doesNotMatch(ideRoute, /ANTHROPIC_API_KEY:/);
+  assert.doesNotMatch(grokuiSrc, /pkill/);
+  const src = grokuiSrc.replace(/\r\n/g, '\n');
+  const start = src.indexOf('const APP_HTML = `');
+  const end = src.indexOf('`;\n\nconst server = http.createServer', start);
+  const literal = src.slice(start + 'const APP_HTML = '.length, end + 1);
+  const html = Function('SUBSCRIPTIONS_PAGE', 'return ' + literal)('https://example.test/subscriptions');
+  assert.match(html, /function openAgentIde/);
+  assert.match(html, /API \+ '\/ide\/session'/);
+  assert.match(html, /method: 'POST'/);
+  assert.match(html, /function lockAgentIde/);
+  assert.match(html, /id="agentPreviewClose"/);
+  assert.match(html, /hideAgentPreview\(true\)/);
+  assert.match(html, /shouldKeepIdeFocus/);
+  assert.match(html, /data-kind', 'ide'/);
+});
+
+test('grokui POST /ide/session is 401 without a subscription key', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-ide-401-'));
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 19200 + Math.floor(Math.random() * 500);
+  writeFileSync(script, `
+    import http from 'node:http';
+    process.env.OZ_WORKSPACE_DIR = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    delete process.env.OPENZOO_SUBSCRIPTION_KEY;
+    process.env.OPENZOO_SUBSCRIPTION_PATH = ${JSON.stringify(path.join(dir, 'no-such-sub.json'))};
+    await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+    const uiPort = ${uiPort};
+    let ready = false;
+    for (let i = 0; i < 50; i++) {
+      try {
+        const r = await fetch('http://127.0.0.1:' + uiPort + '/threads');
+        if (r.ok) { ready = true; break; }
+      } catch {}
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (!ready) { console.error(JSON.stringify({ error: 'grokui did not start' })); process.exit(1); }
+    const miss = await fetch('http://127.0.0.1:' + uiPort + '/ide/session', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    });
+    const body = await miss.json();
+    const door = await new Promise((resolve) => {
+      const s = http.createServer((req, res) => {
+        if (req.headers.authorization !== 'Bearer oz_test_ide_keyxx') {
+          res.writeHead(401, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'unauthorized' }));
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ url: 'https://box.example/ide', password: 'pw', id: 'ide-x' }));
+      });
+      s.listen(0, '127.0.0.1', () => resolve({ s, port: s.address().port }));
+    });
+    process.env.OPENZOO_SUBSCRIPTION_KEY = 'oz_test_ide_keyxx';
+    process.env.OPENZOO_IDE_ORIGIN = 'http://127.0.0.1:' + door.port;
+    const ok = await fetch('http://127.0.0.1:' + uiPort + '/ide/session', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    });
+    const okBody = await ok.json();
+    await new Promise((r) => door.s.close(r));
+    console.log(JSON.stringify({ status: miss.status, body, okStatus: ok.status, okBody }));
+    process.exit(0);
+  `);
+  const out = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script], { cwd: root, env: { ...process.env, OZ_AGENT_PORTS: '0' } });
+    let buf = '';
+    child.stdout.on('data', (d) => { buf += d; });
+    child.stderr.on('data', (d) => { buf += d; });
+    const t = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('ide 401 child timed out: ' + buf)); }, 15000);
+    child.on('exit', (code) => {
+      clearTimeout(t);
+      if (code !== 0) reject(new Error('ide 401 child exited ' + code + ': ' + buf));
+      else resolve(buf);
+    });
+  });
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result');
+  const r = JSON.parse(line);
+  assert.equal(r.status, 401);
+  assert.equal(r.body.ok, false);
+  assert.equal(JSON.stringify(r.body).includes('sk-'), false);
+  assert.equal(r.okStatus, 200);
+  assert.equal(r.okBody.ok, true);
+  assert.equal(r.okBody.url, 'https://box.example/ide?password=pw');
+  assert.equal(r.okBody.id, 'ide-x');
+  assert.equal(Object.prototype.hasOwnProperty.call(r.okBody, 'password'), false);
+  assert.equal(JSON.stringify(r.okBody).includes('oz_test'), false);
+});
+
