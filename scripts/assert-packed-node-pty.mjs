@@ -35,6 +35,17 @@ if (typeof afterPack.assertPackedNodePty !== 'function') {
 if (typeof afterPack.assertPackedOpenzooClaude !== 'function') {
   fail('afterPack.assertPackedOpenzooClaude missing');
 }
+if (typeof afterPack.assertPackedVendorXterm !== 'function') {
+  fail('afterPack.assertPackedVendorXterm missing');
+}
+if (typeof afterPack.assertWindowsConptyFiles !== 'function') {
+  fail('afterPack.assertWindowsConptyFiles missing');
+}
+for (const f of ['xterm.js', 'xterm.css', 'fit.js']) {
+  if (!existsSync(join(root, 'lib', 'vendor', f))) {
+    fail(`lib/vendor/${f} missing — Agent TUI cannot load xterm offline`);
+  }
+}
 if (appPkg.build?.includeSubNodeModules !== true) {
   fail('includeSubNodeModules must stay true');
 }
@@ -83,7 +94,8 @@ for (const appDir of [...new Set(apps)]) {
   try {
     afterPack.assertPackedOpenzooClaude(appDir);
     afterPack.assertPackedNodePty(appDir, {});
-    console.log(`ok packed node-pty + openzoo-claude: ${appDir}`);
+    afterPack.assertPackedVendorXterm(appDir);
+    console.log(`ok packed node-pty + openzoo-claude + vendor xterm: ${appDir}`);
   } catch (e) {
     console.error(e.message || e);
     console.error(`FAIL: packed Auto runtime incomplete: ${appDir}`);

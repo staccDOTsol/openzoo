@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
   findPackedNodePty, findPackedOpenzooClaude, hasConptyBackend,
   loadNodePtyFrom, packedResourceRoots, resourcesFromExecPath,
+  openzooClaudeEntry, resolvePackedOpenzooClaude,
 } from '../lib/packed-runtime.js';
 
 function nsisTree() {
@@ -60,6 +61,17 @@ test('findPackedNodePty loads node-pty from NSIS extraResources tree', () => {
     });
     assert.ok(claude);
     assert.match(claude, /openzoo-claude$/);
+    const packed = resolvePackedOpenzooClaude({
+      execPath: exe,
+      resourcesPath: resources,
+      env: { HOME: path.join(dir, 'no-home'), OZ_PACKED_RESOURCES: resources },
+      libDir: path.join(dir, 'no-lib'),
+    });
+    assert.ok(packed);
+    assert.equal(packed.via, 'packed');
+    assert.equal(packed.command, exe);
+    assert.deepEqual(packed.prefixArgs, [openzooClaudeEntry(claude)]);
+    assert.equal(packed.entry, openzooClaudeEntry(claude));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
