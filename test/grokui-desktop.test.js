@@ -15,8 +15,8 @@ const preload = readFileSync(path.join(root, 'grokui-app', 'preload.js'), 'utf8'
 const appPkg = require('../grokui-app/package.json');
 const ozPkg = require('../package.json');
 
-test('grokui app version is 1.6.5 so the next tag sorts above 1.5.99', () => {
-  assert.equal(appPkg.version, '1.6.5');
+test('grokui app version is 1.6.6 so the next tag sorts above 1.5.99', () => {
+  assert.equal(appPkg.version, '1.6.6');
   const harness = readFileSync(path.join(root, 'lib', 'harness-install.js'), 'utf8');
   assert.match(harness, /OPENZOO_CLAUDE_SPEC/);
   assert.match(harness, /ELECTRON_RUN_AS_NODE/);
@@ -894,6 +894,14 @@ test('desktop pack CI walks packed grokui.mjs relatives', () => {
     assert.match(yml, /assert-packed-node-pty\.mjs/);
     assert.match(yml, /assert-app-html-script\.mjs/);
   }
+  // 1.6.5 tag CI: mac/win Build died on bigint-buffer node-gyp before afterPack.
+  // mac: Python 3.12+ has no distutils. win: windows-latest is VS 2026.
+  const macYml = readFileSync(path.join(root, '.github', 'workflows', 'grokui-macos.yml'), 'utf8');
+  const winYml = readFileSync(path.join(root, '.github', 'workflows', 'grokui-windows.yml'), 'utf8');
+  assert.match(macYml, /setuptools/);
+  assert.match(macYml, /distutils/);
+  assert.match(winYml, /runs-on:\s*windows-2022/);
+  assert.doesNotMatch(winYml, /runs-on:\s*windows-latest/);
   const packed = readFileSync(path.join(root, 'scripts', 'assert-packed-grokui-lib.mjs'), 'utf8');
   assert.match(packed, /assert-packed-grokui-esm\.mjs/);
   const ozLib = readFileSync(path.join(root, 'scripts', 'assert-packed-openzoo-lib.mjs'), 'utf8');
