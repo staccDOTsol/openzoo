@@ -8,7 +8,7 @@ import {
   detectHarness, ensureHarness, ensureLocalNodeNpx, electronAsNodeSpec,
   HARNESS_STATUS, localBinDir, npmInstallArgs, OPENZOO_CLAUDE_SPEC,
   setHarnessInstallRunnerForTest, setHarnessStateForTest, shouldSkipHarnessAutostart,
-  writeUnixShim, copyPackedHarness,
+  writeUnixShim, copyPackedHarness, localPackedDir,
 } from '../lib/harness-install.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -152,9 +152,15 @@ test('copyPackedHarness prefers packed extraResources over npm install -g', () =
       bin: { 'openzoo-claude': 'v2/src/index.mjs' },
     }));
     writeFileSync(path.join(pkg, 'v2', 'src', 'index.mjs'), 'export {}\n');
+    const pty = path.join(packedRoot, 'node-pty');
+    mkdirSync(path.join(pty, 'build', 'Release'), { recursive: true });
+    writeFileSync(path.join(pty, 'package.json'), JSON.stringify({
+      name: 'node-pty', version: '1.1.0', main: 'lib/index.js',
+    }));
+    writeFileSync(path.join(pty, 'build', 'Release', 'pty.node'), Buffer.from([0]));
     const r = copyPackedHarness({
       home,
-      env: { OZ_PACKED_RESOURCES: packedRoot, PATH: '/no/such' },
+      env: { OZ_PACKED_RESOURCES: packedRoot, PATH: '/no/such', HOME: home },
       platform: 'linux',
       electronPath: '/tmp/fake-electron',
     });
@@ -165,6 +171,37 @@ test('copyPackedHarness prefers packed extraResources over npm install -g', () =
     assert.match(shim, /openzoo-claude/);
     assert.doesNotMatch(shim, /npx -y openzoo-claude/);
     assert.doesNotMatch(JSON.stringify(r), /npm install -g/);
+    assert.equal(existsSync(path.join(localPackedDir(home), 'node-pty', 'package.json')), true);
+    assert.equal(existsSync(path.join(localPackedDir(home), 'node-pty', 'build', 'Release', 'pty.node')), true);
+    assert.equal(existsSync(path.join(localPackedDir(home), 'openzoo-claude', 'package.json')), true);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(packedRoot, { recursive: true, force: true });
+  }
+});
+
+test('copyPackedHarness writes a win32 openzoo-claude.cmd Electron-as-node shim', () => {
+  const home = tmp();
+  const packedRoot = tmp();
+  try {
+    const pkg = path.join(packedRoot, 'openzoo-claude');
+    mkdirSync(path.join(pkg, 'v2', 'src'), { recursive: true });
+    writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({
+      name: 'openzoo-claude', version: '2.0.2',
+      bin: { 'openzoo-claude': 'v2/src/index.mjs' },
+    }));
+    writeFileSync(path.join(pkg, 'v2', 'src', 'index.mjs'), 'export {}\n');
+    const r = copyPackedHarness({
+      home,
+      env: { OZ_PACKED_RESOURCES: packedRoot, PATH: '/no/such', HOME: home },
+      platform: 'win32',
+      electronPath: 'C:\\\\app\\\\openzoo.exe',
+    });
+    assert.equal(r.ok, true);
+    const shim = readFileSync(path.join(localBinDir(home), 'openzoo-claude.cmd'), 'utf8');
+    assert.match(shim, /ELECTRON_RUN_AS_NODE=1/);
+    assert.match(shim, /openzoo\.exe/);
+    assert.doesNotMatch(shim, /npx -y openzoo-claude/);
   } finally {
     rmSync(home, { recursive: true, force: true });
     rmSync(packedRoot, { recursive: true, force: true });

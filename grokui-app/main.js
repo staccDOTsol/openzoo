@@ -5,7 +5,7 @@ const path = require('node:path');
 const http = require('node:http');
 const net = require('node:net');
 const { sidecarIsAttachable } = require('./sidecar-version');
-const { createSidecarHealer } = require('./sidecar-heal');
+const { createSidecarHealer, copyPackedRuntimeToHome } = require('./sidecar-heal');
 
 // One source of truth: the live UI is repo lib/grokui.mjs. A packaged build
 // copies that file next to this script; a checkout prefers the repo copy so
@@ -289,6 +289,10 @@ function getHealer() {
       sidecarIsAttachable,
       expectedVersion: expectedOpenzooVersion,
       waitForSession: (died) => waitFor('http://127.0.0.1:8402/v1/session', 60, 500, died),
+      env: {
+        ...process.env,
+        OZ_PACKED_RESOURCES: process.resourcesPath || path.join(__dirname),
+      },
     });
   }
   return healer;
@@ -445,6 +449,17 @@ async function checkForUpdates() {
 
 app.whenReady().then(() => {
   buildAppMenu();
+  // First-boot copy of packed node-pty + openzoo-claude before Auto.
+  // extraResources live at resources/node-pty on NSIS; copy into
+  // ~/.openzoo/packed so loadNodePty finds them without a host Node.
+  try {
+    copyPackedRuntimeToHome({
+      resourcesPath: process.resourcesPath,
+      appDir: __dirname,
+    });
+  } catch (e) {
+    console.error('[openzoo] packed runtime copy:', e && e.message);
+  }
   // Kick :8402 immediately so it is already spawning before the window
   // paints. Do not await — sitting on black "starting…" looks hung.
   void ensureProxy();

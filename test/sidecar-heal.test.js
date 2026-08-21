@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -18,6 +18,13 @@ const {
   isCannotLoadOutput,
   resolveHostNode,
   resolvePathOpenzoo,
+  resolvePackedNode,
+  copyPackedRuntimeToHome,
+  packedRuntimeHome,
+  sidecarSpawnOpts,
+  win32NeedsShell,
+  win32DetachedPipeHang,
+  isUnbootableSpawnError,
   localBinNode,
   defaultSpawnMode,
 } = require(
@@ -99,7 +106,7 @@ test('packed sidecar spawn uses Electron execPath, silent env, ignore stdio', ()
 });
 
 test('host-node spawn opts are detached and never set ELECTRON_RUN_AS_NODE', () => {
-  const opts = hostNodeSidecarSpawnOpts({ ELECTRON_RUN_AS_NODE: '1', PATH: '/usr/bin' });
+  const opts = hostNodeSidecarSpawnOpts({ ELECTRON_RUN_AS_NODE: '1', PATH: '/usr/bin' }, { platform: 'darwin' });
   assert.equal(opts.detached, true);
   assert.equal(opts.env.ELECTRON_RUN_AS_NODE, undefined);
   assert.equal(opts.env.OPENZOO_SILENT, '1');
@@ -389,6 +396,223 @@ test('resolveHostNode finds ~/.local/bin/node when nvm/homebrew/PATH are empty',
     assert.equal(got, path.join(local, 'node'));
     assert.equal(defaultSpawnMode(env, () => got), 'host-node');
     assert.equal(defaultSpawnMode({ PATH: '/no/node' }, () => null), 'packed');
+    assert.equal(defaultSpawnMode(env, () => got, 'win32'), 'packed');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('win32 spawn opts: .cmd needs shell, exe does not, never detached+pipe', () => {
+  assert.equal(win32NeedsShell('C\\\\npm\\\\openzoo.cmd'), true);
+  assert.equal(win32NeedsShell('openzoo.bat'), true);
+  assert.equal(win32NeedsShell('C\\\\Program Files\\\\nodejs\\\\node.exe'), false);
+  assert.equal(win32NeedsShell('/fake/electron'), false);
+  const cmdOpts = sidecarSpawnOpts({}, {
+    electronAsNode: false,
+    platform: 'win32',
+    cmd: 'C\\\\npm\\\\openzoo.cmd',
+  });
+  assert.equal(cmdOpts.shell, true);
+  assert.equal(cmdOpts.detached, undefined);
+  assert.deepEqual(cmdOpts.stdio, ['ignore', 'ignore', 'pipe']);
+  assert.equal(win32DetachedPipeHang(cmdOpts), false);
+  const exeOpts = sidecarSpawnOpts({}, {
+    electronAsNode: true,
+    platform: 'win32',
+    cmd: 'C\\\\Users\\\\stacc\\\\AppData\\\\Local\\\\Programs\\\\openzoo\\\\openzoo.exe',
+  });
+  assert.equal(exeOpts.shell, undefined);
+  assert.equal(exeOpts.detached, undefined);
+  assert.equal(exeOpts.env.ELECTRON_RUN_AS_NODE, '1');
+  assert.equal(win32DetachedPipeHang(exeOpts), false);
+  const hostOpts = hostNodeSidecarSpawnOpts({ PATH: 'C\\\\Windows' }, {
+    platform: 'win32',
+    cmd: 'C\\\\Program Files\\\\nodejs\\\\node.exe',
+  });
+  assert.equal(hostOpts.detached, undefined);
+  assert.equal(hostOpts.shell, undefined);
+  assert.equal(win32DetachedPipeHang(hostOpts), false);
+  const e = Object.assign(new Error('spawn EINVAL'), { code: 'EINVAL' });
+  assert.equal(isUnbootableSpawnError(e), true);
+  assert.equal(isUnbootableSpawnError(Object.assign(new Error('not found'), { code: 'ENOENT' })), true);
+  assert.equal(isUnbootableSpawnError(new Error('ok')), false);
+});
+
+test('win32 healer prefers packed Electron-as-node even when PATH node exists', async () => {
+  const { healer, spawned } = makeHealer({
+    platform: 'win32',
+    resolveHostNode: () => 'C\\\\Program Files\\\\nodejs\\\\node.exe',
+    resolvePathOpenzoo: () => 'C\\\\npm\\\\openzoo.cmd',
+    resolvePackedNode: () => 'C\\\\app\\\\resources\\\\node.exe',
+  });
+  assert.equal(healer.getSpawnMode(), 'packed');
+  const result = await healer.ensure();
+  assert.equal(result.spawned, true);
+  assert.equal(result.spawnMode, 'packed');
+  assert.equal(spawned.length, 1);
+  assert.equal(spawned[0].cmd, '/fake/electron');
+  assert.deepEqual(spawned[0].args, ['/fake/node_modules/openzoo/bin/openzoo.js']);
+  assert.equal(spawned[0].opts.env.ELECTRON_RUN_AS_NODE, '1');
+  assert.equal(spawned[0].opts.detached, undefined);
+  assert.equal(spawned[0].opts.shell, undefined);
+  assert.equal(win32DetachedPipeHang(spawned[0].opts), false);
+  healer.stop();
+});
+
+test('win32 healer boots packed :8402 without a host Node', async () => {
+  const { healer, spawned } = makeHealer({
+    platform: 'win32',
+    resolveHostNode: () => null,
+    resolvePackedNode: () => null,
+    resolvePathOpenzoo: () => null,
+  });
+  const result = await healer.ensure();
+  assert.equal(result.spawned, true);
+  assert.equal(result.healthy, true);
+  assert.equal(result.spawnMode, 'packed');
+  assert.equal(spawned[0].cmd, '/fake/electron');
+  assert.equal(spawned[0].opts.detached, undefined);
+  healer.stop();
+});
+
+test('win32 healer after packed fail uses packed node.exe then host-node without detached pipe', async () => {
+  const timers = fakeTimers();
+  const spawned = [];
+  const healer = createSidecarHealer({
+    platform: 'win32',
+    spawn: (cmd, args, opts) => {
+      const c = fakeChild();
+      spawned.push({ cmd, args, opts, child: c });
+      if (cmd === '/fake/electron') {
+        queueMicrotask(() => {
+          c.stderr.emit('data', 'Cannot find module think.js');
+          c.emit('exit', 1, null);
+        });
+      }
+      return c;
+    },
+    execPath: '/fake/electron',
+    binPath: '/fake/node_modules/openzoo/bin/openzoo.js',
+    fetchSession: async () => null,
+    portOccupied: async () => false,
+    displaceStale: async () => true,
+    sidecarIsAttachable,
+    expectedVersion: '0.49.8',
+    waitForSession: async (died) => {
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+      return !died();
+    },
+    resolveHostNode: () => 'C\\\\Program Files\\\\nodejs\\\\node.exe',
+    resolvePackedNode: () => 'C\\\\app\\\\resources\\\\node.exe',
+    resolvePathOpenzoo: () => 'C\\\\npm\\\\openzoo.cmd',
+    log: () => {},
+    setTimeoutFn: timers.setTimeoutFn,
+    clearTimeoutFn: timers.clearTimeoutFn,
+    backoffMs: 10,
+    healthMs: 50,
+  });
+  await healer.ensure();
+  assert.equal(spawned[0].cmd, '/fake/electron');
+  await timers.flush();
+  assert.ok(spawned.length >= 2, `expected packed-node fallback, spawned ${spawned.length}`);
+  assert.equal(spawned[1].cmd, 'C\\\\app\\\\resources\\\\node.exe');
+  assert.deepEqual(spawned[1].args, ['/fake/node_modules/openzoo/bin/openzoo.js']);
+  assert.equal(spawned[1].opts.env.ELECTRON_RUN_AS_NODE, undefined);
+  assert.equal(spawned[1].opts.detached, undefined);
+  assert.equal(win32DetachedPipeHang(spawned[1].opts), false);
+  healer.stop();
+});
+
+test('win32 path-openzoo spawn uses shell:true and is not detached', async () => {
+  const timers = fakeTimers();
+  const spawned = [];
+  const healer = createSidecarHealer({
+    platform: 'win32',
+    spawn: (cmd, args, opts) => {
+      if (/\.cmd$/i.test(cmd) && !opts.shell) {
+        const err = Object.assign(new Error('spawn EINVAL'), { code: 'EINVAL' });
+        throw err;
+      }
+      const c = fakeChild();
+      spawned.push({ cmd, args, opts, child: c });
+      if (cmd === '/fake/electron') {
+        queueMicrotask(() => {
+          c.stderr.emit('data', 'Cannot find module think.js');
+          c.emit('exit', 1, null);
+        });
+      }
+      return c;
+    },
+    execPath: '/fake/electron',
+    binPath: '/fake/node_modules/openzoo/bin/openzoo.js',
+    fetchSession: async () => null,
+    portOccupied: async () => false,
+    displaceStale: async () => true,
+    sidecarIsAttachable,
+    expectedVersion: '0.49.8',
+    waitForSession: async (died) => {
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+      return !died();
+    },
+    resolveHostNode: () => null,
+    resolvePackedNode: () => null,
+    resolvePathOpenzoo: () => 'C\\\\npm\\\\openzoo.cmd',
+    log: () => {},
+    setTimeoutFn: timers.setTimeoutFn,
+    clearTimeoutFn: timers.clearTimeoutFn,
+    backoffMs: 10,
+    healthMs: 50,
+  });
+  await healer.ensure();
+  assert.equal(spawned[0].cmd, '/fake/electron');
+  await timers.flush();
+  const oz = spawned.find((s) => /\.cmd$/i.test(s.cmd));
+  assert.ok(oz, `expected path-openzoo fallback, cmds=${spawned.map((s) => s.cmd).join(',')}`);
+  assert.equal(oz.opts.shell, true);
+  assert.equal(oz.opts.detached, undefined);
+  assert.equal(win32DetachedPipeHang(oz.opts), false);
+  healer.stop();
+});
+
+test('copyPackedRuntimeToHome copies NSIS extraResources node-pty and openzoo-claude', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-nsis-'));
+  try {
+    const resources = path.join(dir, 'resources');
+    mkdirSync(path.join(resources, 'node-pty', 'build', 'Release'), { recursive: true });
+    writeFileSync(path.join(resources, 'node-pty', 'package.json'), JSON.stringify({
+      name: 'node-pty', version: '1.1.0', main: 'lib/index.js',
+    }));
+    writeFileSync(path.join(resources, 'node-pty', 'build', 'Release', 'pty.node'), Buffer.from([0]));
+    mkdirSync(path.join(resources, 'openzoo-claude'), { recursive: true });
+    writeFileSync(path.join(resources, 'openzoo-claude', 'package.json'), JSON.stringify({
+      name: 'openzoo-claude', version: '2.0.2',
+    }));
+    const home = path.join(dir, 'home');
+    const copied = copyPackedRuntimeToHome({
+      resourcesPath: resources,
+      env: { HOME: home, USERPROFILE: home },
+    });
+    assert.equal(copied.length, 2);
+    assert.equal(packedRuntimeHome({ HOME: home }), path.join(home, '.openzoo', 'packed'));
+    assert.equal(existsSync(path.join(home, '.openzoo', 'packed', 'node-pty', 'package.json')), true);
+    assert.equal(existsSync(path.join(home, '.openzoo', 'packed', 'node-pty', 'build', 'Release', 'pty.node')), true);
+    assert.equal(existsSync(path.join(home, '.openzoo', 'packed', 'openzoo-claude', 'package.json')), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('resolvePackedNode finds extraResources node.exe before PATH', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-packed-node-'));
+  try {
+    const resources = path.join(dir, 'resources');
+    mkdirSync(resources, { recursive: true });
+    writeFileSync(path.join(resources, 'node.exe'), '');
+    const env = { HOME: dir, USERPROFILE: dir, OZ_PACKED_RESOURCES: resources, PATH: 'C\\\\Windows' };
+    const got = resolvePackedNode(env, existsSync, path.join(dir, 'openzoo.exe'));
+    assert.equal(got, path.join(resources, 'node.exe'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

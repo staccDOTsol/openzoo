@@ -106,7 +106,7 @@ test('claudeZooEnv does not require ANTHROPIC_API_KEY; token from subscription o
     HOME: home,
   }, { port: 8402 });
   assert.equal(noKey.ANTHROPIC_API_KEY, undefined);
-  assert.equal(noKey.ANTHROPIC_BASE_URL, 'http://localhost:8402/v1');
+  assert.equal(noKey.ANTHROPIC_BASE_URL, 'http://127.0.0.1:8402/v1');
   assert.equal(noKey.ANTHROPIC_AUTH_TOKEN, 'sk-openzoo');
 
   const subFile = path.join(home, 'subscription.json');
@@ -144,7 +144,7 @@ test('claudeZooEnv PATH is ~/.local/bin + nvm 24; zoo :8402; no ANTHROPIC_API_KE
     NVM_DIR: path.join(home, '.nvm'),
   }, { port: 8402 });
   assert.equal(env.ANTHROPIC_API_KEY, undefined);
-  assert.equal(env.ANTHROPIC_BASE_URL, 'http://localhost:8402/v1');
+  assert.equal(env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:8402/v1');
   const parts = env.PATH.split(path.delimiter);
   assert.equal(parts[0], local);
   assert.ok(parts.includes(nvm24), env.PATH);
