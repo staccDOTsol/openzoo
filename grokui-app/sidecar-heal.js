@@ -37,6 +37,8 @@ function packedSidecarEnv(env = process.env) {
     // spawn stdio inherit + /dev/null used to eat those lines.
     OPENZOO_SILENT: '1',
     OPENZOO_NO_OPEN: env.OPENZOO_NO_OPEN || '1',
+    OPENZOO_PORT: env.OPENZOO_PORT || '8402',
+    OPENZOO_NO_PORT_WALK: '1',
   };
 }
 
@@ -45,6 +47,8 @@ function hostNodeSidecarEnv(env = process.env) {
     ...env,
     OPENZOO_SILENT: '1',
     OPENZOO_NO_OPEN: env.OPENZOO_NO_OPEN || '1',
+    OPENZOO_PORT: env.OPENZOO_PORT || '8402',
+    OPENZOO_NO_PORT_WALK: '1',
   };
   delete next.ELECTRON_RUN_AS_NODE;
   return next;
@@ -468,6 +472,17 @@ function createSidecarHealer({
         backoff = backoffMs;
         schedule(healthMs);
         return { reused: true, healthy: true, wedged: false, child: null };
+      }
+      // /v1/session timeout (2–3s) == dead. LISTEN alone is not health.
+      // A wedged owned child can peg CPU / block the event loop and still
+      // look "alive". Kill THAT sidecar only — never pkill OCC / openzoo-claude PTYs.
+      const starting = owned && !lastSpawnHealthy && owned._ozStartedAt
+        && (Date.now() - owned._ozStartedAt) < 8000;
+      if (owned && !session && !starting) {
+        log('[openzoo] /v1/session timeout — owned :8402 is dead; killing sidecar only (not OCC PTYs)');
+        try { owned.kill(); } catch { /* gone */ }
+        owned = null;
+        lastSpawnHealthy = false;
       }
       if (session) {
         const expected = typeof expectedVersion === 'function' ? expectedVersion() : expectedVersion;

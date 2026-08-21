@@ -24,8 +24,8 @@ const preload = readFileSync(path.join(root, 'grokui-app', 'preload.js'), 'utf8'
 const appPkg = require('../grokui-app/package.json');
 const ozPkg = require('../package.json');
 
-test('grokui app version is 1.6.11 so the next tag sorts above 1.5.99', () => {
-  assert.equal(appPkg.version, '1.6.11');
+test('grokui app version is 1.6.12 so the next tag sorts above 1.5.99', () => {
+  assert.equal(appPkg.version, '1.6.12');
   const harness = readFileSync(path.join(root, 'lib', 'harness-install.js'), 'utf8');
   assert.match(harness, /OPENZOO_CLAUDE_SPEC/);
   assert.match(harness, /ELECTRON_RUN_AS_NODE/);
@@ -434,6 +434,8 @@ test('Desktop pane actions bar: Copy / Paste / Dir / Stop in #chatHeader', () =>
   assert.match(appHtml, /body: task \+ String\.fromCharCode\(13\)/);
   assert.match(appHtml, /body\.agent-mode #actStop/);
   assert.match(appHtml, /#paneActions \{ display: flex;/);
+  assert.match(appHtml, /id="goalTip"/);
+  assert.match(appHtml, /@media \(pointer: coarse\) and \(max-width: 720px\) \{ #paneActions \{ display: none; \} #goalTip \{ display: none !important; \}/);
   // One Dir control — #88 folder picker lives in this bar, not next to cwd.
   assert.equal((appHtml.match(/id="dirPickBtn"/g) || []).length, 1);
   assert.doesNotMatch(appHtml, /"\\r"/);
@@ -1561,10 +1563,21 @@ test('Agent TUI is packed OCC in xterm, not a second harness or chat-fold fallba
   assert.match(appHtml, /e\.preventDefault\(\); submit\(\)/);
   assert.match(appHtml, /let syncingDials = false/);
   assert.match(appHtml, /if \(syncingDials\) return/);
+  assert.match(appHtml, /id="goalTip"/);
+  assert.match(appHtml, /Pro tip: \/goal/);
+  assert.match(appHtml, /function syncGoalTip/);
+  assert.match(appHtml, /t\.goalSet = true/);
   assert.match(grokui, /async function writeAgentPtyLine/);
   assert.match(grokui, /function stripPtyLineTail/);
+  assert.match(grokui, /function ptyLooksReady/);
+  assert.match(fnBody(grokui, 'writeAgentPtyLine'), /text\.charAt\(0\) === '\//);
+  assert.match(fnBody(grokui, 'writeAgentPtyLine'), /ptyLooksReady\(sess\)/);
+  assert.match(fnBody(grokui, 'writeAgentPtyLine'), /didWriteLine/);
+  assert.doesNotMatch(fnBody(grokui, 'writeAgentPtyLine'), /fromCharCode\(27\).*fromCharCode\(13\)/);
   assert.match(grokui, /void writeAgentPtyLine\(t\.id, String\(task\)\)/);
-  assert.match(grokui, /void writeAgentPtyLine\(t\.id, Buffer\.concat\(chunks\)\.toString\('utf8'\)\)/);
+  assert.match(grokui, /raw\.length === 1 && raw\[0\] === 27/);
+  assert.match(grokui, /void writeAgentPtyLine\(t\.id, raw\.toString\('utf8'\)\)/);
+  assert.match(grokui, /claudeInteractiveArgs\(\{ model: claudeModelArg\(model\), system: '' \}\)/);
   assert.match(fnBody(grokui, 'handleSlash'), /prev !== want/);
   assert.match(fnBody(grokui, 'handleSlash'), /await writeAgentPtyLine/);
   assert.doesNotMatch(fnBody(grokui, 'handleSlash'), /writeAgentPty\(t\.id, line \+/);
@@ -1579,6 +1592,10 @@ test('Agent TUI is packed OCC in xterm, not a second harness or chat-fold fallba
   assert.match(appHtml, /\/vendor\/xterm\.css/);
   assert.doesNotMatch(appHtml, /"\\r"/);
   assert.doesNotMatch(appHtml, /'\\r'/);
+  assert.doesNotMatch(appHtml, /"\\n"/);
+  assert.doesNotMatch(appHtml, /'\\n'/);
+  assert.doesNotMatch(appHtml, /\\x1b/);
+  assert.doesNotMatch(appHtml, /\\u001b/);
   assert.ok(existsSync(path.join(root, 'lib', 'vendor', 'xterm.js')));
   assert.ok(existsSync(path.join(root, 'lib', 'vendor', 'xterm.css')));
   assert.ok(existsSync(path.join(root, 'lib', 'vendor', 'fit.js')));

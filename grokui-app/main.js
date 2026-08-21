@@ -171,7 +171,7 @@ function pingUrl(url) {
 // but older than expected (0.49.3 answers this ping with no version field).
 function fetchSessionJson(url) {
   return new Promise((resolve) => {
-    const req = http.get(url, { timeout: 1500 }, (res) => {
+    const req = http.get(url, { timeout: 2500 }, (res) => {
       // Empty-wallet 402 still means the sidecar is up. Do not treat it as
       // dead and spawn over a live proxy that is asking to Pay.
       if (res.statusCode === 402) {
@@ -290,7 +290,15 @@ function getHealer() {
       displaceStale: () => displaceStaleListener(8402),
       sidecarIsAttachable,
       expectedVersion: expectedOpenzooVersion,
-      waitForSession: (died) => waitFor('http://127.0.0.1:8402/v1/session', 60, 500, died),
+      waitForSession: async (died) => {
+        for (let i = 0; i < 60; i++) {
+          if (died && died()) return false;
+          const s = await fetchSessionJson('http://127.0.0.1:8402/v1/session');
+          if (s) return true;
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        return false;
+      },
       env: {
         ...process.env,
         OZ_PACKED_RESOURCES: process.resourcesPath || path.join(__dirname),
