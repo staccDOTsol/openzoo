@@ -491,6 +491,49 @@ function assertPackedOpenzooClaude(appDir) {
   if (entry && !fs.existsSync(path.join(dir, entry))) {
     throw new Error(`[afterPack] packed openzoo-claude missing bin ${entry}`);
   }
+  for (const rel of ['v2/src/goal.mjs', 'v2/src/ui/commands.mjs']) {
+    if (!fs.existsSync(path.join(dir, rel))) {
+      throw new Error(`[afterPack] packed openzoo-claude missing ${rel} — /goal must be a real OCC slash`);
+    }
+  }
+  const entryAbs = entry ? path.join(dir, entry) : path.join(dir, 'v2', 'src', 'index.mjs');
+  if (fs.existsSync(entryAbs)) {
+    const check = spawnSync(process.execPath, ['--check', entryAbs], { encoding: 'utf8' });
+    if (check.status !== 0) {
+      throw new Error(`[afterPack] packed openzoo-claude cannot load (${entryAbs}):\n${(check.stderr || check.stdout || '').trim()}`);
+    }
+  }
+}
+
+function assertPackedVendorXterm(appDir) {
+  const vendor = path.join(appDir, 'lib', 'vendor');
+  for (const f of ['xterm.js', 'xterm.css', 'fit.js']) {
+    if (!fs.existsSync(path.join(vendor, f))) {
+      throw new Error(`[afterPack] packed app missing lib/vendor/${f} — Agent TUI cannot load xterm offline`);
+    }
+  }
+}
+
+function assertWindowsConptyFiles(ptyDir) {
+  if (!ptyDir || !fs.existsSync(ptyDir)) {
+    throw new Error('[afterPack] Windows pack missing node-pty — cannot find conpty.node / OpenConsole.exe');
+  }
+  let conptyNode = false;
+  let openConsole = false;
+  const walk = (d, depth) => {
+    if (depth > 6) return;
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (/conpty\.node$/i.test(e.name)) conptyNode = true;
+      if (/^OpenConsole\.exe$/i.test(e.name)) openConsole = true;
+      if (e.isDirectory()) walk(path.join(d, e.name), depth + 1);
+    }
+  };
+  walk(ptyDir, 0);
+  if (!conptyNode || !openConsole) {
+    throw new Error('[afterPack] Windows pack missing node-pty conpty.node / OpenConsole.exe');
+  }
 }
 
 function assertPackedNodePty(appDir, context = {}) {
@@ -534,8 +577,11 @@ function assertPackedNodePty(appDir, context = {}) {
       throw new Error(`[afterPack] packed app cannot require('node-pty'):\n${detail}`);
     }
   }
-  if (plat === 'win32' && !hasConptyBackend(ptyDir)) {
-    throw new Error('[afterPack] Windows pack missing node-pty conpty backend');
+  if (plat === 'win32') {
+    if (!hasConptyBackend(ptyDir)) {
+      throw new Error('[afterPack] Windows pack missing node-pty conpty backend');
+    }
+    assertWindowsConptyFiles(ptyDir);
   }
 }
 
@@ -650,6 +696,8 @@ exports.writeLibEsmPackage = writeLibEsmPackage;
 exports.assertPackedGrokuiLib = assertPackedGrokuiLib;
 exports.assertPackedNodePty = assertPackedNodePty;
 exports.assertPackedOpenzooClaude = assertPackedOpenzooClaude;
+exports.assertPackedVendorXterm = assertPackedVendorXterm;
+exports.assertWindowsConptyFiles = assertWindowsConptyFiles;
 exports.findNativeAddons = findNativeAddons;
 exports.hasConptyBackend = hasConptyBackend;
 exports.extraResourcesDir = extraResourcesDir;
@@ -659,6 +707,7 @@ exports.default = async function afterPack(context) {
   const appDir = packedAppDir(context);
   copyRepoLib(appDir, context.packager.projectDir);
   assertPackedGrokuiLib(appDir);
+  assertPackedVendorXterm(appDir);
   copyNodeModules(context);
   await ensurePackedPtyAndClaude(context);
   if (context.electronPlatformName !== 'darwin') return;

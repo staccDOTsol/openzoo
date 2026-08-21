@@ -31,10 +31,18 @@ try {
   console.error('APP_HTML template failed to evaluate:', e.message);
   process.exit(1);
 }
-const open = html.indexOf('<script>');
-const close = html.indexOf('</script>', open);
+if (/"\\r"|'\\r'/.test(literal) || /\r/.test(literal)) {
+  console.error('FAIL: APP_HTML template contains a CR / "\\r" — use String.fromCharCode(13)');
+  process.exit(1);
+}
+let close = html.lastIndexOf('</script>');
+let open = html.lastIndexOf('<script>', close);
 if (open < 0 || close < open) {
   console.error('served HTML has no <script>');
+  process.exit(1);
+}
+if (/<script\s+src=/.test(html.slice(open, open + 40))) {
+  console.error('FAIL: last <script> is a src tag — dump the inline client script');
   process.exit(1);
 }
 const script = html.slice(open + '<script>'.length, close);

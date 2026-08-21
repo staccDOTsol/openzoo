@@ -10,13 +10,22 @@ import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const grokui = readFileSync(path.join(root, 'lib', 'grokui.mjs'), 'utf8');
+
+function inlineAppScript(src) {
+  const close = src.lastIndexOf('</script>');
+  let open = src.lastIndexOf('<script>', close);
+  while (open >= 0 && /^\s*<script\s+src=/i.test(src.slice(open, open + 48))) {
+    open = src.lastIndexOf('<script>', open - 1);
+  }
+  return { open, close, script: open >= 0 && close > open ? src.slice(open, close) : '' };
+}
 const main = readFileSync(path.join(root, 'grokui-app', 'main.js'), 'utf8');
 const preload = readFileSync(path.join(root, 'grokui-app', 'preload.js'), 'utf8');
 const appPkg = require('../grokui-app/package.json');
 const ozPkg = require('../package.json');
 
-test('grokui app version is 1.6.8 so the next tag sorts above 1.5.99', () => {
-  assert.equal(appPkg.version, '1.6.8');
+test('grokui app version is 1.6.9 so the next tag sorts above 1.5.99', () => {
+  assert.equal(appPkg.version, '1.6.9');
   const harness = readFileSync(path.join(root, 'lib', 'harness-install.js'), 'utf8');
   assert.match(harness, /OPENZOO_CLAUDE_SPEC/);
   assert.match(harness, /ELECTRON_RUN_AS_NODE/);
@@ -104,9 +113,7 @@ test('cost HUD sits below the wrapping header, not on top of the dials', () => {
   assert.match(grokui, /function placeHud/);
   assert.match(grokui, /chatHeader\.getBoundingClientRect\(\)\.bottom/);
   assert.match(grokui, /#main \{ position: relative;/);
-  const scriptStart = grokui.indexOf('<script>');
-  const scriptEnd = grokui.indexOf('</script>', scriptStart);
-  const script = grokui.slice(scriptStart, scriptEnd);
+  const script = inlineAppScript(grokui).script;
   assert.equal((script.match(/const chatHeader =/g) || []).length, 1);
 });
 
@@ -233,10 +240,9 @@ test('served APP_HTML <script> is valid JS (node --check)', () => {
   // APP_HTML interpolates SUBSCRIPTIONS_PAGE into an href. Stub it so we
   // can evaluate the template and --check the script the browser actually gets.
   const html = Function('SUBSCRIPTIONS_PAGE', 'return ' + literal)('https://example.test/subscriptions');
-  const open = html.indexOf('<script>');
-  const close = html.indexOf('</script>', open);
+  const { open, close, script: tagged } = inlineAppScript(html);
   assert.ok(open >= 0 && close > open, 'served HTML has a script');
-  const script = html.slice(open + '<script>'.length, close);
+  const script = tagged.startsWith('<script>') ? tagged.slice('<script>'.length) : tagged;
   assert.doesNotMatch(script, /\/\^\/sitrep/);
   assert.match(script, /s === '\/sitrep'/);
   assert.match(script, /includes\('wallet is empty'\)/);
@@ -337,9 +343,7 @@ test('Cmd/Ctrl+F finds in the current #log, not the sidebar thread search', () =
   assert.match(grokui, /' \/ '/);
   assert.doesNotMatch(grokui, /findInPage/);
   // Cmd+K must still be thread search — do not steal it for in-log find.
-  const scriptStart = grokui.indexOf('<script>');
-  const scriptEnd = grokui.indexOf('</script>', scriptStart);
-  const script = grokui.slice(scriptStart, scriptEnd);
+  const script = inlineAppScript(grokui).script;
   assert.match(script, /withMod && k === 'k'/);
   assert.match(script, /withMod && k === 'f'/);
   const kHandler = script.slice(script.indexOf("k === 'k'"), script.indexOf("k === 'k'") + 220);
@@ -734,9 +738,7 @@ test('empty-wallet park opens Pay; a generic 402 handshake does not', () => {
   assert.match(grokui, /function maybeOpenPayForEmptyWallet/);
   assert.match(grokui, /payneed-btn/);
   assert.match(grokui, /pay\.textContent = 'payment required'/);
-  const scriptStart = grokui.indexOf('<script>');
-  const scriptEnd = grokui.indexOf('</script>', scriptStart);
-  const script = grokui.slice(scriptStart, scriptEnd);
+  const script = inlineAppScript(grokui).script;
   const add = script.indexOf('function addRow');
   const addFn = script.slice(add, script.indexOf('let lastRenderKey', add));
   assert.match(addFn, /isEmptyWalletPayment\(text\)/);
@@ -800,7 +802,22 @@ test('afterPack pack gate fails when node-pty or its native .node is missing', (
       bin: { 'openzoo-claude': 'v2/src/index.mjs' },
     }));
     writeFileSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src', 'index.mjs'), 'export {}\n');
+    assert.throws(() => afterPack.assertPackedOpenzooClaude(dir), /goal\.mjs/);
+    mkdirSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src', 'ui'), { recursive: true });
+    writeFileSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src', 'goal.mjs'), 'export {}\n');
+    writeFileSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src', 'ui', 'commands.mjs'), 'export {}\n');
     assert.doesNotThrow(() => afterPack.assertPackedOpenzooClaude(dir));
+    assert.throws(() => afterPack.assertPackedNodePty(dir, { electronPlatformName: 'win32' }), /conpty|OpenConsole/);
+    writeFileSync(path.join(dir, 'node_modules', 'node-pty', 'build', 'Release', 'conpty.node'), Buffer.from([0]));
+    mkdirSync(path.join(dir, 'node_modules', 'node-pty', 'conpty'), { recursive: true });
+    writeFileSync(path.join(dir, 'node_modules', 'node-pty', 'conpty', 'OpenConsole.exe'), '');
+    assert.doesNotThrow(() => afterPack.assertPackedNodePty(dir, { electronPlatformName: 'win32', arch: 'x64' }));
+    assert.throws(() => afterPack.assertPackedVendorXterm(dir), /xterm/);
+    mkdirSync(path.join(dir, 'lib', 'vendor'), { recursive: true });
+    writeFileSync(path.join(dir, 'lib', 'vendor', 'xterm.js'), '/* xterm */\n');
+    writeFileSync(path.join(dir, 'lib', 'vendor', 'xterm.css'), '/* css */\n');
+    writeFileSync(path.join(dir, 'lib', 'vendor', 'fit.js'), '/* fit */\n');
+    assert.doesNotThrow(() => afterPack.assertPackedVendorXterm(dir));
     const gate = spawnSync(process.execPath, [path.join(root, 'scripts', 'assert-packed-node-pty.mjs')], {
       encoding: 'utf8',
     });
@@ -815,6 +832,10 @@ test('afterPack copies the whole repo lib and fails if a relative is missing', (
   const dir = mkdtempSync(path.join(tmpdir(), 'oz-packed-lib-'));
   afterPack.copyRepoLib(dir, path.join(root, 'grokui-app'));
   assert.equal(existsSync(path.join(dir, 'lib', 'info.js')), true);
+  assert.equal(existsSync(path.join(dir, 'lib', 'vendor', 'xterm.js')), true);
+  assert.equal(existsSync(path.join(dir, 'lib', 'vendor', 'xterm.css')), true);
+  assert.equal(existsSync(path.join(dir, 'lib', 'vendor', 'fit.js')), true);
+  assert.doesNotThrow(() => afterPack.assertPackedVendorXterm(dir));
   assert.equal(existsSync(path.join(dir, 'lib', 'hrr.js')), true);
   assert.equal(existsSync(path.join(dir, 'lib', 'spill.js')), true);
   assert.equal(existsSync(path.join(dir, 'lib', 'subscription.js')), true);
@@ -1026,9 +1047,7 @@ test('ping-all wakes the crew without a prompt or /all modal', () => {
   assert.match(grokui, /function kickTurn/);
   assert.match(grokui, /task: '\/ping'/);
   assert.match(grokui, /title="Wake all '/);
-  const scriptStart = grokui.indexOf('<script>');
-  const scriptEnd = grokui.indexOf('</script>', scriptStart);
-  const script = grokui.slice(scriptStart, scriptEnd);
+  const script = inlineAppScript(grokui).script;
   const pingAt = script.indexOf("const pingBtn = row.querySelector('.trow-ping')");
   assert.notEqual(pingAt, -1);
   const pingHandler = script.slice(pingAt, script.indexOf("row.querySelector('.tclose')", pingAt));
@@ -1081,9 +1100,7 @@ test('thread avatars are illustrated bot faces, not two-letter initials', () => 
   assert.doesNotMatch(grokui, /initials\s*\(\s*name\s*\)/);
   assert.doesNotMatch(grokui, /name\.slice\(0,\s*2\)\.toUpperCase\(\)/);
   assert.doesNotMatch(grokui, /gravatar|dicebear|ui-avatars|unavatar|pravatar/i);
-  const scriptStart = grokui.indexOf('<script>');
-  const scriptEnd = grokui.indexOf('</script>', scriptStart);
-  const script = grokui.slice(scriptStart, scriptEnd);
+  const script = inlineAppScript(grokui).script;
   assert.match(script, /<svg class="bot-pfp"/);
   assert.equal((script.match(/botPfp\(/g) || []).length >= 5, true);
   const fnStart = grokui.indexOf('  let botPfpSeq = 0;');
@@ -1420,7 +1437,10 @@ test('user turns persist to the thread store before the model call', () => {
   const flushAt = drive.indexOf('persistUserTurn(t, task, images)');
   const ackAt = drive.lastIndexOf("ack(true, { persisted: true })");
   const kickAt = drive.lastIndexOf('runTurn(threadId, task');
-  assert.ok(flushAt >= 0 && ackAt > flushAt && kickAt > ackAt, '/drive persists, then ACKs, then runTurn');
+  const agentSkip = drive.indexOf('if (isAgentMode(t))');
+  assert.ok(flushAt >= 0 && ackAt > flushAt, '/drive persists, then ACKs');
+  assert.ok(agentSkip > ackAt && agentSkip < kickAt, '/drive Agent returns without runTurn');
+  assert.ok(kickAt > agentSkip, 'Chat still runTurn after the Agent early return');
   assert.match(grokui, /history: visibleHistory\(t\.history\)/);
   assert.match(fnBody(grokui, 'loadThreads'), /t\.history = t\.history\.filter\(isVisibleHistoryEntry\)/);
 });
@@ -1453,5 +1473,68 @@ test('compose box keeps the draft until persist; AUTO continue is never a user b
   const paintFn = appHtml.slice(paintStart, appHtml.indexOf('function connectStream', paintStart));
   assert.doesNotMatch(paintFn, /if \(!b\) \{ render\(\); return; \}/);
   assert.match(paintFn, /ensureLiveBotRow/);
+});
+
+test('Agent TUI is packed OCC in xterm, not a second harness or chat-fold fallback', () => {
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.match(grokui, /from '\.\/packed-runtime\.js'/);
+  assert.match(grokui, /resolvePackedOpenzooClaude\(\{ env, execPath: process\.execPath \}\) \|\| resolveOpenzooClaude\(env\)/);
+  assert.match(grokui, /if \(resolved\.via === 'packed'\) ptyEnv\.ELECTRON_RUN_AS_NODE = '1'/);
+  assert.match(fnBody(grokui, 'ensureAgentPty'), /if \(cur && !cur\.dead\) return cur/);
+  assert.doesNotMatch(fnBody(grokui, 'ensureAgentPty'), /cwd mismatch|killAgentPty/);
+  assert.match(grokui, /killAgentPty\(t\.id\)/);
+  assert.match(grokui, /reset: true/);
+  assert.match(grokui, /\/threads\/\(\[\^/\]\+\)\/pty/);
+  assert.match(grokui, /\/threads\/\(\[\^/\]\+\)\/pty-size/);
+  assert.match(grokui, /VENDOR_FILES/);
+  assert.match(grokui, /runMode: p\?\.runMode \|\| 'agent'/);
+  assert.match(grokui, /\['agents', 'tasks', 'context', 'model', 'goal'\]/);
+  assert.match(grokui, /\/model openzoo\/auto/);
+  assert.match(grokui, /\/model x-ai\/grok-4\.6/);
+  assert.match(appHtml, /#agentTerm \{ flex: 1; min-height: 0; display: none; \}/);
+  assert.match(appHtml, /body\.agent-mode #agentTerm \{ display: flex; flex-direction: column; overflow: hidden; \}/);
+  assert.match(appHtml, /body\.agent-mode #log \{ display: none; \}/);
+  assert.doesNotMatch(appHtml, /body\.agent-mode #row-input \{ display: none/);
+  assert.match(appHtml, /body\.agent-mode #bar \{ position: absolute; left: 0; right: 0; bottom: 0;/);
+  assert.match(appHtml, /disableStdin:\s*true/);
+  assert.doesNotMatch(appHtml, /agentTerm\.onData/);
+  assert.match(appHtml, /dirPickBtn/);
+  assert.match(appHtml, /electronAPI\.pickDirectory/);
+  assert.match(appHtml, /echoSlash\('\/dir ' \+ dir\)/);
+  assert.match(appHtml, /body: task \+ String\.fromCharCode\(13\)/);
+  assert.match(appHtml, /Esc in the TUI interrupts/);
+  assert.doesNotMatch(appHtml, /#agentTerm \.xterm-screen \{[^}]*height:\s*100%\s*!important/);
+  assert.match(appHtml, /window\._ozFitAgent/);
+  assert.match(appHtml, /el\.clientHeight < 40/);
+  assert.match(appHtml, /setTimeout\(fitAgentTerm, 160\)/);
+  assert.match(appHtml, /key !== lastPtySize/);
+  assert.match(appHtml, /\/vendor\/xterm\.js/);
+  assert.match(appHtml, /\/vendor\/fit\.js/);
+  assert.match(appHtml, /\/vendor\/xterm\.css/);
+  assert.doesNotMatch(appHtml, /"\\r"/);
+  assert.doesNotMatch(appHtml, /'\\r'/);
+  assert.ok(existsSync(path.join(root, 'lib', 'vendor', 'xterm.js')));
+  assert.ok(existsSync(path.join(root, 'lib', 'vendor', 'xterm.css')));
+  assert.ok(existsSync(path.join(root, 'lib', 'vendor', 'fit.js')));
+  const afterPack = readFileSync(path.join(root, 'grokui-app', 'build', 'afterPack.js'), 'utf8');
+  assert.match(afterPack, /assertPackedVendorXterm/);
+  assert.match(afterPack, /v2\/src\/goal\.mjs/);
+  assert.match(afterPack, /v2\/src\/ui\/commands\.mjs/);
+  assert.match(afterPack, /assertWindowsConptyFiles/);
+  const src = grokui.replace(/\r\n/g, '\n');
+  const start = src.indexOf('const APP_HTML = `');
+  const end = src.indexOf('`;\n\nconst server = http.createServer', start);
+  const literal = src.slice(start + 'const APP_HTML = '.length, end + 1);
+  const html = Function('SUBSCRIPTIONS_PAGE', 'return ' + literal)('https://example.test/subscriptions');
+  const script = inlineAppScript(html).script.replace(/^<script>/, '');
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-agent-apphtml-'));
+  try {
+    const file = path.join(dir, 'apphtml.js');
+    writeFileSync(file, script);
+    const r = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr || r.stdout);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
