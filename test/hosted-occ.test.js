@@ -110,6 +110,24 @@ test('writeOccPtyLine: /goal at prompt is line+CR; busy slash Esc-then-line', as
   assert.equal(stripPtyLineTail('/goal x\r\n'), '/goal x');
 });
 
+test('GET /healthz and /health are process liveness, no Bearer', async () => {
+  const started = await listen({
+    root: tmp(),
+    verify: async () => { throw new Error('healthz must not verify'); },
+    spawn: () => { throw new Error('healthz must not spawn'); },
+    log: () => {},
+  });
+  try {
+    for (const p of ['/healthz', '/health']) {
+      const r = await fetch(started.url + p);
+      assert.equal(r.status, 200);
+      assert.deepEqual(await r.json(), { ok: true, service: 'hosted-occ' });
+    }
+  } finally {
+    await closeServer(started);
+  }
+});
+
 test('hosted OCC: 401 without Bearer; no session; query token refused', async () => {
   const home = tmp();
   const pty = fakePty();
