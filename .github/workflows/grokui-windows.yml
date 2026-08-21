@@ -10,7 +10,13 @@ on:
 
 jobs:
   windows:
-    runs-on: windows-latest
+    # grokui-v1.6.5 win #91 died in ~5s on electron-builder npmRebuild of
+    # bigint-buffer: node-gyp `Could not find any Visual Studio installation`.
+    # windows-latest is windows-2025 + VS 2026 (major 18); the node-gyp
+    # bundled with @electron/rebuild does not recognize 18.x. windows-2022
+    # has VS 2022 (17.x) which that node-gyp can see, so node-pty/conpty
+    # rebuilds for the Electron ABI.
+    runs-on: windows-2022
     permissions:
       contents: write
     steps:
