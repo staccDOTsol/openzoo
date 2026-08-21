@@ -813,10 +813,11 @@ test('afterPack pack gate fails when node-pty or its native .node is missing', (
       bin: { 'openzoo-claude': 'v2/src/index.mjs' },
     }));
     writeFileSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src', 'index.mjs'), 'export {}\n');
-    assert.throws(() => afterPack.assertPackedOpenzooClaude(dir), /goal\.mjs/);
+    assert.throws(() => afterPack.assertPackedOpenzooClaude(dir), /commands\.mjs/);
     mkdirSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src', 'ui'), { recursive: true });
-    writeFileSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src', 'goal.mjs'), 'export {}\n');
     writeFileSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src', 'ui', 'commands.mjs'), 'export {}\n');
+    assert.throws(() => afterPack.assertPackedOpenzooClaude(dir), /\/model/);
+    writeFileSync(path.join(dir, 'node_modules', 'openzoo-claude', 'v2', 'src', 'ui', 'commands.mjs'), "export const COMMANDS = { '/model': {} }\n");
     assert.doesNotThrow(() => afterPack.assertPackedOpenzooClaude(dir));
     assert.throws(() => afterPack.assertPackedNodePty(dir, { electronPlatformName: 'win32' }), /conpty|OpenConsole/);
     writeFileSync(path.join(dir, 'node_modules', 'node-pty', 'build', 'Release', 'conpty.node'), Buffer.from([0]));
@@ -1530,8 +1531,8 @@ test('Agent TUI is packed OCC in xterm, not a second harness or chat-fold fallba
   assert.ok(existsSync(path.join(root, 'lib', 'vendor', 'fit.js')));
   const afterPack = readFileSync(path.join(root, 'grokui-app', 'build', 'afterPack.js'), 'utf8');
   assert.match(afterPack, /assertPackedVendorXterm/);
-  assert.match(afterPack, /v2\/src\/goal\.mjs/);
   assert.match(afterPack, /v2\/src\/ui\/commands\.mjs/);
+  assert.match(afterPack, /\/model/);
   assert.match(afterPack, /assertWindowsConptyFiles/);
   const src = grokui.replace(/\r\n/g, '\n');
   const start = src.indexOf('const APP_HTML = `');
