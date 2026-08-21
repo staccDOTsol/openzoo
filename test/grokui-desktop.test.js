@@ -1557,6 +1557,16 @@ test('Agent TUI is packed OCC in xterm, not a second harness or chat-fold fallba
   assert.match(appHtml, /echoSlash\('\/dir ' \+ dir\)/);
   assert.match(appHtml, /body: task \+ String\.fromCharCode\(13\)/);
   assert.match(appHtml, /body: String\.fromCharCode\(27\)/);
+  assert.match(appHtml, /e\.preventDefault\(\); submit\(\)/);
+  assert.match(appHtml, /let syncingDials = false/);
+  assert.match(appHtml, /if \(syncingDials\) return/);
+  assert.match(grokui, /async function writeAgentPtyLine/);
+  assert.match(grokui, /function stripPtyLineTail/);
+  assert.match(grokui, /void writeAgentPtyLine\(t\.id, String\(task\)\)/);
+  assert.match(grokui, /void writeAgentPtyLine\(t\.id, Buffer\.concat\(chunks\)\.toString\('utf8'\)\)/);
+  assert.match(fnBody(grokui, 'handleSlash'), /prev !== want/);
+  assert.match(fnBody(grokui, 'handleSlash'), /await writeAgentPtyLine/);
+  assert.doesNotMatch(fnBody(grokui, 'handleSlash'), /writeAgentPty\(t\.id, line \+/);
   assert.match(appHtml, /Esc in the TUI interrupts/);
   assert.doesNotMatch(appHtml, /#agentTerm \.xterm-screen \{[^}]*height:\s*100%\s*!important/);
   assert.match(appHtml, /window\._ozFitAgent/);
