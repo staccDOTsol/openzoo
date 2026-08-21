@@ -33,7 +33,7 @@ test('ensureAgentPty reuses a live PTY; packed resolve; CLAUDE_SLASH has goal', 
   process.env.OZ_AGENT_PORTS = '0';
   const {
     newThread, ensureAgentPty, killAgentPty, setAgentPtySpawnerForTest,
-    agentPtySpawnSpec, handleSlash, isGrokuiOwnedSlash, CLAUDE_SLASH_IN_AUTO,
+    writeAgentPtyLine, agentPtySpawnSpec, handleSlash, isGrokuiOwnedSlash, CLAUDE_SLASH_IN_AUTO,
   } = await import(path.join(root, 'lib/grokui.mjs'));
 
   assert.equal(CLAUDE_SLASH_IN_AUTO.has('goal'), true);
@@ -91,9 +91,28 @@ test('ensureAgentPty reuses a live PTY; packed resolve; CLAUDE_SLASH has goal', 
 
   await handleSlash('/tier grok4.6', t);
   assert.equal(t.tier, 'grok4.6');
-  assert.ok(writes.some((w) => String(w).includes('/model x-ai/grok-4.6')));
+  assert.equal(writes[0], String.fromCharCode(27), 'ESC before /model');
+  assert.ok(writes.some((w) => String(w).includes('/model x-ai/grok-4.6') && String(w).endsWith(String.fromCharCode(13))));
+  const afterGrok = writes.length;
+  await handleSlash('/tier grok4.6', t);
+  assert.equal(writes.length, afterGrok, 'same /tier must not write /model again');
   await handleSlash('/tier auto', t);
   assert.ok(writes.some((w) => String(w).includes('/model openzoo/auto')));
+  const n = writes.length;
+  await writeAgentPtyLine(t.id, '/goal ship it');
+  assert.equal(writes[n], String.fromCharCode(27));
+  assert.equal(writes[n + 1], '/goal ship it' + String.fromCharCode(13));
+
+  const beforePty = writes.length;
+  const port = Number(process.env.OZ_GROKUI_PORT);
+  const posted = await fetch('http://127.0.0.1:' + port + '/threads/' + t.id + '/pty', {
+    method: 'POST',
+    body: '/goal from post' + String.fromCharCode(13),
+  });
+  assert.equal(posted.ok, true);
+  await new Promise((r) => setTimeout(r, 120));
+  assert.equal(writes[beforePty], String.fromCharCode(27), 'POST /pty interrupts first');
+  assert.equal(writes[beforePty + 1], '/goal from post' + String.fromCharCode(13));
 
   killAgentPty(t.id);
   const d = ensureAgentPty(t);
