@@ -9,6 +9,7 @@ import {
   subscriptionPublicView, parseSubscriptionPaste,
   applySubscriptionHeaders, stripAuthorization,
   ingestBillingKeyResponse, billingTiers, fetchBillingKey,
+  bearerFromAuthorization, verifySubscriptionKey,
 } from '../lib/subscription.js';
 
 function tmpSub() {
@@ -99,6 +100,47 @@ test('empty session does not hit the network', async () => {
   const body = await fetchBillingKey('');
   assert.equal(body.ok, false);
   assert.equal(body.error, 'session required');
+});
+
+test('Bearer is taken from Authorization only', () => {
+  assert.equal(bearerFromAuthorization({ authorization: 'Bearer oz_live_abc' }), 'oz_live_abc');
+  assert.equal(bearerFromAuthorization({ Authorization: 'bearer oz_x' }), 'oz_x');
+  assert.equal(bearerFromAuthorization({}), '');
+  assert.equal(bearerFromAuthorization({ authorization: 'Basic x' }), '');
+});
+
+test('verifySubscriptionKey fails closed on empty, 401, expired', async () => {
+  assert.equal((await verifySubscriptionKey('')).ok, false);
+  const fake = {
+    status: 401,
+    json: async () => ({ ok: false, error: 'unauthorized' }),
+  };
+  const bad = await verifySubscriptionKey('oz_live_not_real_xxxxxx', {
+    fetchImpl: async () => fake,
+  });
+  assert.equal(bad.ok, false);
+  assert.equal(bad.status, 401);
+  const expired = await verifySubscriptionKey('oz_live_old_key_xxxxxx', {
+    fetchImpl: async () => ({ status: 200, json: async () => ({ ok: false, error: 'expired' }) }),
+  });
+  assert.equal(expired.ok, false);
+  assert.equal(expired.status, 401);
+  const good = await verifySubscriptionKey('oz_live_good_key_xxxxxx', {
+    fetchImpl: async (url, init) => {
+      assert.match(url, /\/api\/billing\/verify$/);
+      assert.equal(init.method, 'POST');
+      assert.match(init.headers.authorization, /^Bearer oz_live_good/);
+      return { status: 200, json: async () => ({ ok: true, tier: 'pro', tierName: 'Pro' }) };
+    },
+  });
+  assert.equal(good.ok, true);
+  assert.equal(good.tier, 'pro');
+});
+
+test('live POST /api/billing/verify refuses a fake key', async () => {
+  const r = await verifySubscriptionKey('oz_live_this_is_not_a_real_key_xxxxxx');
+  assert.equal(r.ok, false);
+  assert.equal(r.status, 401);
 });
 
 test('live GET /api/billing/tiers is the price source of truth', async () => {
