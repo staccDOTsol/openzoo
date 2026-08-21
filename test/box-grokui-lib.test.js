@@ -39,11 +39,46 @@ test('box-boot runs grokui from the complete clone, not a stripped .grokui', () 
   assert.doesNotMatch(boxes, /node \/opt\/grokui\/grokui\.mjs/);
 });
 
+test('box image bakes code-server and Cline, never ANTHROPIC_API_KEY', () => {
+  assert.match(dockerfile, /code-server\.dev\/install\.sh/);
+  assert.match(dockerfile, /--method=standalone/);
+  assert.match(dockerfile, /saoudrizwan\.claude-dev/);
+  assert.match(dockerfile, /node:22-bookworm-slim/);
+  assert.match(dockerfile, /OPENZOO_NO_TUNNEL=1/);
+  assert.match(dockerfile, /box-cline-settings\.mjs/);
+  assert.match(dockerfile, /box-8080-door\.mjs/);
+  assert.doesNotMatch(dockerfile, /ENV\s+ANTHROPIC_API_KEY=/);
+  assert.doesNotMatch(dockerfile, /FROM\s+alpine/i);
+  assert.doesNotMatch(dockerfile, /sk-ant-/);
+});
+
+test('box-boot publishes passworded code-server on :8080 with Cline from sub env', () => {
+  assert.match(boot, /unset ANTHROPIC_API_KEY/);
+  assert.match(boot, /OPENZOO_NO_TUNNEL/);
+  assert.match(boot, /box-cline-settings\.mjs/);
+  assert.match(boot, /box-8080-door\.mjs/);
+  assert.match(boot, /code-server/);
+  assert.match(boot, /--auth password/);
+  assert.match(boot, /0\.0\.0\.0:8080/);
+  assert.match(boot, /\/health/);
+  assert.match(boot, /CODE_SERVER_PASSWORD|sub-key-hash|box-cline-settings/);
+  assert.doesNotMatch(boot, /--auth\s+none/);
+  assert.doesNotMatch(boot, /ANTHROPIC_API_KEY=/);
+  assert.doesNotMatch(boot, /sk-ant-/);
+  assert.match(boot, /supervise "box-8080-door" 8080/);
+  assert.doesNotMatch(boot, /supervise "box-server" 8080/);
+  assert.match(boot, /UI_ENTRY=\/opt\/openzoo\/lib\/grokui\.mjs/);
+});
+
 test('docker-box smoke fails fast on MODULE_NOT_FOUND', () => {
   assert.match(workflow, /ERR_MODULE_NOT_FOUND/);
   assert.match(workflow, /is a CommonJS module/);
   assert.match(workflow, /FAIL: grokui MODULE_NOT_FOUND/);
   assert.match(workflow, /test -f \/opt\/grokui\/livestatus\.js/);
+  assert.match(workflow, /saoudrizwan\.claude-dev/);
+  assert.match(workflow, /8080\/health/);
+  assert.match(workflow, /CODE_SERVER_PASSWORD/);
+  assert.match(workflow, /ANTHROPIC_API_KEY/);
 });
 
 test('esm relative walker accepts the real grokui.mjs graph', () => {

@@ -30,6 +30,12 @@ export OPENAI_BASE_URL="${OPENAI_BASE_URL:-http://127.0.0.1:8402/v1}"
 
 log() { echo "[box-boot] $*"; }
 
+# Host / image may carry ANTHROPIC_API_KEY. Drop it — that key bills
+# api.anthropic.com. Pay is the OpenZoo subscription Bearer written into
+# Cline at boot (ANTHROPIC_AUTH_TOKEN or OPENZOO_SUB_KEY).
+unset ANTHROPIC_API_KEY
+export OPENZOO_NO_TUNNEL="${OPENZOO_NO_TUNNEL:-1}"
+
 # ---- 1. wallet (per-visitor burner, injected at spawn, never baked) ----------
 if [ -n "${OPENZOO_WALLET_JSON:-}" ]; then
   mkdir -p /root/.openzoo
@@ -68,7 +74,7 @@ if [ ! -f /workspace/.oz-app/.seeded ]; then
     log "seeded $(find /workspace/.oz-app -type f | wc -l | tr -d ' ') files"
   else
     rm -rf /workspace/.oz-app.tmp
-    log "seed FAILED — box-server will retry it (and may stall :8080 while it does)"
+    log "seed FAILED — box-server will retry it (and may stall while it does)"
   fi
 fi
 # Do not cherry-pick grokui.mjs + podagent.mjs into /workspace/.grokui.
@@ -82,24 +88,17 @@ if [ -d /opt/grokui ]; then
 fi
 cp /opt/openzoo/.oz-tag /workspace/.oz-tag 2>/dev/null || true
 
-# ---- 3. box-server on :8080 (upload/files/health), injected as base64 --------
+# ---- 3. optional box-server (NOT :8080 — that port is code-server) ----------
 if [ -n "${OZ_UI_B64:-}" ]; then
   printf '%s' "$OZ_UI_B64" | base64 -d > /opt/box-server.mjs 2>/dev/null || \
     printf '%s' "$OZ_UI_B64" | base64 --decode > /opt/box-server.mjs
-  # SUPERVISED, like everything else. This was a bare `node … &`, and it is the
-  # ONE process that must never stay dead: :8080 is the only way into the box —
-  # health, files, uploads, and the proxy that fronts grokui all live here — AND
-  # box-server is the orchestrator that restarts openzoo and grokui. When it
-  # dies the box does not degrade, it disappears. RunPod's edge starts serving
-  # its own 404 page and every URL for that pod is dead forever.
-  #
-  # MEASURED: a sustained parallel upload (6 workers, ~9MB/s, 494MB in) killed
-  # it outright, and nothing restarted it. openzoo and grokui had supervise()
-  # loops from the start; the process holding the front door did not.
+  # SUPERVISED, like everything else. :8080 is now code-server (the Agent).
+  # box-server still orchestrates openzoo/grokui when injected, but it must
+  # not steal the RunPod public port.
   #
   # supervise() is defined further down, so this runs after it — see step 5.
   OZ_SUPERVISE_BOX_SERVER=1
-  log "box-server :8080 (supervised)"
+  log "box-server will be supervised off :8080"
 fi
 
 # ---- 4. RUN FROM /opt. Do not stage the app onto the volume. ----------------
@@ -173,11 +172,39 @@ supervise() {
 # So: when OZ_UI_B64 is present, box-server is the orchestrator and owns both
 # services. Without it (a bare `docker run`), nothing else would start them and
 # this script must.
+# Public :8080 is code-server + a tiny /health door. grokui stays on :4173.
+# Password from CODE_SERVER_PASSWORD or sha256 of the subscription Bearer.
+# auth=none is forbidden: 8080 is the RunPod public port.
+node /opt/box-cline-settings.mjs
+OZ_CS_PASS=""
+if [ -f /root/.config/code-server/password ]; then
+  OZ_CS_PASS=$(cat /root/.config/code-server/password)
+fi
+if [ -z "$OZ_CS_PASS" ]; then
+  log "FATAL: no code-server password (CODE_SERVER_PASSWORD or sub key)"
+  exit 1
+fi
+export PASSWORD="$OZ_CS_PASS"
+export OZ_CODE_SERVER_UPSTREAM="${OZ_CODE_SERVER_UPSTREAM:-127.0.0.1:8081}"
+export OZ_DOOR_BIND="${OZ_DOOR_BIND:-0.0.0.0}"
+export OZ_DOOR_PORT="${OZ_DOOR_PORT:-8080}"
+supervise "code-server" 8081 \
+  /usr/local/bin/code-server \
+    --bind-addr 127.0.0.1:8081 \
+    --auth password \
+    --disable-telemetry \
+    --disable-update-check \
+    --disable-workspace-trust \
+    /workspace &
+log "code-server :8081 (password; published via :8080)"
+supervise "box-8080-door" 8080 node /opt/box-8080-door.mjs &
+log "code-server published on 0.0.0.0:8080 (password; GET /health when up)"
+
 # box-server is started HERE, not at step 3, because supervise() is defined
 # just above and a shell function cannot be called before it is defined.
 if [ "${OZ_SUPERVISE_BOX_SERVER:-0}" = "1" ]; then
-  supervise "box-server" 8080 node /opt/box-server.mjs &
-  log "box-server supervised on :8080"
+  PORT="${OZ_BOX_SERVER_PORT:-8082}" supervise "box-server" "${OZ_BOX_SERVER_PORT:-8082}" node /opt/box-server.mjs &
+  log "box-server supervised on :${OZ_BOX_SERVER_PORT:-8082} (not :8080)"
 fi
 
 if [ -z "${OZ_UI_B64:-}" ]; then

@@ -39,6 +39,15 @@ RUN apt-get update \
  && rm -f /usr/lib/python3*/EXTERNALLY-MANAGED \
  && ln -sf /usr/bin/python3 /usr/local/bin/python
 
+# code-server + Cline. Official Debian install (standalone: no systemd).
+# Cline marketplace id is saoudrizwan.claude-dev — do not guess.
+# No API key is written here. Do not ENV ANTHROPIC_API_KEY.
+RUN curl -fsSL https://code-server.dev/install.sh | sh -s -- --method=standalone --prefix=/usr/local \
+ && /usr/local/bin/code-server --version \
+ && /usr/local/bin/code-server --install-extension saoudrizwan.claude-dev \
+ && /usr/local/bin/code-server --list-extensions | grep -q '^saoudrizwan\.claude-dev' \
+ && find /root/.local/share/code-server/extensions -maxdepth 1 -type d -name 'saoudrizwan.claude-dev-*' | grep -q .
+
 # Resolve "latest" to the newest version tag (grokui-v* preferred, else v*).
 # Clone that tag. Never alpine. Never raw.githubusercontent (429).
 # Copy the WHOLE lib tree into /opt/grokui — cherry-picking grokui.mjs +
@@ -82,5 +91,10 @@ WORKDIR /workspace
 EXPOSE 8080 4173 8402
 
 COPY box-boot.sh /opt/box-boot.sh
-RUN chmod +x /opt/box-boot.sh
+COPY scripts/box-cline-settings.mjs /opt/box-cline-settings.mjs
+COPY scripts/box-8080-door.mjs /opt/box-8080-door.mjs
+RUN chmod +x /opt/box-boot.sh \
+ && test -f /usr/local/bin/code-server \
+ && test -f /opt/box-cline-settings.mjs \
+ && test -f /opt/box-8080-door.mjs
 CMD ["/opt/box-boot.sh"]

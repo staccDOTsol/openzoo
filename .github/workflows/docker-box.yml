@@ -114,28 +114,56 @@ jobs:
             || { echo 'FAIL: /opt/grokui/livestatus.js missing'; exit 1; }
           # The dev toolchain is the point of the image; without it a bot hits
           # `python3: not found` and looks broken when the box is at fault.
-          for b in bash gcc make python3 pip3 git jq rg; do
+          for b in bash gcc make python3 pip3 git jq rg code-server; do
             docker run --rm openzoo-box:smoke sh -c "command -v $b >/dev/null" \
               || { echo "FAIL: $b missing from the image"; exit 1; }
           done
+          docker run --rm openzoo-box:smoke /usr/local/bin/code-server --list-extensions \
+            | grep -q '^saoudrizwan\.claude-dev' \
+            || { echo 'FAIL: Cline saoudrizwan.claude-dev not baked'; exit 1; }
           echo "baked tag: $(docker run --rm openzoo-box:smoke cat /opt/openzoo/.oz-tag)"
 
-          docker run --rm -d --name ozbox -p 4173:4173 -p 8402:8402 openzoo-box:smoke
+          docker run --rm -d --name ozbox -p 8080:8080 -p 4173:4173 -p 8402:8402 \
+            -e CODE_SERVER_PASSWORD=smoke-test \
+            -e OPENZOO_SUB_KEY=oz_smoke_sub \
+            -e ANTHROPIC_AUTH_TOKEN=oz_smoke_sub \
+            openzoo-box:smoke
           ok=0
-          for i in $(seq 1 30); do
+          health=0
+          for i in $(seq 1 45); do
             if docker logs ozbox 2>&1 | grep -qE 'ERR_MODULE_NOT_FOUND|is a CommonJS module'; then
               echo '--- container logs ---'; docker logs ozbox 2>&1 | tail -40
               echo 'FAIL: grokui MODULE_NOT_FOUND or CJS named-export'; docker rm -f ozbox; exit 1
             fi
-            if curl -fsS -o /tmp/g.html http://127.0.0.1:4173/; then ok=1; break; fi
+            if [ "$health" != 1 ] && curl -fsS -o /tmp/health.txt http://127.0.0.1:8080/health; then
+              health=1
+            fi
+            if curl -fsS -o /tmp/g.html http://127.0.0.1:4173/; then ok=1; fi
+            if [ "$ok" = 1 ] && [ "$health" = 1 ]; then break; fi
             sleep 1
           done
-          echo '--- container logs ---'; docker logs ozbox 2>&1 | tail -20
+          echo '--- container logs ---'; docker logs ozbox 2>&1 | tail -30
+          [ "$health" = 1 ] || { echo 'FAIL: GET :8080/health never 200'; docker rm -f ozbox; exit 1; }
+          grep -qx ok /tmp/health.txt || { echo 'FAIL: /health body not ok'; docker rm -f ozbox; exit 1; }
+          docker exec ozbox sh -c 'test -z "${ANTHROPIC_API_KEY:-}"' \
+            || { echo 'FAIL: ANTHROPIC_API_KEY is set in the box'; docker rm -f ozbox; exit 1; }
+          docker exec ozbox grep -q 'x402-tokens.fly.dev/v1' /root/.cline/data/globalState.json \
+            || { echo 'FAIL: Cline anthropicBaseUrl not OpenZoo'; docker rm -f ozbox; exit 1; }
+          docker exec ozbox grep -q oz_smoke_sub /root/.cline/data/secrets.json \
+            || { echo 'FAIL: Cline apiKey not written from sub env'; docker rm -f ozbox; exit 1; }
+          docker exec ozbox grep -q ANTHROPIC_API_KEY /root/.cline/data/secrets.json \
+            && { echo 'FAIL: secrets.json contains ANTHROPIC_API_KEY'; docker rm -f ozbox; exit 1; } || true
+          docker exec ozbox grep -q 'auth: password' /root/.config/code-server/config.yaml \
+            || { echo 'FAIL: code-server auth is not password'; docker rm -f ozbox; exit 1; }
+          docker exec ozbox grep -q 'auth: none' /root/.config/code-server/config.yaml \
+            && { echo 'FAIL: code-server auth=none'; docker rm -f ozbox; exit 1; } || true
+          docker exec ozbox sh -c 'ps -eo args | grep -E "[c]ode-server" | grep -q -- "--auth password"' \
+            || { echo 'FAIL: code-server not running with --auth password'; docker rm -f ozbox; exit 1; }
           [ "$ok" = 1 ] || { echo 'FAIL: grokui never served on :4173'; docker rm -f ozbox; exit 1; }
           if head -c 3 /tmp/g.html | grep -q 429; then echo 'FAIL: served a 429'; exit 1; fi
           grep -qi '<!doctype html' /tmp/g.html \
             || { echo 'FAIL: not HTML:'; head -c 200 /tmp/g.html; docker rm -f ozbox; exit 1; }
-          echo "OK: $(wc -c < /tmp/g.html) bytes of grokui HTML"
+          echo "OK: /health 200, Cline from sub env, $(wc -c < /tmp/g.html) bytes of grokui HTML"
           docker rm -f ozbox
 
       # UNTAGGED, by digest. Everything lands in openzoo-box; `merge` creates
