@@ -12,6 +12,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     OPENZOO_MODEL=anthropic/claude-sonnet-5 \
     OPENZOO_NO_TUNNEL=1 \
     OZ_GROKUI_PORT=4173
+# Never bake ANTHROPIC_API_KEY. Cline + Claude Code must use the subscriber
+# Bearer (ANTHROPIC_AUTH_TOKEN / OPENZOO_SUB_KEY) against OpenZoo, not a
+# house Anthropic key. box-boot.sh unsets ANTHROPIC_API_KEY at runtime.
 
 # A DEV MACHINE, not a runtime. Agents in the box are asked to build, test and
 # debug real projects, and a box that lacks cc/python3 fails in ways that read
@@ -78,9 +81,29 @@ COPY scripts/assert-packed-grokui-esm.mjs /tmp/assert-packed-grokui-esm.mjs
 RUN node /tmp/assert-esm-relatives.mjs /opt/grokui/grokui.mjs
 RUN node /tmp/assert-packed-grokui-esm.mjs /opt/grokui
 
+# Cloud IDE on the RunPod public port (:8080). Pin versions — a floating
+# "latest" is how a box image silently changes under a subscriber.
+# Official install script (deb on Debian/bookworm). Never alpine.
+ARG CODE_SERVER_VERSION=4.133.0
+ARG CLINE_VERSION=4.1.11
+RUN set -eu; \
+    curl -fsSL https://code-server.dev/install.sh | sh -s -- --version "${CODE_SERVER_VERSION}"; \
+    command -v code-server >/dev/null; \
+    code-server --version | head -1 | grep -F "${CODE_SERVER_VERSION}"; \
+    mkdir -p /opt/code-server-extensions /opt/code-server-user/User; \
+    curl -fsSL -o /tmp/cline.vsix \
+      "https://open-vsx.org/api/saoudrizwan/claude-dev/${CLINE_VERSION}/file/saoudrizwan.claude-dev-${CLINE_VERSION}.vsix"; \
+    code-server --install-extension /tmp/cline.vsix --extensions-dir /opt/code-server-extensions; \
+    rm -f /tmp/cline.vsix; \
+    ls -d /opt/code-server-extensions/saoudrizwan.claude-dev-* >/dev/null
+
+COPY scripts/box-front.mjs /opt/box-front.mjs
+COPY scripts/box-cline-config.mjs /opt/box-cline-config.mjs
+COPY scripts/box-code-server-user-settings.json /opt/code-server-user/User/settings.json
+
 WORKDIR /workspace
 EXPOSE 8080 4173 8402
 
 COPY box-boot.sh /opt/box-boot.sh
-RUN chmod +x /opt/box-boot.sh
+RUN chmod +x /opt/box-boot.sh /opt/box-front.mjs /opt/box-cline-config.mjs
 CMD ["/opt/box-boot.sh"]

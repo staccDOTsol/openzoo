@@ -1,0 +1,9 @@
+{
+  "workbench.startupEditor": "none",
+  "workbench.colorTheme": "Default Dark Modern",
+  "extensions.autoCheckUpdates": false,
+  "extensions.autoUpdate": false,
+  "update.mode": "none",
+  "telemetry.telemetryLevel": "off",
+  "security.workspace.trust.enabled": false
+}
