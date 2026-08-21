@@ -75,7 +75,7 @@ test('bundle-grokui copies the entire repo lib, not a filename whitelist', () =>
   });
   assert.equal(r.status, 0, r.stderr || r.stdout);
   const dest = path.join(root, 'grokui-app', 'lib');
-  for (const f of ['grokui.mjs', 'grokui-subagents.js', 'info.js', 'hrr.js', 'spill.js', 'subscription.js', 'livestatus.js', 'podagent.mjs', 'worktree.mjs', 'package.json']) {
+  for (const f of ['grokui.mjs', 'grokui-subagents.js', 'info.js', 'hrr.js', 'spill.js', 'subscription.js', 'hosted-ide.js', 'livestatus.js', 'podagent.mjs', 'worktree.mjs', 'package.json']) {
     assert.equal(existsSync(path.join(dest, f)), true, f);
   }
   const destPkg = JSON.parse(readFileSync(path.join(dest, 'package.json'), 'utf8'));
@@ -1605,8 +1605,22 @@ test('Agent TUI is packed OCC in xterm, not a second harness or chat-fold fallba
   assert.match(appHtml, /id="agentPreviewFrame"/);
   assert.match(appHtml, /id="agentPreviewClose"/);
   assert.match(appHtml, /body\.agent-mode #agentPreview\.show/);
+  assert.match(appHtml, /body\.agent-mode\.agent-ide #agentPreview\.show/);
+  assert.match(appHtml, /body\.agent-mode\.agent-ide #agentTerm \{ display: none; \}/);
+  assert.match(appHtml, /body\.agent-mode\.agent-locked #agentTerm \{ display: none; \}/);
+  assert.match(appHtml, /@media \(max-width: 720px\), \(pointer: coarse\) and \(max-width: 920px\)/);
+  assert.match(appHtml, /position: fixed; inset: 0/);
+  assert.match(appHtml, /id="agentPreviewClose"/);
   assert.match(appHtml, /function showAgentPreview/);
   assert.match(appHtml, /function hideAgentPreview/);
+  assert.match(appHtml, /function openAgentIde/);
+  assert.match(appHtml, /function lockAgentIde/);
+  assert.match(appHtml, /function shouldKeepIdeFocus/);
+  assert.match(appHtml, /API \+ '\/api\/ide\/session'/);
+  assert.match(grokui, /idePath === '\/api\/ide\/session'/);
+  assert.match(grokui, /openStoredIdeSession/);
+  assert.match(grokui, /from '\.\/hosted-ide\.js'/);
+  assert.doesNotMatch(grokui, /pkill/);
   assert.match(appHtml, /function pullAgentPreview/);
   assert.match(appHtml, /function bouncePreviewFocus/);
   assert.match(appHtml, /function bindPreviewFocusGuard/);
