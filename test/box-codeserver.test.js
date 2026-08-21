@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
+import { createContext, runInContext } from 'node:vm';
 import { buildClineFiles, clineConfigPaths } from '../box-cline-config.mjs';
 import { injectMobileHtml, isMobileUA, mobileShellHtml, wantsMobileShell, VIEWPORT } from '../box-front.mjs';
 
@@ -91,6 +92,11 @@ test('box-front answers GET /health 200 only after code-server /healthz', async 
       res.end('{"status":"alive"}');
       return;
     }
+    if (String(req.url || '').split('?')[0] === '/login') {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end('<!doctype html><html><head></head><body><form class="login-form" method="post"><input type="password" id="password" name="password"></form></body></html>');
+      return;
+    }
     res.writeHead(200, { 'content-type': 'text/plain' });
     res.end('workbench');
   });
@@ -132,9 +138,19 @@ test('box-front answers GET /health 200 only after code-server /healthz', async 
     const proxied = await fetch(`http://127.0.0.1:${frontPort}/`);
     assert.equal(proxied.status, 200);
     assert.equal(await proxied.text(), 'workbench');
+    const login = await fetch(`http://127.0.0.1:${frontPort}/login`);
+    assert.equal(login.status, 200);
+    const loginHtml = await login.text();
+    assert.match(loginHtml, /__oz\/mobile\.js/);
+    assert.match(loginHtml, /type="password"/);
     const css = await fetch(`http://127.0.0.1:${frontPort}/__oz/mobile.css`);
     assert.equal(css.status, 200);
     assert.match(await css.text(), /part\.activitybar/);
+    const mobileJs = await fetch(`http://127.0.0.1:${frontPort}/__oz/mobile.js`);
+    assert.equal(mobileJs.status, 200);
+    const mobileSrc = await mobileJs.text();
+    assert.match(mobileSrc, /__ozEnter/);
+    assert.match(mobileSrc, /ozp=/);
     const phone = await fetch(`http://127.0.0.1:${frontPort}/`, {
       headers: { 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)' },
     });
@@ -250,6 +266,12 @@ test('mobile CSS hides workbench chrome and keeps 44px tap targets', () => {
   assert.match(js, /viewport-fit=cover/);
   assert.match(js, /oz-chrome-toggle/);
   assert.match(js, /scrollIntoView/);
+  assert.match(js, /window\.__ozEnter/);
+  assert.match(js, /ozp=/);
+  assert.match(js, /replaceState/);
+  assert.match(js, /decodeURIComponent/);
+  assert.match(js, /input\[type=["']password["']\]/);
+  assert.doesNotMatch(js, /console\.\w+\([^)]*(password|ozp|hash)/i);
   assert.match(ext, /claude-dev-ActivityBar/);
   assert.match(ext, /activityBarLocation.hide/);
 });
@@ -269,4 +291,140 @@ test('box-front injects device-width viewport and mobile shell for phones', () =
   assert.match(injected, /__oz\/mobile\.css/);
   assert.match(injected, /__oz\/mobile\.js/);
   assert.equal(injectMobileHtml(injected), injected);
+  const login = injectMobileHtml('<!doctype html><html><head></head><body><form><input type="password" name="password"></form></body></html>');
+  assert.match(login, /__oz\/mobile\.js/);
+});
+
+function loadMobileJs(opts = {}) {
+  const js = readFileSync(path.join(root, 'box-mobile.js'), 'utf8');
+  const logs = [];
+  const listeners = {};
+  const field = opts.field === undefined ? {
+    value: '',
+    type: 'password',
+    name: 'password',
+    id: 'password',
+    dispatchEvent() { return true; },
+    closest() { return form; },
+  } : opts.field;
+  const form = opts.form || {
+    submitCount: 0,
+    submit() { form.submitCount += 1; },
+    requestSubmit() { form.submitCount += 1; },
+  };
+  if (field && field.form === undefined) field.form = form;
+  const location = {
+    hash: opts.hash || '',
+    pathname: opts.pathname || '/login',
+    search: opts.search || '',
+  };
+  const replaced = [];
+  const history = {
+    state: null,
+    replaceState(_state, _title, url) {
+      replaced.push(url);
+      location.hash = '';
+    },
+  };
+  const viewportMeta = { setAttribute() {} };
+  const document = {
+    readyState: opts.readyState || 'complete',
+    body: { appendChild() {} },
+    documentElement: { classList: { toggle() { return false; } }, appendChild() {} },
+    head: { appendChild() {} },
+    activeElement: null,
+    querySelector(sel) {
+      if (sel === 'meta[name="viewport"]') return viewportMeta;
+      if (typeof sel === 'string' && /password/i.test(sel)) return field;
+      if (sel === 'form') return form;
+      return null;
+    },
+    getElementById(id) {
+      if (id === 'oz-chrome-toggle') return { id };
+      return null;
+    },
+    createElement() {
+      return { setAttribute() {}, addEventListener() {}, textContent: '' };
+    },
+    addEventListener(ev, fn) {
+      (listeners[ev] ||= []).push(fn);
+    },
+  };
+  const window = {
+    visualViewport: null,
+  };
+  const ctx = createContext({
+    window,
+    document,
+    location,
+    history,
+    navigator: {},
+    console: {
+      log: (...a) => logs.push(['log', ...a]),
+      info: (...a) => logs.push(['info', ...a]),
+      debug: (...a) => logs.push(['debug', ...a]),
+      warn: (...a) => logs.push(['warn', ...a]),
+      error: (...a) => logs.push(['error', ...a]),
+    },
+    Event: class Event {
+      constructor(type) { this.type = type; }
+    },
+  });
+  runInContext(js, ctx);
+  return {
+    window,
+    document,
+    location,
+    history,
+    field,
+    form,
+    replaced,
+    logs,
+    listeners,
+    fire(ev) { for (const fn of listeners[ev] || []) fn(); },
+  };
+}
+
+test('box-mobile.js fills #ozp= and submits login once, then strips the hash', () => {
+  const secret = 'hmac-pass%2Fvalue';
+  const page = loadMobileJs({ hash: `#ozp=${secret}` });
+  assert.equal(page.window.__ozEnter, true);
+  assert.equal(page.field.value, 'hmac-pass/value');
+  assert.equal(page.form.submitCount, 1);
+  assert.equal(page.location.hash, '');
+  assert.equal(page.replaced.length, 1);
+  assert.equal(page.replaced[0], '/login');
+  assert.equal(JSON.stringify(page.logs).includes('hmac-pass'), false);
+
+  page.fire('DOMContentLoaded');
+  assert.equal(page.form.submitCount, 1);
+
+  const reload = loadMobileJs({ hash: '', pathname: '/login' });
+  assert.equal(reload.window.__ozEnter, undefined);
+  assert.equal(reload.form.submitCount, 0);
+  assert.equal(reload.field.value, '');
+});
+
+test('box-mobile.js does not submit when login reloads without #ozp=', () => {
+  const first = loadMobileJs({ hash: '#ozp=once-only', readyState: 'loading' });
+  assert.equal(first.form.submitCount, 1);
+  first.fire('DOMContentLoaded');
+  assert.equal(first.form.submitCount, 1);
+  assert.equal(first.location.hash, '');
+
+  const again = loadMobileJs({ hash: '', readyState: 'loading' });
+  again.fire('DOMContentLoaded');
+  assert.equal(again.form.submitCount, 0);
+  assert.equal(again.window.__ozEnter, undefined);
+
+  const empty = loadMobileJs({ hash: '#ozp=' });
+  assert.equal(empty.form.submitCount, 0);
+  assert.equal(empty.window.__ozEnter, undefined);
+});
+
+test('box-boot IDE password scheme is still sha256(sub key) / OPENZOO_IDE_PASSWORD', () => {
+  assert.match(boot, /IDE_PASSWORD="\$OPENZOO_IDE_PASSWORD"/);
+  assert.match(boot, /sha256sum/);
+  assert.match(boot, /export PASSWORD="\$IDE_PASSWORD"/);
+  assert.doesNotMatch(boot, /ozp=/);
 });

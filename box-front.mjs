@@ -167,6 +167,7 @@ function proxyHttp(req, res) {
       const headers = { ...pres.headers };
       delete headers['content-length'];
       delete headers['content-encoding'];
+      delete headers['transfer-encoding'];
       headers['content-length'] = String(out.length);
       res.writeHead(pres.statusCode || 200, headers);
       res.end(out);
