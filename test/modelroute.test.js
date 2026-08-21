@@ -338,7 +338,14 @@ test('fallbackChain is cheapest-first among those that cleared, finite', () => {
 });
 
 test('resolveModel / rewriteChatModel leave openzoo/auto alone', () => {
-  const ids = ['x-ai/grok-4.6', 'deepseek/deepseek-v4-pro-0813'];
+  const ids = [
+    'x-ai/grok-4.6',
+    'deepseek/deepseek-v4-pro-0813',
+    'google/gemini-3.7-flash',
+    'inclusionai/ling-2.6-flash',
+    'meta-llama/llama-3.1-8b-instruct',
+    'mistralai/mistral-nemo',
+  ];
   assert.equal(resolveModel('openzoo/auto', ids), null);
   process.env.OPENZOO_DEFAULT_MODEL = 'x-ai/grok-4.6';
   try {
@@ -351,10 +358,28 @@ test('resolveModel / rewriteChatModel leave openzoo/auto alone', () => {
         content: `turn ${i} ${'please review this function '.repeat(20)}`,
       })),
     };
-    const out = rewriteChatModel(fat, ids);
-    assert.equal(out.auto, true);
-    assert.equal(out.tiny, false);
-    assert.equal(out.parsed.model, 'openzoo/auto');
+    const tinyLooking = {
+      model: 'openzoo/auto',
+      max_tokens: 16,
+      messages: [{ role: 'user', content: 'Is this command safe? Reply yes or no.' }],
+    };
+    const wideTinyLooking = {
+      model: 'openzoo/auto',
+      max_tokens: 16384,
+      messages: [{ role: 'user', content: 'Classify this task in one word.' }],
+    };
+    for (const body of [fat, tinyLooking, wideTinyLooking]) {
+      const out = rewriteChatModel(body, ids);
+      assert.equal(out.auto, true);
+      assert.equal(out.tiny, false);
+      assert.equal(out.to, AUTO_MODEL_ID);
+      assert.equal(out.parsed.model, 'openzoo/auto');
+      assert.equal(out.raised, false);
+      assert.equal(out.parsed.max_tokens, body.max_tokens);
+      for (const banned of ['google/gemini-3.7-flash', 'inclusionai/ling-2.6-flash', 'meta-llama/llama-3.1-8b-instruct', 'mistralai/mistral-nemo']) {
+        assert.notEqual(out.parsed.model, banned);
+      }
+    }
   } finally {
     delete process.env.OPENZOO_DEFAULT_MODEL;
   }
@@ -431,15 +456,15 @@ test('npm pack includes vendor/modelroute artifacts', () => {
   assert.equal(pkg.files.includes('lib'), true);
 });
 
-test('sidecar wires /route, openzoo/auto rewrite, fallback, and outcomes', () => {
+test('sidecar wires /route and passes openzoo/auto through (no local rewrite)', () => {
   const src = readFileSync(path.join(root, 'lib', 'proxy.js'), 'utf8');
   assert.match(src, /routePath === '\/route'/);
-  assert.match(src, /openzoo\/auto ->/);
+  assert.match(src, /openzoo\/auto passthrough \(no local rewrite\)/);
+  assert.doesNotMatch(src, /routeChatBody\(/);
+  assert.doesNotMatch(src, /openzoo\/auto -> \$\{autoRoute/);
+  assert.match(src, /autoRoute = null/);
   assert.match(src, /fallbackChain/);
   assert.match(src, /recordRouteOutcome/);
-  assert.match(src, /allow_free: false/);
-  assert.match(src, /bindable: true/);
-  assert.match(src, /allow_ids: ids/);
   const libPkg = JSON.parse(readFileSync(path.join(root, 'lib', 'package.json'), 'utf8'));
   assert.equal(libPkg.type, 'module');
 });
