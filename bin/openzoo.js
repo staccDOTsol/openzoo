@@ -118,6 +118,9 @@ usage:
                               and launches Grok Bot with Node TLS override (sudo required;
                               ctrl-c restores /etc/hosts).
                               --no-takeover plain launch · --no-launch config only
+  npx openzoo occ        hosted OCC HTTP API for mobile Agent (subscription Bearer).
+                         Origin the iOS app uses: https://zoo.openzoo.fun
+                         POST /occ/sessions  /messages  /files  /stop
   npx openzoo mcp        stdio MCP server (tools: zoo_ask, zoo_bind, zoo_models, zoo_wallet, zoo_contexts)
   npx openzoo unblock    restore the editor's own backend in the hosts file
   npx openzoo tunnel     public-url-only mode (everything key-gated, no keyless localhost)
@@ -149,7 +152,10 @@ env:
   OPENZOO_ENABLE_RH (0 — let DEFAULT selection fall through to the Robinhood rail;
                      OPENZOO_RAIL=robinhood forces it without this)
   OPENZOO_TUNNEL_MAX_USD (unset — NO public-url session ceiling; set to add one)  OPENZOO_TUNNEL_TOKEN (pin the api key)
-  OPENZOO_NO_TUNNEL (0 — set 1 for localhost-only, no public url)`;
+  OPENZOO_NO_TUNNEL (0 — set 1 for localhost-only, no public url)
+  OPENZOO_OCC_PORT (8410)  OPENZOO_OCC_BIND (127.0.0.1)  OPENZOO_OCC_ROOT (~/.openzoo/occ-sessions)
+  OPENZOO_OCC_BASE_URL (zoo completions door; default OPENZOO_API_BASE/v1)
+  OPENZOO_OCC_UPLOAD_MAX (8388608)`;
 
 async function main() {
   switch (cmd) {
@@ -176,6 +182,15 @@ async function main() {
     case 'mcp':
       await (await import('../lib/mcp.js')).startMcp();
       break;
+    case 'occ':
+    case 'hosted-occ': {
+      const { startHostedOcc, OCC_PUBLIC_ORIGIN } = await import('../lib/hosted-occ.js');
+      const started = await startHostedOcc();
+      console.log(`hosted OCC  ${started.url}/occ`);
+      console.log(`public door ${OCC_PUBLIC_ORIGIN}/occ  (iOS Agent)`);
+      console.log('auth        Authorization: Bearer <OpenZoo subscription key>');
+      break;
+    }
     case 'claude':
       await (await import('../lib/launch.js')).launchClaude(process.argv.slice(3));
       break;

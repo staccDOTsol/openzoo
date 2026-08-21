@@ -25,6 +25,8 @@ paid $0.002137 (9.5× cheaper than direct) · rail solana · tx 5Kd…
 
 **openzoo-claude / grokui Auto** — the grokui dmg/exe/AppImage already ships node (or Electron-as-node), `openzoo-claude`, and `node-pty` (Windows conpty included). First boot copies those packed bits into `~/.local/bin` offline. `openzoo claude` boots `:8402` if needed and execs `openzoo-claude`. Zoo env is `ANTHROPIC_BASE_URL=http://localhost:8402/v1`, `ANTHROPIC_API_KEY` unset, `ANTHROPIC_AUTH_TOKEN` from `~/.openzoo/subscription.json` or `sk-openzoo`. You do **not** need Anthropic's bun `claude` or `claude.ai/install.sh`. grokui orange Auto is this harness, not a `RUN:` text parser.
 
+**Hosted OCC (mobile Agent)** — phones cannot run packed `openzoo-claude` + node-pty. `npx openzoo occ` is the hosted door the iOS app already calls at `https://zoo.openzoo.fun` (not marketing `openzoo.fun/occ`, not fly.dev as the product URL). Every `/occ` route requires `Authorization: Bearer <OpenZoo subscription key>`. See the hosted-OCC PR for the exact iOS paths.
+
 `GET /v1/models` is the live OpenRouter catalog **after** dropping `:batch`, `$0` / missing prices, and `openzoo-*` twins. The `/model` picker (Anthropic-shaped GET) is a short list: current Opus/Sonnet/Haiku-class + a few real gateway models + `openzoo/auto`.
 
 Mac:
