@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -22,6 +22,14 @@ test('html autopreview is wired in grokui.mjs', () => {
   assert.match(grokuiSrc, /can't preview/);
   assert.match(grokuiSrc, /The harness will preview/);
   assert.match(grokuiSrc, /await previewAck\(originId, rel\)/);
+  assert.match(grokuiSrc, /id="agentPreview"/);
+  assert.match(grokuiSrc, /function showAgentPreview/);
+  assert.match(grokuiSrc, /function pullAgentPreview/);
+  assert.match(grokuiSrc, /function htmlRelFromText/);
+  assert.match(grokuiSrc, /function findPlayableHtmlRel/);
+  assert.match(grokuiSrc, /body\.agent-mode #agentPreview\.show/);
+  assert.match(grokuiSrc, /allow-scripts allow-same-origin allow-pointer-lock allow-forms/);
+  assert.match(grokuiSrc, /\/threads\\\/\(\[\^\/\]\+\)\\\/preview/);
   assert.doesNotMatch(grokuiSrc, /Workspace server is still starting — try again in a second/);
   // A second `const chatHeader` in the same <script> is a SyntaxError and
   // kills the whole UI — including the preview iframe we just added.
@@ -97,4 +105,54 @@ test('WRITE of html acks a live localhost URL that serves the file', async () =>
   assert.doesNotMatch(r.txt, /Preview:/);
   assert.match(r.edited, /Preview: http:\/\/localhost:\d+\//);
   assert.match(r.html2, /fries vs birds/);
+});
+
+test('htmlRelFromText and findPlayableHtmlRel see OCC writes and existing index.html', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'oz-agent-html-'));
+  mkdirSync(path.join(dir, 'tetris-game'), { recursive: true });
+  writeFileSync(path.join(dir, 'tetris-game', 'index.html'), '<!doctype html><title>t</title>');
+  const script = path.join(dir, 'run.mjs');
+  const uiPort = 19100 + Math.floor(Math.random() * 500);
+  writeFileSync(script, `
+    process.env.OZ_WORKSPACE_DIR = ${JSON.stringify(dir)};
+    process.env.OZ_GROKUI_PORT = ${JSON.stringify(String(uiPort))};
+    process.env.OZ_AGENT_PORTS = '0';
+    const path = await import('node:path');
+    const { writeFileSync } = await import('node:fs');
+    const { htmlRelFromText, findPlayableHtmlRel, newThread } = await import(${JSON.stringify(path.join(root, 'lib/grokui.mjs'))});
+    const dir = ${JSON.stringify(dir)};
+    const t = newThread('AgentPreview');
+    t.dir = dir;
+    const nested = findPlayableHtmlRel(t.id);
+    writeFileSync(path.join(dir, 'index.html'), '<!doctype html><title>root</title>');
+    const rootIdx = findPlayableHtmlRel(t.id);
+    const fromWrite = htmlRelFromText('File written: ' + path.join(dir, 'tetris-game', 'index.html'), t.id);
+    const missing = htmlRelFromText('Wrote missing.html (120 bytes) to ' + dir, t.id);
+    writeFileSync(path.join(dir, 'play.html'), '<!doctype html>');
+    const updated = htmlRelFromText('File updated: ' + path.join(dir, 'play.html'), t.id);
+    const ansi = htmlRelFromText('\\x1b[32mFile written: ' + path.join(dir, 'index.html') + '\\x1b[0m', t.id);
+    console.log(JSON.stringify({ nested, rootIdx, fromWrite, missing, updated, ansi }));
+    process.exit(0);
+  `);
+  const out = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [script], { cwd: root, env: { ...process.env, OZ_AGENT_PORTS: '0' } });
+    let buf = '';
+    child.stdout.on('data', (d) => { buf += d; });
+    child.stderr.on('data', (d) => { buf += d; });
+    const t = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('preview rel timed out: ' + buf)); }, 15000);
+    child.on('exit', (code) => {
+      clearTimeout(t);
+      if (code !== 0) reject(new Error('preview rel exited ' + code + ': ' + buf));
+      else resolve(buf);
+    });
+  });
+  const line = out.trim().split('\n').filter((l) => l.startsWith('{')).pop();
+  assert.ok(line, 'child printed a JSON result');
+  const r = JSON.parse(line);
+  assert.equal(r.nested, 'tetris-game/index.html');
+  assert.equal(r.rootIdx, 'index.html');
+  assert.equal(r.fromWrite, 'tetris-game/index.html');
+  assert.equal(r.missing, '');
+  assert.equal(r.updated, 'play.html');
+  assert.equal(r.ansi, 'index.html');
 });

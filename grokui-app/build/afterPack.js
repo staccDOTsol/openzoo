@@ -145,6 +145,65 @@ function getOpenzooSidecarOverlay(repoRoot) {
 
 const OPENZOO_SIDECAR_OVERLAY = getOpenzooSidecarOverlay();
 
+// Unpublished OCC Desktop patches. npm openzoo-claude@2.0.2 does not ship
+// goal.mjs or the AskUser/poison/fetchRetry agent-loop. Overlay repo-owned
+// files onto packed node_modules/openzoo-claude (and extraResources).
+const OPENZOO_CLAUDE_OVERLAY = [
+  'v2/src/core/agent-loop.mjs',
+  'v2/src/core/goal.mjs',
+  'v2/src/ui/commands.mjs',
+  'v2/src/ui/app.mjs',
+  'v2/src/ui/repl.mjs',
+];
+
+function occOverlayRoot(repoRoot) {
+  return path.join(repoRoot || path.join(__dirname, '..', '..'), 'vendor', 'openzoo-claude');
+}
+
+function overlayRepoOpenzooClaude(claudeDir, projectDir) {
+  if (!claudeDir || !fs.existsSync(claudeDir)) {
+    throw new Error('[afterPack] packed openzoo-claude missing — cannot overlay OCC patches');
+  }
+  const repo = path.join(projectDir, '..');
+  const srcRoot = occOverlayRoot(repo);
+  for (const rel of OPENZOO_CLAUDE_OVERLAY) {
+    const from = path.join(srcRoot, rel);
+    if (!fs.existsSync(from)) {
+      throw new Error(`[afterPack] OCC overlay source missing: ${from}`);
+    }
+    const out = path.join(claudeDir, rel);
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.copyFileSync(from, out);
+  }
+  assertOverlaidOpenzooClaude(claudeDir, repo);
+}
+
+function assertOverlaidOpenzooClaude(claudeDir, repoRoot) {
+  if (!claudeDir || !fs.existsSync(claudeDir)) {
+    throw new Error('[afterPack] packed openzoo-claude missing — cannot assert OCC overlay');
+  }
+  const srcRoot = occOverlayRoot(repoRoot);
+  const mismatches = [];
+  for (const rel of OPENZOO_CLAUDE_OVERLAY) {
+    const from = path.join(srcRoot, rel);
+    const got = path.join(claudeDir, rel);
+    if (!fs.existsSync(from)) {
+      mismatches.push(`${rel}: missing in vendor/openzoo-claude`);
+      continue;
+    }
+    if (!fs.existsSync(got)) {
+      mismatches.push(`${rel}: missing in packed openzoo-claude`);
+      continue;
+    }
+    const a = fs.readFileSync(from);
+    const b = fs.readFileSync(got);
+    if (!a.equals(b)) mismatches.push(`${rel}: packed bytes differ from overlay`);
+  }
+  if (mismatches.length) {
+    throw new Error(`[afterPack] packed openzoo-claude is not the overlaid tree:\n${mismatches.join('\n')}`);
+  }
+}
+
 function overlayRepoOpenzooSidecar(stagedNM, projectDir) {
   const repo = path.join(projectDir, '..');
   const dest = path.join(stagedNM, 'openzoo');
@@ -492,15 +551,36 @@ function assertPackedOpenzooClaude(appDir) {
     throw new Error(`[afterPack] packed openzoo-claude missing bin ${entry}`);
   }
   // Published openzoo-claude@2.0.2 ships slashes in v2/src/ui/commands.mjs
-  // (including '/model'). It does not ship v2/src/goal.mjs.
-  for (const rel of ['v2/src/ui/commands.mjs']) {
+  // (including '/model'). It does not ship v2/src/goal.mjs or the Desktop
+  // agent-loop patches — those come from vendor/openzoo-claude overlay.
+  for (const rel of ['v2/src/ui/commands.mjs', ...OPENZOO_CLAUDE_OVERLAY]) {
     if (!fs.existsSync(path.join(dir, rel))) {
-      throw new Error(`[afterPack] packed openzoo-claude missing ${rel} — OCC slashes must ship in the packed tree`);
+      throw new Error(`[afterPack] packed openzoo-claude missing ${rel} — OCC overlay must ship in the packed tree`);
     }
   }
   const commands = fs.readFileSync(path.join(dir, 'v2', 'src', 'ui', 'commands.mjs'), 'utf8');
   if (!commands.includes("'/model'")) {
     throw new Error("[afterPack] packed openzoo-claude v2/src/ui/commands.mjs has no '/model' slash");
+  }
+  if (!commands.includes("'/goal'")) {
+    throw new Error("[afterPack] packed openzoo-claude v2/src/ui/commands.mjs has no '/goal' slash");
+  }
+  const loop = fs.readFileSync(path.join(dir, 'v2', 'src', 'core', 'agent-loop.mjs'), 'utf8');
+  if (!loop.includes('fetchRetry') || !loop.includes('isGoalActive') || !loop.includes('sanitizePoisonedHistory')) {
+    throw new Error('[afterPack] packed openzoo-claude agent-loop.mjs missing fetchRetry / AskUser-guard / sanitize');
+  }
+  if (!loop.includes('AskUser') || !loop.includes('isGoalActive')) {
+    throw new Error('[afterPack] packed openzoo-claude agent-loop.mjs missing AskUser goal guard');
+  }
+  const goal = fs.readFileSync(path.join(dir, 'v2', 'src', 'core', 'goal.mjs'), 'utf8');
+  if (!goal.includes('export function isGoalActive')) {
+    throw new Error('[afterPack] packed openzoo-claude goal.mjs missing isGoalActive');
+  }
+  for (const rel of OPENZOO_CLAUDE_OVERLAY) {
+    const check = spawnSync(process.execPath, ['--check', path.join(dir, rel)], { encoding: 'utf8' });
+    if (check.status !== 0) {
+      throw new Error(`[afterPack] packed openzoo-claude cannot parse ${rel}:\n${(check.stderr || check.stdout || '').trim()}`);
+    }
   }
   const entryAbs = entry ? path.join(dir, entry) : path.join(dir, 'v2', 'src', 'index.mjs');
   if (fs.existsSync(entryAbs)) {
@@ -622,10 +702,12 @@ async function rebuildNodePty(appDir, context) {
 async function ensurePackedPtyAndClaude(context) {
   const appDir = packedAppDir(context);
   copyProjectRuntime(appDir, context.packager.projectDir);
+  overlayRepoOpenzooClaude(path.join(appDir, 'node_modules', 'openzoo-claude'), context.packager.projectDir);
   if (!findNativeAddons(path.join(appDir, 'node_modules', 'node-pty')).length) {
     await rebuildNodePty(appDir, context);
   }
   copyRuntimeToExtraResources(context, appDir);
+  overlayRepoOpenzooClaude(path.join(extraResourcesDir(context), 'openzoo-claude'), context.packager.projectDir);
   assertPackedOpenzooClaude(appDir);
   assertPackedNodePty(appDir, context);
 }
@@ -708,6 +790,10 @@ exports.findNativeAddons = findNativeAddons;
 exports.hasConptyBackend = hasConptyBackend;
 exports.extraResourcesDir = extraResourcesDir;
 exports.ensurePackedPtyAndClaude = ensurePackedPtyAndClaude;
+exports.OPENZOO_CLAUDE_OVERLAY = OPENZOO_CLAUDE_OVERLAY;
+exports.overlayRepoOpenzooClaude = overlayRepoOpenzooClaude;
+exports.assertOverlaidOpenzooClaude = assertOverlaidOpenzooClaude;
+exports.occOverlayRoot = occOverlayRoot;
 
 exports.default = async function afterPack(context) {
   const appDir = packedAppDir(context);

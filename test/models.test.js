@@ -172,7 +172,7 @@ test('isTinyClassify matches the 16-token auto-mode shape', () => {
   assert.equal(isTinyClassify({ ...CLASSIFY, max_tokens: 0 }), false);
 });
 
-test('3c-shaped grok nubs are tiny (max_tokens 128 or 2000 on a 1-2 message body)', () => {
+test('3c-shaped grok nubs are tiny only at classify max_tokens (128), not a named 2000-token chat', () => {
   const nub128 = { model: 'x-ai/grok-4.6', max_tokens: 128, messages: CLASSIFY.messages };
   const nub2000 = { model: 'x-ai/grok-4.6', max_tokens: 2000, messages: CLASSIFY.messages };
   const nubTwo = {
@@ -184,15 +184,15 @@ test('3c-shaped grok nubs are tiny (max_tokens 128 or 2000 on a 1-2 message body
     ],
   };
   assert.equal(isTinyClassify(nub128), true);
-  assert.equal(isTinyClassify(nub2000), true);
-  assert.equal(isTinyClassify(nubTwo), true);
-  for (const body of [nub128, nub2000, nubTwo]) {
+  assert.equal(isTinyClassify(nub2000), false);
+  assert.equal(isTinyClassify(nubTwo), false);
+  const tiny = rewriteChatModel(nub128, CATALOG);
+  assert.equal(tiny.tiny, true);
+  assert.equal(tiny.parsed.model, 'google/gemini-3.7-flash');
+  for (const body of [nub2000, nubTwo]) {
     const out = rewriteChatModel(body, CATALOG);
-    assert.equal(out.tiny, true, `expected tiny for max_tokens=${body.max_tokens}`);
-    assert.equal(out.raised, false);
-    assert.equal(out.parsed.max_tokens, body.max_tokens);
-    assert.equal(out.parsed.model, 'google/gemini-3.7-flash');
-    assert.equal(REASONING_MODEL_RE.test(out.parsed.model), false);
+    assert.equal(out.tiny, false, `named grok max_tokens=${body.max_tokens} must not swap`);
+    assert.equal(out.parsed.model, 'x-ai/grok-4.6');
   }
 });
 

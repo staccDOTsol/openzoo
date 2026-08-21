@@ -9,7 +9,7 @@ const {
   receiptUsedCogs, receiptDirectUsd, meterRaceReceipt, capRaceByCredit, doorAcceptsRace,
   resetGatewayRaceProbe, RACE_NO_CREDIT, recutRaceByHud, sessionDollarX,
   RACE_HUD_TARGET, receiptSettledBilled, pairActualBilled, isQuoteReserveBilled,
-  SAVINGS_SHARE,
+  SAVINGS_SHARE, userChargedUsd, hasX402Charge, responseLooksFailed,
 } = await import('../lib/racesettle.js');
 
 function sleep(ms) {
@@ -445,17 +445,17 @@ test('fetch-failed racer is retried once and can still fill X', async () => {
   assert.deepEqual(classified.slice().sort(), ['flaky', 'good']);
 });
 
-test('race_unused is not a user refund; HUD cogs stay house cost', () => {
+test('race_unused is not a user refund; failures cost the user at house cogs', () => {
   const receipt = { billedUsd: 1.44, cogsUsd: 2.20, race_unused: { billedUsd: 0.50, cogsUsd: 0.90 } };
   assert.equal(receiptUsedCogs(receipt), 2.20);
   const meter = meterRaceReceipt(receipt);
-  assert.equal(meter.spentUsd, 1.44);
+  assert.equal(meter.spentUsd, 2.20);
   assert.equal(meter.cogsUsd, 2.20);
-  assert.ok(meter.cogsUsd > meter.spentUsd, 'house losing → HUD embers');
+  assert.ok(meter.spentUsd >= meter.cogsUsd, 'user pays launched/failed entrants — no house-eaten gap');
   // Already-net receipt: billed is what they paid; do not invent a grant-back
   assert.equal(receiptUsedCogs({ billedUsd: 1.00, cogsUsd: 0.70 }), 0.70);
   const failed = { billedUsd: 0.40, cogsUsd: 0.40, race_unused: { billedUsd: 0.40, refundUsd: 0.40, cogsUsd: 0.40 } };
-  const failedMeter = meterRaceReceipt(failed);
+  const failedMeter = meterRaceReceipt(failed, undefined, { failed: true });
   assert.equal(failedMeter.spentUsd, 0.40);
   assert.equal(failedMeter.cogsUsd, 0.40);
   // No 3× fallback: billed is the OpenRouter price, not billed/3
@@ -467,6 +467,24 @@ test('race_unused is not a user refund; HUD cogs stay house cost', () => {
   assert.equal(atCost.spentUsd, 0.90);
   assert.equal(atCost.cogsUsd, 0.90);
   assert.equal(atCost.directUsd, 0.90);
+});
+
+test('failed call bills max(billed, cogs, usage.cost); success spill stays', () => {
+  assert.equal(userChargedUsd({ billedUsd: 0.002, cogsUsd: 0.01 }, undefined, { failed: true }), 0.01);
+  assert.equal(userChargedUsd({ billedUsd: 0.002, cogsUsd: 0.01 }, { cost: 0.015 }, { failed: true }), 0.015);
+  assert.equal(
+    userChargedUsd({ billedUsd: 0.02, cogsUsd: 0.01, directUsd: 0.012 }, { cost: 0.02 }, { failed: true }),
+    0.012,
+  );
+  assert.equal(
+    userChargedUsd({ billedUsd: 0.02, cogsUsd: 0.01, directUsd: 0.005 }, { cost: 0.02 }, { failed: true }),
+    0.02,
+  );
+  assert.equal(userChargedUsd({ billedUsd: 0.01, cogsUsd: 0.007 }, undefined, { failed: false }), 0.01);
+  assert.equal(hasX402Charge({ cogsUsd: 0.01, billedUsd: 0.002 }), true);
+  assert.equal(hasX402Charge({ error: 'no user query' }), false);
+  assert.equal(responseLooksFailed(400, { error: { message: 'no user query' } }), true);
+  assert.equal(responseLooksFailed(200, { object: 'chat.completion' }), false);
 });
 
 // MEASURED 2026-08-19: quote reserved 32,000 output tokens at $0.9858;
