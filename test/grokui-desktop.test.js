@@ -403,10 +403,12 @@ test('selecting text copies it and toasts copied', () => {
   assert.doesNotMatch(grokui, /window\.alert\s*\(/);
 });
 
-test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
+test('Agent mode is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.match(grokui, /from '\.\/claudecode\.js'/);
   assert.match(grokui, /async function runAutoClaudeTurn/);
-  assert.match(grokui, /t\.runMode === 'auto'/);
+  assert.match(grokui, /function isAgentMode/);
+  assert.match(grokui, /function normalizeRunMode/);
+  assert.match(fnBody(grokui, 'runTurn'), /isAgentMode\(t\)/);
   assert.match(grokui, /usedClaude = true/);
   assert.match(grokui, /runClaudeCode\(/);
   assert.match(grokui, /function runClaudeCodeBounded/);
@@ -419,8 +421,13 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.match(claudeSrc, /export function waitIdle/);
   assert.match(claudeSrc, /WAIT_IDLE_HARD_MS = 90_000/);
   assert.match(claudeSrc, /spinner\/think|think \/ spinner/);
-  assert.match(claudeSrc, /const tryEarly =/);
+  assert.match(claudeSrc, /Idle prompt \+ visible text is NOT/);
+  assert.match(fnBody(claudeSrc, 'waitIdle'), /tryDone/);
+  assert.doesNotMatch(fnBody(claudeSrc, 'waitIdle'), /sessionVisibleText\(sess\) && \(sessionIdle/);
   assert.match(claudeSrc, /eventKeepsAlive/);
+  assert.match(claudeSrc, /stayLive/);
+  assert.match(claudeSrc, /hasLiveClaudeSession/);
+  assert.match(claudeSrc, /TOOL_RUNNING_LINE|isToolRunningLine/);
   assert.match(fnBody(grokui, 'runTurn'), /Promise\.race\(/);
   assert.match(fnBody(grokui, 'runTurn'), /ENSURE_HARNESS_SEND_MS/);
   assert.match(grokui, /ENSURE_HARNESS_SEND_MS = 2500/);
@@ -463,12 +470,22 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   assert.match(claude, /const pin = claudeModelArg\(model\)/);
   assert.doesNotMatch(claude, /if \(model\) args\.push\('--model', String\(model\)\)/);
   assert.match(grokui, /function isGrokuiOwnedSlash/);
+  assert.match(grokui, /id="modeChat"/);
+  assert.match(grokui, /id="modeAgent"/);
+  assert.match(grokui, />Agent</);
+  assert.doesNotMatch(grokui, /id="modeAgent"[^>]*>\s*auto/i);
+  assert.match(grokui, /\/mode\\s\+\(chat\|agent\|auto\|ask\)/);
   assert.match(grokui, /CLAUDE_SLASH_IN_AUTO/);
+  assert.match(grokui, /\['agents', 'tasks', 'context', 'model', 'goal'\]/);
+  assert.match(claude, /GROKUI_RESERVED_SLASH = Object\.freeze\(\['mode', 'tier', 'help', 'dir'\]\)/);
+  assert.doesNotMatch(claude, /GROKUI_RESERVED_SLASH = Object\.freeze\(\[[^\]]*goal/);
   assert.match(grokui, /closeClaudeSession/);
   assert.match(autoFn, /sessionKey: t\.id/);
-  assert.match(autoFn, /isClaudeFallbackReply\(finalText\)/);
+  assert.match(autoFn, /PTY_PENDING|isAutoPtyPending/);
+  assert.match(autoFn, /stayLive: true/);
   assert.match(autoFn, /return finalText;/);
-  assert.match(autoFn, /result\.missing/);
+  assert.match(autoFn, /result\.missing|result\.ptyPending/);
+  assert.doesNotMatch(autoFn, /\(no response\)/);
   assert.match(autoFn, /isClaudeSubagentTool/);
   assert.match(autoFn, /adoptClaudeSubagent/);
   assert.match(autoFn, /claudeSubagentHopText/);
@@ -481,13 +498,13 @@ test('auto is Claude Code via OpenZoo, not the RUN: text harness', () => {
   {
     const run = fnBody(grokui, 'runTurn');
     const waitAt = run.indexOf('waitForSidecarSession');
-    const autoAt = run.indexOf("if (t.runMode === 'auto')");
+    const autoAt = run.indexOf('if (isAgentMode(t))');
     assert.ok(waitAt >= 0, 'runTurn waits for :8402');
-    assert.ok(autoAt < 0 || waitAt < autoAt, 'Ask as well as Auto waits for :8402');
+    assert.ok(autoAt < 0 || waitAt < autoAt, 'Chat as well as Agent waits for :8402');
   }
   assert.match(grokui, /function autoClaudeTurnProducedVisible/);
   assert.match(fnBody(grokui, 'runTurn'), /usedClaude = false/);
-  assert.match(fnBody(grokui, 'runTurn'), /autoClaudeTurnProducedVisible/);
+  assert.match(fnBody(grokui, 'runTurn'), /isAutoPtyPending/);
   assert.doesNotMatch(fnBody(grokui, 'runTurn'), /if \(threadHasVisibleBotReply\(t\)\)/);
 });
 
@@ -1202,10 +1219,14 @@ test('canvas folds reasoning behind a collapsed thinking row, not the Auto chip'
   assert.match(appHtml, /liveThinkOpen/);
   assert.match(appHtml, /ev\.type === 'think'/);
   assert.match(appHtml, /body\.textContent = liveThinkOpen \? text : ''/);
-  assert.match(appHtml, /Not the Auto run-mode chip/);
+  assert.match(appHtml, /Not the Agent run-mode chip/);
   assert.doesNotMatch(appHtml, /class="thinkchip modebtn/);
-  assert.doesNotMatch(appHtml, /id="modeAuto".*thinkfold/);
-  // Live Auto: thinking… chip stays visible even before the first token.
+  assert.doesNotMatch(appHtml, /id="modeAgent".*thinkfold/);
+  assert.match(appHtml, />Chat</);
+  assert.match(appHtml, />Agent</);
+  assert.doesNotMatch(appHtml, /id="modeAgent"[^>]*>auto</i);
+  assert.doesNotMatch(appHtml, /id="modeAgent"[^>]*>Auto</);
+  // Live Agent: thinking… chip stays visible even before the first token.
   assert.match(appHtml, /fold\.hidden = false/);
   assert.match(appHtml, /function foldBodyText/);
   assert.match(appHtml, /ev\.type === 'tool'/);
@@ -1372,7 +1393,7 @@ test('user turns persist to the thread store before the model call', () => {
   const thinkAt = run.indexOf("t.status = 'thinking'");
   assert.ok(persistAt >= 0 && thinkAt > persistAt, 'persist before thinking / model await');
   assert.doesNotMatch(run, /t\.history\.push\(images && images\.length \? \{ who: 'user'/);
-  const autoAt = run.indexOf('Orange Auto is interactive');
+  const autoAt = run.indexOf('openzoo claude');
   assert.ok(autoAt >= 0);
   const autoSlice = run.slice(autoAt);
   const claudeAt = autoSlice.indexOf('runAutoClaudeTurn');
@@ -1383,13 +1404,15 @@ test('user turns persist to the thread store before the model call', () => {
   assert.match(grokui, /function isClaudeFallbackReply/);
   assert.match(fnBody(grokui, 'isClaudeFallbackReply'), /\(no response\)/);
   assert.match(fnBody(grokui, 'isClaudeFallbackReply'), /upstream HTTP \\d\+/);
-  assert.match(run, /isClaudeFallbackReply\(lastReply\)|autoClaudeTurnProducedVisible/);
-  assert.match(run, /popClaudeFallbackBot\(t\)/);
-  assert.match(run, /claudeFallback = true/);
+  assert.match(fnBody(grokui, 'isClaudeFallbackReply'), /Auto is starting/);
+  assert.match(run, /isAutoPtyPending/);
+  assert.match(run, /usedClaude = true/);
+  assert.doesNotMatch(run, /claudeFallback = true/);
+  assert.match(run, /hasLiveClaudeSession/);
   assert.match(run, /!claudeFallback && shouldKeepAuto/);
   assert.match(grokui, /function threadHasVisibleBotReply/);
   assert.match(grokui, /function autoClaudeTurnProducedVisible/);
-  assert.match(run, /autoClaudeTurnProducedVisible/);
+  assert.match(run, /isAutoPtyPending/);
   assert.doesNotMatch(run, /if \(threadHasVisibleBotReply\(t\)\)/);
   const driveStart = grokui.indexOf("req.url === '/drive'");
   const driveEnd = grokui.indexOf('res.writeHead(200, { \'content-type\': \'text/html\' })', driveStart);
