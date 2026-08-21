@@ -21,6 +21,15 @@ const KEYS_FILE = process.env.CLINE_CONFIG_KEYS
   || '/opt/code-server/cline-config-keys.json';
 const NOW = new Date().toISOString();
 
+// Cline's Anthropic SDK posts `{baseUrl}/v1/messages`. The OpenZoo gateway
+// only serves POST /v1/messages, so a /v1 suffix becomes /v1/v1/messages.
+function anthropicOrigin(url) {
+  const stripped = String(url || '').replace(/\/+$/, '').replace(/\/v1$/i, '');
+  return stripped || 'https://x402-tokens.fly.dev';
+}
+
+const ANTHROPIC_ORIGIN = anthropicOrigin(GATEWAY);
+
 function subKey(env = process.env) {
   for (const name of ['OPENZOO_SUB_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENZOO_SUBSCRIPTION_KEY']) {
     const v = String(env[name] || '').trim();
@@ -48,11 +57,12 @@ function loadDiscoveredKeys() {
   return { id: 'saoudrizwan.claude-dev', version: null, configurationKeys: [] };
 }
 
-function applyDiscoveredSettings(settings, keys, token) {
+function applyDiscoveredSettings(settings, keys, token, { origin = ANTHROPIC_ORIGIN, openaiBase = GATEWAY } = {}) {
   for (const key of keys) {
     if (typeof key !== 'string') continue;
     if (/apiProvider/i.test(key)) settings[key] = 'anthropic';
-    else if (/anthropicBaseUrl/i.test(key) || /(^|\.)baseUrl$/i.test(key)) settings[key] = GATEWAY;
+    else if (/openAiBaseUrl/i.test(key)) settings[key] = openaiBase;
+    else if (/anthropicBaseUrl/i.test(key) || /(^|\.)baseUrl$/i.test(key)) settings[key] = origin;
     else if (/(^|\.)apiKey$/i.test(key) && token) settings[key] = token;
   }
   return settings;
@@ -71,11 +81,12 @@ export function clineConfigPaths(env = process.env, home = HOME) {
 }
 
 export function buildClineFiles({ token, gateway = GATEWAY, discovered = loadDiscoveredKeys(), existing = {} } = {}) {
+  const origin = anthropicOrigin(gateway);
   const globalState = {
     ...(existing.globalState && typeof existing.globalState === 'object' ? existing.globalState : {}),
     planModeApiProvider: 'anthropic',
     actModeApiProvider: 'anthropic',
-    anthropicBaseUrl: gateway,
+    anthropicBaseUrl: origin,
     welcomeViewCompleted: true,
     isNewUser: false,
   };
@@ -95,7 +106,7 @@ export function buildClineFiles({ token, gateway = GATEWAY, discovered = loadDis
         settings: {
           provider: 'anthropic',
           protocol: 'anthropic',
-          baseUrl: gateway,
+          baseUrl: origin,
           ...(token ? { apiKey: token } : {}),
           ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
         },
@@ -123,7 +134,7 @@ export function buildClineFiles({ token, gateway = GATEWAY, discovered = loadDis
     'extensions.autoCheckUpdates': false,
     'extensions.autoUpdate': false,
   };
-  applyDiscoveredSettings(userSettings, discovered.configurationKeys || [], token);
+  applyDiscoveredSettings(userSettings, discovered.configurationKeys || [], token, { origin, openaiBase: gateway });
 
   return { globalState, secrets, providers, userSettings, discovered };
 }
