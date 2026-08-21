@@ -24,8 +24,8 @@ const preload = readFileSync(path.join(root, 'grokui-app', 'preload.js'), 'utf8'
 const appPkg = require('../grokui-app/package.json');
 const ozPkg = require('../package.json');
 
-test('grokui app version is 1.6.9 so the next tag sorts above 1.5.99', () => {
-  assert.equal(appPkg.version, '1.6.9');
+test('grokui app version is 1.6.12 so the next tag sorts above 1.5.99', () => {
+  assert.equal(appPkg.version, '1.6.12');
   const harness = readFileSync(path.join(root, 'lib', 'harness-install.js'), 'utf8');
   assert.match(harness, /OPENZOO_CLAUDE_SPEC/);
   assert.match(harness, /ELECTRON_RUN_AS_NODE/);
@@ -124,6 +124,7 @@ test('header always ships the spend dials and wallet', () => {
   assert.match(grokui, /id="raceSel"/);
   assert.match(grokui, /id="walletBtn"/);
   assert.match(grokui, /id="headerDials"/);
+  assert.match(grokui, /id="paneActions"/);
   assert.doesNotMatch(grokui, /#modeToggle \{ margin-left: auto/);
 });
 
@@ -318,8 +319,11 @@ test('copy/paste: Edit menu roles, Electron clipboard, selectable addresses', ()
   assert.match(main, /role: 'cut'/);
   assert.match(main, /role: 'selectAll'/);
   assert.match(main, /clipboard\.writeText/);
+  assert.match(main, /clipboard\.readText/);
   assert.match(preload, /copyText:/);
+  assert.match(preload, /readText:/);
   assert.match(grokui, /electronAPI\.copyText/);
+  assert.match(grokui, /electronAPI\.readText/);
   assert.match(grokui, /user-select: all/);
   assert.match(grokui, /local burner on this machine/);
 });
@@ -405,6 +409,46 @@ test('selecting text copies it and toasts copied', () => {
   assert.match(grokui, /el\.type === 'password'/);
   assert.match(grokui, /restoreSelection/);
   assert.doesNotMatch(grokui, /window\.alert\s*\(/);
+});
+
+test('Desktop pane actions bar: Copy / Paste / Dir / Stop in #chatHeader', () => {
+  const appHtml = grokui.slice(grokui.indexOf('const APP_HTML'), grokui.indexOf('const server = http.createServer'));
+  assert.match(appHtml, /id="paneActions"/);
+  assert.match(appHtml, /data-component="pane-actions"/);
+  assert.match(appHtml, /id="actCopy"/);
+  assert.match(appHtml, /id="actPaste"/);
+  assert.match(appHtml, /id="dirPickBtn"/);
+  assert.match(appHtml, /id="actStop"/);
+  assert.match(appHtml, /function copyFromBar/);
+  assert.match(appHtml, /function pasteFromBar/);
+  assert.match(appHtml, /function insertIntoMessage/);
+  assert.match(appHtml, /function readClipboardText/);
+  assert.match(appHtml, /function stopAgent/);
+  assert.match(appHtml, /function agentTermSelection/);
+  assert.match(appHtml, /agentTerm\.getSelection/);
+  assert.match(appHtml, /insertIntoMessage\(text\)/);
+  assert.match(appHtml, /electronAPI\.readText/);
+  assert.match(appHtml, /electronAPI\.pickDirectory/);
+  assert.match(appHtml, /echoSlash\('\/dir ' \+ dir\)/);
+  assert.match(appHtml, /body: String\.fromCharCode\(27\)/);
+  assert.match(appHtml, /body: task \+ String\.fromCharCode\(13\)/);
+  assert.match(appHtml, /body\.agent-mode #actStop/);
+  assert.match(appHtml, /#paneActions \{ display: flex;/);
+  assert.match(appHtml, /id="goalTip"/);
+  assert.match(appHtml, /@media \(pointer: coarse\) and \(max-width: 720px\) \{ #paneActions \{ display: none; \} #goalTip \{ display: none !important; \}/);
+  // One Dir control — #88 folder picker lives in this bar, not next to cwd.
+  assert.equal((appHtml.match(/id="dirPickBtn"/g) || []).length, 1);
+  assert.doesNotMatch(appHtml, /"\\r"/);
+  assert.doesNotMatch(appHtml, /'\\r'/);
+  assert.doesNotMatch(appHtml, /\\x1b/);
+  assert.doesNotMatch(appHtml, /\\u001b/);
+  assert.doesNotMatch(appHtml, /String\.fromCharCode\(27\).*String\.fromCharCode\(13\)/);
+  // Paste prefers Message; do not POST clipboard to the PTY from the button.
+  const pasteFn = appHtml.slice(appHtml.indexOf('async function pasteFromBar'), appHtml.indexOf('function stopAgent'));
+  assert.match(pasteFn, /insertIntoMessage\(text\)/);
+  assert.doesNotMatch(pasteFn, /\/pty/);
+  assert.doesNotMatch(pasteFn, /fromCharCode\(13\)/);
+  assert.doesNotMatch(pasteFn, /fromCharCode\(27\)/);
 });
 
 test('Agent mode is Claude Code via OpenZoo, not the RUN: text harness', () => {
@@ -1497,8 +1541,8 @@ test('Agent TUI is packed OCC in xterm, not a second harness or chat-fold fallba
   assert.doesNotMatch(fnBody(grokui, 'ensureAgentPty'), /cwd mismatch|killAgentPty/);
   assert.match(grokui, /killAgentPty\(t\.id\)/);
   assert.match(grokui, /reset: true/);
-  assert.ok(grokui.includes('/threads/([^/]+)/pty'));
-  assert.ok(grokui.includes('/threads/([^/]+)/pty-size'));
+  assert.match(grokui, /\/threads\\\/\(\[\^\/\]\+\)\\\/pty/);
+  assert.match(grokui, /\/threads\\\/\(\[\^\/\]\+\)\\\/pty-size/);
   assert.match(grokui, /VENDOR_FILES/);
   assert.match(grokui, /runMode: p\?\.runMode \|\| 'agent'/);
   assert.match(grokui, /\['agents', 'tasks', 'context', 'model', 'goal'\]/);
@@ -1515,6 +1559,28 @@ test('Agent TUI is packed OCC in xterm, not a second harness or chat-fold fallba
   assert.match(appHtml, /electronAPI\.pickDirectory/);
   assert.match(appHtml, /echoSlash\('\/dir ' \+ dir\)/);
   assert.match(appHtml, /body: task \+ String\.fromCharCode\(13\)/);
+  assert.match(appHtml, /body: String\.fromCharCode\(27\)/);
+  assert.match(appHtml, /e\.preventDefault\(\); submit\(\)/);
+  assert.match(appHtml, /let syncingDials = false/);
+  assert.match(appHtml, /if \(syncingDials\) return/);
+  assert.match(appHtml, /id="goalTip"/);
+  assert.match(appHtml, /Pro tip: \/goal/);
+  assert.match(appHtml, /function syncGoalTip/);
+  assert.match(appHtml, /t\.goalSet = true/);
+  assert.match(grokui, /async function writeAgentPtyLine/);
+  assert.match(grokui, /function stripPtyLineTail/);
+  assert.match(grokui, /function ptyLooksReady/);
+  assert.match(fnBody(grokui, 'writeAgentPtyLine'), /text\.charAt\(0\) === '\//);
+  assert.match(fnBody(grokui, 'writeAgentPtyLine'), /ptyLooksReady\(sess\)/);
+  assert.match(fnBody(grokui, 'writeAgentPtyLine'), /didWriteLine/);
+  assert.doesNotMatch(fnBody(grokui, 'writeAgentPtyLine'), /fromCharCode\(27\).*fromCharCode\(13\)/);
+  assert.match(grokui, /void writeAgentPtyLine\(t\.id, String\(task\)\)/);
+  assert.match(grokui, /raw\.length === 1 && raw\[0\] === 27/);
+  assert.match(grokui, /void writeAgentPtyLine\(t\.id, raw\.toString\('utf8'\)\)/);
+  assert.match(grokui, /claudeInteractiveArgs\(\{ model: claudeModelArg\(model\), system: '' \}\)/);
+  assert.match(fnBody(grokui, 'handleSlash'), /prev !== want/);
+  assert.match(fnBody(grokui, 'handleSlash'), /await writeAgentPtyLine/);
+  assert.doesNotMatch(fnBody(grokui, 'handleSlash'), /writeAgentPty\(t\.id, line \+/);
   assert.match(appHtml, /Esc in the TUI interrupts/);
   assert.doesNotMatch(appHtml, /#agentTerm \.xterm-screen \{[^}]*height:\s*100%\s*!important/);
   assert.match(appHtml, /window\._ozFitAgent/);
@@ -1526,6 +1592,10 @@ test('Agent TUI is packed OCC in xterm, not a second harness or chat-fold fallba
   assert.match(appHtml, /\/vendor\/xterm\.css/);
   assert.doesNotMatch(appHtml, /"\\r"/);
   assert.doesNotMatch(appHtml, /'\\r'/);
+  assert.doesNotMatch(appHtml, /"\\n"/);
+  assert.doesNotMatch(appHtml, /'\\n'/);
+  assert.doesNotMatch(appHtml, /\\x1b/);
+  assert.doesNotMatch(appHtml, /\\u001b/);
   assert.ok(existsSync(path.join(root, 'lib', 'vendor', 'xterm.js')));
   assert.ok(existsSync(path.join(root, 'lib', 'vendor', 'xterm.css')));
   assert.ok(existsSync(path.join(root, 'lib', 'vendor', 'fit.js')));
