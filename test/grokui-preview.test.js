@@ -200,7 +200,7 @@ test('htmlRelFromText and findPlayableHtmlRel see OCC writes and existing index.
 test('Agent mode loads zoo.openzoo.fun/ide/session in #agentPreview; 401 locks / Pay', () => {
   assert.match(grokuiSrc, /from '\.\/hosted-ide\.js'/);
   assert.match(grokuiSrc, /openStoredIdeSession/);
-  assert.match(grokuiSrc, /POST && req\.url === '\/ide\/session'/);
+  assert.match(grokuiSrc, /req\.method === 'POST' && req\.url === '\/ide\/session'/);
   assert.match(grokuiSrc, /function openAgentIde/);
   assert.match(grokuiSrc, /function lockAgentIde/);
   assert.match(grokuiSrc, /function showAgentIde/);
@@ -232,6 +232,30 @@ test('Agent mode loads zoo.openzoo.fun/ide/session in #agentPreview; 401 locks /
   assert.match(html, /hideAgentPreview\(true\)/);
   assert.match(html, /shouldKeepIdeFocus/);
   assert.match(html, /data-kind', 'ide'/);
+});
+
+test('narrow viewport Agent IDE is full-bleed; Close X stays; desktop iframe unchanged', () => {
+  assert.match(grokuiSrc, /viewport-fit=cover/);
+  assert.match(grokuiSrc, /@media \(max-width: 720px\), \(pointer: coarse\) and \(max-width: 920px\)/);
+  assert.match(grokuiSrc, /body\.agent-mode\.agent-ide #agentPreview\.show \{[\s\S]*?position: fixed; inset: 0/);
+  assert.match(grokuiSrc, /body\.agent-mode\.agent-ide #agentPreview iframe\.html-preview \{[\s\S]*?position: absolute; inset: 0/);
+  assert.match(grokuiSrc, /transform: none; zoom: 1/);
+  assert.match(grokuiSrc, /body\.agent-mode\.agent-ide #agentPreview \.html-preview-open \{ display: none; \}/);
+  assert.match(grokuiSrc, /body\.agent-mode\.agent-ide #agentPreviewClose/);
+  assert.match(grokuiSrc, /id="agentPreviewClose"/);
+  assert.match(grokuiSrc, /hideAgentPreview\(true\)/);
+  // Wide desktop keeps the in-flow iframe (not fixed overlay).
+  assert.match(grokuiSrc, /body\.agent-mode\.agent-ide #agentPreview\.show \{ flex: 1 1 auto; min-height: 0; max-height: none; \}/);
+  const src = grokuiSrc.replace(/\r\n/g, '\n');
+  const start = src.indexOf('const APP_HTML = `');
+  const end = src.indexOf('`;\n\nconst server = http.createServer', start);
+  const literal = src.slice(start + 'const APP_HTML = '.length, end + 1);
+  const html = Function('SUBSCRIPTIONS_PAGE', 'return ' + literal)('https://example.test/subscriptions');
+  assert.match(html, /id="agentPreviewClose"/);
+  assert.match(html, /aria-label="Close preview"/);
+  assert.match(html, /position: fixed; inset: 0/);
+  assert.match(html, /100dvh/);
+  assert.match(html, /viewport-fit=cover/);
 });
 
 test('grokui POST /ide/session is 401 without a subscription key', async () => {

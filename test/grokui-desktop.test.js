@@ -1608,6 +1608,9 @@ test('Agent TUI is packed OCC in xterm, not a second harness or chat-fold fallba
   assert.match(appHtml, /body\.agent-mode\.agent-ide #agentPreview\.show/);
   assert.match(appHtml, /body\.agent-mode\.agent-ide #agentTerm \{ display: none; \}/);
   assert.match(appHtml, /body\.agent-mode\.agent-locked #agentTerm \{ display: none; \}/);
+  assert.match(appHtml, /@media \(max-width: 720px\), \(pointer: coarse\) and \(max-width: 920px\)/);
+  assert.match(appHtml, /position: fixed; inset: 0/);
+  assert.match(appHtml, /id="agentPreviewClose"/);
   assert.match(appHtml, /function showAgentPreview/);
   assert.match(appHtml, /function hideAgentPreview/);
   assert.match(appHtml, /function openAgentIde/);
