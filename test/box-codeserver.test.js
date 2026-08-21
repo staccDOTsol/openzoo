@@ -148,6 +148,22 @@ test('box-front answers GET /health 200 only after code-server /healthz', async 
   }
 });
 
+test('buildClineFiles strips /v1 from Cline Anthropic URLs when ANTHROPIC_BASE_URL ends in /v1', () => {
+  const files = buildClineFiles({
+    gateway: 'https://x402-tokens.fly.dev/v1',
+    discovered: { configurationKeys: [] },
+  });
+  assert.equal(files.globalState.anthropicBaseUrl, 'https://x402-tokens.fly.dev');
+  assert.equal(files.providers.providers.anthropic.settings.baseUrl, 'https://x402-tokens.fly.dev');
+  assert.doesNotMatch(files.globalState.anthropicBaseUrl, /\/v1$/);
+
+  const withOpenAi = buildClineFiles({
+    gateway: 'https://x402-tokens.fly.dev/v1',
+    discovered: { configurationKeys: ['claude-dev.openAiBaseUrl'] },
+  });
+  assert.equal(withOpenAi.userSettings['claude-dev.openAiBaseUrl'], 'https://x402-tokens.fly.dev/v1');
+});
+
 test('Cline preconfig uses real storage keys and the OpenZoo gateway', () => {
   const files = buildClineFiles({
     token: 'oz_sub_token',
@@ -156,10 +172,10 @@ test('Cline preconfig uses real storage keys and the OpenZoo gateway', () => {
   });
   assert.equal(files.globalState.planModeApiProvider, 'anthropic');
   assert.equal(files.globalState.actModeApiProvider, 'anthropic');
-  assert.equal(files.globalState.anthropicBaseUrl, 'https://x402-tokens.fly.dev/v1');
+  assert.equal(files.globalState.anthropicBaseUrl, 'https://x402-tokens.fly.dev');
   assert.equal(files.secrets.apiKey, 'oz_sub_token');
   assert.equal(files.providers.lastUsedProvider, 'anthropic');
-  assert.equal(files.providers.providers.anthropic.settings.baseUrl, 'https://x402-tokens.fly.dev/v1');
+  assert.equal(files.providers.providers.anthropic.settings.baseUrl, 'https://x402-tokens.fly.dev');
   assert.equal(files.providers.providers.anthropic.settings.apiKey, 'oz_sub_token');
   assert.equal(files.providers.providers.anthropic.settings.headers.Authorization, 'Bearer oz_sub_token');
   assert.doesNotMatch(JSON.stringify(files), /api\.anthropic\.com/);
@@ -173,7 +189,7 @@ test('Cline preconfig uses real storage keys and the OpenZoo gateway', () => {
     },
   });
   assert.equal(withKeys.userSettings['claude-dev.apiProvider'], 'anthropic');
-  assert.equal(withKeys.userSettings['claude-dev.anthropicBaseUrl'], 'https://x402-tokens.fly.dev/v1');
+  assert.equal(withKeys.userSettings['claude-dev.anthropicBaseUrl'], 'https://x402-tokens.fly.dev');
   assert.equal(withKeys.userSettings['claude-dev.apiKey'], 'oz_sub_token');
   assert.equal(files.userSettings['workbench.activityBar.location'], 'hidden');
   assert.equal(files.userSettings['workbench.editor.showTabs'], 'none');
@@ -206,9 +222,9 @@ test('box-cline-config writes ~/.cline/data files from env', () => {
     const globalState = JSON.parse(readFileSync(paths.globalState, 'utf8'));
     const secrets = JSON.parse(readFileSync(paths.secrets, 'utf8'));
     const providers = JSON.parse(readFileSync(paths.providers, 'utf8'));
-    assert.equal(globalState.anthropicBaseUrl, 'https://x402-tokens.fly.dev/v1');
+    assert.equal(globalState.anthropicBaseUrl, 'https://x402-tokens.fly.dev');
     assert.equal(secrets.apiKey, 'oz_from_env');
-    assert.equal(providers.providers.anthropic.settings.baseUrl, 'https://x402-tokens.fly.dev/v1');
+    assert.equal(providers.providers.anthropic.settings.baseUrl, 'https://x402-tokens.fly.dev');
     const settings = JSON.parse(readFileSync(paths.userSettings, 'utf8'));
     assert.equal(settings['workbench.activityBar.location'], 'hidden');
     assert.equal(settings['editor.fontSize'], 16);
