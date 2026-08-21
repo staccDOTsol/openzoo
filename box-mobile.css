@@ -1,0 +1,139 @@
+/* OpenZoo box — Cline is the full-screen Agent. Not a desktop IDE on a phone. */
+
+html, body {
+  width: 100% !important;
+  max-width: 100vw !important;
+  overflow-x: hidden !important;
+  height: 100% !important;
+  height: 100dvh !important;
+  overscroll-behavior: none;
+}
+
+/* Viewport + safe areas. workbench must not pan horizontally. */
+.monaco-workbench,
+.monaco-workbench .overflow-guard,
+.monaco-workbench .monaco-scrollable-element {
+  max-width: 100vw !important;
+  overflow-x: hidden !important;
+}
+
+.monaco-workbench {
+  height: 100dvh !important;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Default: hide VS Code chrome. Hamburger (.oz-show-chrome) brings it back. */
+html:not(.oz-show-chrome) .monaco-workbench .part.activitybar,
+html:not(.oz-show-chrome) .monaco-workbench .activitybar,
+html:not(.oz-show-chrome) .monaco-workbench .part.statusbar,
+html:not(.oz-show-chrome) .monaco-workbench .statusbar,
+html:not(.oz-show-chrome) .monaco-workbench .part.titlebar,
+html:not(.oz-show-chrome) .monaco-workbench .titlebar,
+html:not(.oz-show-chrome) .monaco-workbench .part.panel,
+html:not(.oz-show-chrome) .monaco-workbench .part.banner,
+html:not(.oz-show-chrome) .monaco-workbench .part.editor,
+html:not(.oz-show-chrome) .monaco-workbench .editor,
+html:not(.oz-show-chrome) .monaco-workbench .part.auxiliarybar,
+html:not(.oz-show-chrome) .monaco-workbench .composite.title,
+html:not(.oz-show-chrome) .monaco-workbench .grid-view-container > .split-view-container > .split-view-view:has(> .part.editor),
+html:not(.oz-show-chrome) .monaco-sash {
+  display: none !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  visibility: hidden !important;
+}
+
+/* Cline lives in the primary sidebar webview — make that pane the screen. */
+html:not(.oz-show-chrome) .monaco-workbench .part.sidebar,
+html:not(.oz-show-chrome) .monaco-workbench .sidebar {
+  display: flex !important;
+  visibility: visible !important;
+  width: 100% !important;
+  max-width: 100vw !important;
+  left: 0 !important;
+  right: 0 !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  height: 100% !important;
+  height: 100dvh !important;
+  padding-bottom: max(12px, env(safe-area-inset-bottom), env(keyboard-inset-height, 0px)) !important;
+}
+
+html:not(.oz-show-chrome) .monaco-workbench .part.sidebar .content,
+html:not(.oz-show-chrome) .monaco-workbench .part.sidebar .composite,
+html:not(.oz-show-chrome) .monaco-workbench .part.sidebar .webview,
+html:not(.oz-show-chrome) .monaco-workbench .part.sidebar iframe {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100vw !important;
+}
+
+/* 44px+ tap targets. No hover-only affordances. */
+#oz-chrome-toggle {
+  position: fixed;
+  top: max(8px, env(safe-area-inset-top, 8px));
+  left: max(8px, env(safe-area-inset-left, 8px));
+  z-index: 2147483646;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(20, 20, 20, 0.82);
+  color: #f3f3f3;
+  font-size: 22px;
+  line-height: 44px;
+  text-align: center;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#oz-chrome-toggle:focus-visible {
+  outline: 2px solid #fff;
+}
+
+@media (hover: none) {
+  .monaco-workbench .monaco-action-bar .action-item:hover,
+  .monaco-workbench .action-label:hover {
+    background: inherit !important;
+  }
+}
+
+button,
+.monaco-button,
+.monaco-button-dropdown,
+.action-label,
+.codicon,
+.monaco-workbench .action-item,
+.monaco-list .monaco-list-row {
+  min-height: 44px;
+}
+
+/* iOS: 16px inputs so the page does not zoom and bury Cline's composer. */
+input,
+textarea,
+select,
+[contenteditable="true"],
+.monaco-editor textarea.inputarea {
+  font-size: 16px !important;
+}
+
+/* Login page (code-server) — usable on 390px. */
+.login-form,
+#login,
+form {
+  max-width: 100vw;
+  box-sizing: border-box;
+}
+
+.login-form input,
+.login-form button,
+#password,
+button[type="submit"] {
+  min-height: 44px;
+  font-size: 16px !important;
+  touch-action: manipulation;
+}

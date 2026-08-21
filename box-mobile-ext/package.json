@@ -1,0 +1,11 @@
+{
+  "name": "box-mobile",
+  "displayName": "OpenZoo box mobile",
+  "description": "On startup, focus Cline and hide the desktop workbench chrome.",
+  "version": "1.0.0",
+  "publisher": "openzoo",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js"
+}

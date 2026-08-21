@@ -4,11 +4,15 @@
 # with no further action. Also runnable by hand with an explicit tag to
 # reproduce an older image.
 #
-# The image bakes grokui + openzoo + node_modules + a dev toolchain onto disk
-# so a box never fetches from GitHub at boot: RunPod egress IPs get 429'd, and
-# a 429 from raw.githubusercontent lands as a file whose CONTENTS are the text
-# "429: Too Many Requests", which then fails like an app bug rather than a
-# download bug.
+# The image bakes code-server + Cline (saoudrizwan.claude-dev) + openzoo + a
+# dev toolchain onto disk so a box never fetches from GitHub at boot: RunPod
+# egress IPs get 429'd, and a 429 from raw.githubusercontent lands as a file
+# whose CONTENTS are the text "429: Too Many Requests", which then fails like
+# an app bug rather than a download bug.
+#
+# Product on :8080 is a mobile-first Cline Agent (password auth, never --auth
+# none). Cline is pointed at https://x402-tokens.fly.dev/v1. grokui is not
+# the box UI. Still triggers on grokui-v* / v* tags.
 #
 # BUILT ON GITHUB'S OWN NATIVE RUNNERS — `ubuntu-latest` (amd64) and
 # `ubuntu-24.04-arm` (real arm64 hardware, free on public repos). We ran OUT OF
@@ -108,34 +112,61 @@ jobs:
             || { echo 'FAIL: /opt/openzoo/bin/openzoo.js missing'; exit 1; }
           docker run --rm openzoo-box:smoke test -d /opt/openzoo/node_modules \
             || { echo 'FAIL: /opt/openzoo/node_modules missing'; exit 1; }
-          docker run --rm openzoo-box:smoke sh -c 'head -c 3 /opt/grokui/grokui.mjs | grep -q 429' \
-            && { echo 'FAIL: baked grokui.mjs is a 429 corpse'; exit 1; } || true
-          docker run --rm openzoo-box:smoke test -f /opt/grokui/livestatus.js \
-            || { echo 'FAIL: /opt/grokui/livestatus.js missing'; exit 1; }
+          docker run --rm openzoo-box:smoke sh -c 'command -v code-server' \
+            || { echo 'FAIL: code-server missing from the image'; exit 1; }
+          docker run --rm openzoo-box:smoke sh -c 'ls -d /opt/code-server/extensions/saoudrizwan.claude-dev*' \
+            || { echo 'FAIL: Cline extension saoudrizwan.claude-dev missing'; exit 1; }
+          docker run --rm openzoo-box:smoke test -f /opt/code-server/cline-config-keys.json \
+            || { echo 'FAIL: /opt/code-server/cline-config-keys.json missing'; exit 1; }
+          docker run --rm openzoo-box:smoke test -f /opt/code-server/mobile.css \
+            || { echo 'FAIL: mobile.css missing'; exit 1; }
+          docker run --rm openzoo-box:smoke test -f /opt/code-server/extensions/openzoo.box-mobile-1.0.0/extension.js \
+            || { echo 'FAIL: openzoo.box-mobile extension missing'; exit 1; }
+          docker run --rm openzoo-box:smoke sh -c 'printenv ANTHROPIC_API_KEY' \
+            && { echo 'FAIL: ANTHROPIC_API_KEY is set in the image'; exit 1; } || true
           # The dev toolchain is the point of the image; without it a bot hits
           # `python3: not found` and looks broken when the box is at fault.
-          for b in bash gcc make python3 pip3 git jq rg; do
+          for b in bash gcc make python3 pip3 git jq rg code-server; do
             docker run --rm openzoo-box:smoke sh -c "command -v $b >/dev/null" \
               || { echo "FAIL: $b missing from the image"; exit 1; }
           done
           echo "baked tag: $(docker run --rm openzoo-box:smoke cat /opt/openzoo/.oz-tag)"
 
-          docker run --rm -d --name ozbox -p 4173:4173 -p 8402:8402 openzoo-box:smoke
+          docker run --rm -d --name ozbox -p 8080:8080 \
+            -e OPENZOO_IDE_PASSWORD=smokepass \
+            -e OPENZOO_SUB_KEY=oz_smoke_test_key \
+            -e OPENZOO_BOX_SIDECAR=0 \
+            openzoo-box:smoke
           ok=0
-          for i in $(seq 1 30); do
-            if docker logs ozbox 2>&1 | grep -qE 'ERR_MODULE_NOT_FOUND|is a CommonJS module'; then
+          for i in $(seq 1 60); do
+            if docker logs ozbox 2>&1 | grep -qE '--auth none'; then
               echo '--- container logs ---'; docker logs ozbox 2>&1 | tail -40
-              echo 'FAIL: grokui MODULE_NOT_FOUND or CJS named-export'; docker rm -f ozbox; exit 1
+              echo 'FAIL: code-server started with --auth none'; docker rm -f ozbox; exit 1
             fi
-            if curl -fsS -o /tmp/g.html http://127.0.0.1:4173/; then ok=1; break; fi
+            if curl -fsS -o /tmp/health.json http://127.0.0.1:8080/health; then ok=1; break; fi
             sleep 1
           done
-          echo '--- container logs ---'; docker logs ozbox 2>&1 | tail -20
-          [ "$ok" = 1 ] || { echo 'FAIL: grokui never served on :4173'; docker rm -f ozbox; exit 1; }
-          if head -c 3 /tmp/g.html | grep -q 429; then echo 'FAIL: served a 429'; exit 1; fi
-          grep -qi '<!doctype html' /tmp/g.html \
-            || { echo 'FAIL: not HTML:'; head -c 200 /tmp/g.html; docker rm -f ozbox; exit 1; }
-          echo "OK: $(wc -c < /tmp/g.html) bytes of grokui HTML"
+          echo '--- container logs ---'; docker logs ozbox 2>&1 | tail -30
+          [ "$ok" = 1 ] || { echo 'FAIL: GET /health on :8080 never 200'; docker rm -f ozbox; exit 1; }
+          grep -q '"ok":true' /tmp/health.json \
+            || { echo 'FAIL: /health body:'; cat /tmp/health.json; docker rm -f ozbox; exit 1; }
+          docker exec ozbox sh -c 'test -z "${ANTHROPIC_API_KEY:-}"' \
+            || { echo 'FAIL: ANTHROPIC_API_KEY is set at runtime'; docker rm -f ozbox; exit 1; }
+          docker exec ozbox grep -q 'auth: password' /root/.config/code-server/config.yaml \
+            || { echo 'FAIL: code-server auth is not password'; docker rm -f ozbox; exit 1; }
+          docker exec ozbox grep -qE 'auth:[[:space:]]*none' /root/.config/code-server/config.yaml \
+            && { echo 'FAIL: auth none in config.yaml'; docker rm -f ozbox; exit 1; } || true
+          docker exec ozbox grep -q 'x402-tokens.fly.dev/v1' /root/.cline/data/globalState.json \
+            || { echo 'FAIL: Cline globalState missing OpenZoo gateway'; docker rm -f ozbox; exit 1; }
+          docker exec ozbox grep -q 'workbench.activityBar.location' /root/.local/share/code-server/User/settings.json \
+            || { echo 'FAIL: activity bar not hidden in User settings'; docker rm -f ozbox; exit 1; }
+          docker exec ozbox grep -q 'width=device-width' /opt/code-server/mobile.js \
+            || { echo 'FAIL: mobile.js missing device-width viewport'; docker rm -f ozbox; exit 1; }
+          docker exec ozbox grep -q 'oz_smoke_test_key' /root/.cline/data/secrets.json \
+            || { echo 'FAIL: Cline secrets missing subscription key'; docker rm -f ozbox; exit 1; }
+          docker exec ozbox grep -q api.anthropic.com /root/.cline/data/globalState.json \
+            && { echo 'FAIL: Cline pointed at api.anthropic.com'; docker rm -f ozbox; exit 1; } || true
+          echo 'OK: code-server /health 200, Cline preconfigured, mobile-first, auth=password, ANTHROPIC_API_KEY unset'
           docker rm -f ozbox
 
       # UNTAGGED, by digest. Everything lands in openzoo-box; `merge` creates
