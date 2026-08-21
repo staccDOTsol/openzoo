@@ -1,0 +1,46 @@
+# Hosted OCC on Fly. App name: openzoo-occ.
+# Deploy from the stacc Mac (jarettdunn has no flyctl): `flyctl deploy`
+#
+# This process speaks /occ and GET /healthz. zoo.openzoo.fun still HTML-404s
+# /occ — a later Vercel rewrite will point that path here. Do not treat
+# *.fly.dev as the product URL. Do not set ANTHROPIC_API_KEY.
+
+app = "openzoo-occ"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  OPENZOO_OCC_BIND = "0.0.0.0"
+  OPENZOO_OCC_PORT = "8080"
+  PORT = "8080"
+  OPENZOO_OCC_BASE_URL = "https://x402-tokens.fly.dev/v1"
+  OPENZOO_API_BASE = "https://x402-tokens.fly.dev"
+  OPENZOO_OCC_ROOT = "/var/lib/openzoo/occ-sessions"
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 40
+    hard_limit = 80
+
+[[http_service.checks]]
+  grace_period = "15s"
+  interval = "15s"
+  method = "GET"
+  path = "/healthz"
+  timeout = "5s"
+
+[[vm]]
+  memory = "2gb"
+  cpu_kind = "shared"
+  cpus = 1
