@@ -99,6 +99,8 @@ test('packed sidecar spawn uses Electron execPath, silent env, ignore stdio', ()
   assert.equal(env.ELECTRON_RUN_AS_NODE, '1');
   assert.equal(env.OPENZOO_SILENT, '1');
   assert.equal(env.OPENZOO_NO_OPEN, '1');
+  assert.equal(env.OPENZOO_NO_PORT_WALK, '1');
+  assert.equal(env.OPENZOO_PORT, '8402');
   const opts = packedSidecarSpawnOpts({});
   assert.deepEqual(opts.stdio, ['ignore', 'ignore', 'pipe']);
   assert.equal(opts.windowsHide, true);
@@ -146,7 +148,38 @@ test('HTTP 402 session does not spawn or displace', async () => {
   healer.stop();
 });
 
-test('occupied + null session displaces then spawns (wedged leftover)', async () => {
+test('owned sidecar is not SIGTERM on a single session miss', async () => {
+  let session = null;
+  let occupied = false;
+  const { healer, spawned } = makeHealer({
+    fetchSession: async () => session,
+    portOccupied: async () => occupied,
+  });
+  await healer.ensure();
+  assert.equal(spawned.length, 1);
+  occupied = true;
+  const miss = await healer.ensure();
+  assert.equal(miss.failStreak, 1);
+  assert.equal(spawned[0].child.killed, false);
+  healer.stop();
+});
+
+test('one session timeout does not SIGTERM or displace', async () => {
+  let displaced = 0;
+  const { healer, spawned } = makeHealer({
+    fetchSession: async () => null,
+    portOccupied: async () => true,
+    displaceStale: async () => { displaced += 1; return true; },
+  });
+  const result = await healer.ensure();
+  assert.equal(result.failStreak, 1);
+  assert.equal(result.spawned, undefined);
+  assert.equal(displaced, 0);
+  assert.equal(spawned.length, 0);
+  healer.stop();
+});
+
+test('three consecutive session timeouts displace + respawn on 8402 only', async () => {
   let occupied = true;
   let displaced = 0;
   const { healer, spawned } = makeHealer({
@@ -154,25 +187,57 @@ test('occupied + null session displaces then spawns (wedged leftover)', async ()
     portOccupied: async () => occupied,
     displaceStale: async () => { displaced += 1; occupied = false; return true; },
   });
-  const result = await healer.ensure();
+  const first = await healer.ensure();
+  const second = await healer.ensure();
+  assert.equal(first.failStreak, 1);
+  assert.equal(second.failStreak, 2);
+  assert.equal(displaced, 0);
+  assert.equal(spawned.length, 0);
+  const third = await healer.ensure();
   assert.equal(displaced, 1);
-  assert.equal(result.spawned, true);
-  assert.equal(result.wedged, false);
-  assert.equal(result.healthy, true);
+  assert.equal(third.spawned, true);
+  assert.equal(third.wedged, false);
+  assert.equal(third.healthy, true);
   assert.equal(spawned.length, 1);
+  assert.equal(spawned[0].opts.env.OPENZOO_PORT, '8402');
+  assert.equal(spawned[0].opts.env.OPENZOO_NO_PORT_WALK, '1');
   healer.stop();
 });
 
-test('occupied + null session stays wedged when displace fails', async () => {
+test('occupied + null session stays wedged when displace fails after 3 misses', async () => {
   const { healer, spawned } = makeHealer({
     fetchSession: async () => null,
     portOccupied: async () => true,
     displaceStale: async () => false,
   });
+  await healer.ensure();
+  await healer.ensure();
   const result = await healer.ensure();
   assert.equal(result.wedged, true);
   assert.equal(result.healthy, false);
   assert.equal(spawned.length, 0);
+  healer.stop();
+});
+
+test('HUD heal-sidecar IPC is debounced (~15s)', async () => {
+  let displaced = 0;
+  const { healer, spawned } = makeHealer({
+    fetchSession: async () => null,
+    portOccupied: async () => true,
+    displaceStale: async () => { displaced += 1; return true; },
+    healDebounceMs: 60_000,
+  });
+  const a = await healer.ensure('ipc');
+  const b = await healer.ensure('ipc');
+  assert.equal(a.failStreak, 1);
+  assert.equal(a.debounced, undefined);
+  assert.equal(b.debounced, true);
+  assert.equal(b.skipped, true);
+  assert.equal(displaced, 0);
+  assert.equal(spawned.length, 0);
+  const c = await healer.ensure();
+  assert.equal(c.failStreak, 2);
+  assert.equal(c.debounced, undefined);
   healer.stop();
 });
 

@@ -313,8 +313,13 @@ async function ensureProxy() {
   await getHealer().ensure();
 }
 
+const HEAL_IPC_MS = 15_000;
+let lastHealIpcAt = 0;
 ipcMain.handle('heal-sidecar', async () => {
-  void ensureProxy();
+  const now = Date.now();
+  if (lastHealIpcAt && now - lastHealIpcAt < HEAL_IPC_MS) return { debounced: true };
+  lastHealIpcAt = now;
+  void getHealer().ensure('ipc');
   return true;
 });
 
