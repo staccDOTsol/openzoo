@@ -103,6 +103,8 @@ usage:
   npx openzoo vscode [path]   same, for VS Code
   npx openzoo editor [path]   whichever is installed (Cursor wins if both)
   npx openzoo claude [dir]        Claude Code CLI on the zoo (x402 per turn); --desktop for the app
+  npx openzoo xbot                @openzoobot on X: 1 free question per account, then x402
+                                    --once (single poll) --dry-run (answer, do not post)
                                           by default, --terminal for the Claude Code CLI
   npx openzoo launch <cmd> [args]   launch a TERMINAL Messages API client
                                     (claude, aider...) already pointed at the zoo
@@ -117,6 +119,11 @@ usage:
                               and launches Grok Bot with Node TLS override (sudo required;
                               ctrl-c restores /etc/hosts).
                               --no-takeover plain launch · --no-launch config only
+  npx openzoo openclaw   write the zoo into ~/.openclaw/openclaw.json as a model
+                         provider WITH REAL PRICES (OpenClaw's own custom-provider
+                         path hard-codes $0.00 and ignores /v1/models pricing)
+                         --all (whole catalog) --models a,b (exact ids)
+                         --default <id> (set the agents' primary model)
   npx openzoo mcp        stdio MCP server (tools: zoo_ask, zoo_bind, zoo_models, zoo_wallet, zoo_contexts)
   npx openzoo unblock    restore the editor's own backend in the hosts file
   npx openzoo tunnel     public-url-only mode (everything key-gated, no keyless localhost)
@@ -172,9 +179,21 @@ async function main() {
       // is enough; no patching of the app bundle.
       await (await import('../lib/grokcli.js')).setupGrokBot(process.argv.slice(3));
       break;
+    case 'openclaw':
+      await (await import('../lib/openclaw.js')).setupOpenClaw(process.argv.slice(3));
+      break;
     case 'mcp':
       await (await import('../lib/mcp.js')).startMcp();
       break;
+    case 'xbot': {
+      const rest = process.argv.slice(3);
+      await (await import('../lib/xbot.js')).runXBot({
+        once: rest.includes('--once'),
+        dryRun: rest.includes('--dry-run'),
+        seed: rest.includes('--seed'),
+      });
+      break;
+    }
     case 'claude':
       await (await import('../lib/launch.js')).launchClaude(process.argv.slice(3));
       break;

@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { railFundingHint, unfundableRails, fundingLine, USDC_MINT, TOKEN_MINT } from '../lib/config.js';
 
 test('the funding hint follows the rails a live 402 offers', () => {
-  assert.equal(railFundingHint(['solana']), 'USDC or TOKEN on Solana');
+  assert.equal(railFundingHint(['solana']), 'USDC or TOKEN or LEOS on Solana');
   assert.equal(railFundingHint(['base']), 'USDC on Base');
   assert.equal(
     railFundingHint(['solana', 'base']),
-    'USDC or TOKEN on Solana · USDC on Base',
+    'USDC or TOKEN or LEOS on Solana · USDC on Base',
   );
 });
 
@@ -17,7 +17,7 @@ test('robinhood is fundable with plain tokens now the EVM conversion path exists
   // riding the hint, since the conversion txs are the wallet's own.
   assert.equal(
     railFundingHint(['solana', 'base', 'robinhood']),
-    'USDC or TOKEN on Solana · USDC on Base · USDG or ODDBALLER or IOU or ROBINHOODS on Robinhood Chain (plus a sliver of RH ETH for the conversion gas)',
+    'USDC or TOKEN or LEOS on Solana · USDC on Base · USDG or ODDBALLER or IOU or ROBINHOODS on Robinhood Chain (plus a sliver of RH ETH for the conversion gas)',
   );
   assert.deepEqual(unfundableRails(['solana', 'base', 'robinhood']), []);
   assert.deepEqual(unfundableRails(['solana', 'base']), []);

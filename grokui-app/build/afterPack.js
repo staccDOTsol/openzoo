@@ -94,6 +94,7 @@ const OPENZOO_SIDECAR_OVERLAY = [
   'lib/racesettle.js',
   'lib/hrr.js',
   'lib/livestatus.js',
+  'lib/think.js',
   'lib/modelroute.js',
   'lib/models.js',
   'lib/proxy.js',

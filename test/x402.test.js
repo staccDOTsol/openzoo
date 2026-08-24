@@ -103,11 +103,15 @@ test('buildPayment constructs the exact solana X-PAYMENT the gateway documents',
   assert.equal(env.network, accept.network);
   assert.ok(env.payload.transaction);
 
-  // The transaction itself: feePayer = gateway's, one TransferChecked, owner-signed only.
+  // The transaction itself: feePayer = gateway's, a ComputeBudget unit-limit
+  // then ONE TransferChecked, owner-signed only. The explicit CU limit rides
+  // first so a settle can never die on the default budget.
   const tx = Transaction.from(Buffer.from(env.payload.transaction, 'base64'));
   assert.equal(tx.feePayer.toBase58(), accept.extra.feePayer);
-  assert.equal(tx.instructions.length, 1);
-  const ix = tx.instructions[0];
+  assert.equal(tx.instructions.length, 2);
+  assert.equal(tx.instructions[0].programId.toBase58(), 'ComputeBudget111111111111111111111111111111');
+  assert.equal(tx.instructions[0].data[0], 2); // SetComputeUnitLimit
+  const ix = tx.instructions[1];
   assert.ok(ix.programId.equals(TOKEN_2022_PROGRAM_ID));
   // TransferChecked layout: [12, amount u64 LE, decimals u8]
   assert.equal(ix.data[0], 12);
