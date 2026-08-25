@@ -103,15 +103,9 @@ usage:
   npx openzoo vscode [path]   same, for VS Code
   npx openzoo editor [path]   whichever is installed (Cursor wins if both)
   npx openzoo claude [dir]        Claude Code CLI on the zoo (x402 per turn); --desktop for the app
-  npx openzoo xbot                @openzoobot on X: 1 free question per account, then x402
-                                    --once (single poll) --dry-run (answer, do not post)
                                           by default, --terminal for the Claude Code CLI
   npx openzoo launch <cmd> [args]   launch a TERMINAL Messages API client
                                     (claude, aider...) already pointed at the zoo
-  npx openzoo grokbot         KEEP Grok Bot's UI, serve YOUR RunPod box under it:
-                              spawns a CPU box, MITMs api2.cursor.sh, and answers
-                              EnsureSandBox with your box instead of a cursorvm pod.
-                              Inference x402-paid; needs RUNPOD_API_KEY + sudo.
   npx openzoo grok-cli        point the grok CLI at the zoo — GROK MODELS ONLY,
                               paid per call by x402 instead of xAI first-party billing,
                               then TAKE OVER the app's backend: pins api2.cursor.sh in
@@ -119,6 +113,15 @@ usage:
                               and launches Grok Bot with Node TLS override (sudo required;
                               ctrl-c restores /etc/hosts).
                               --no-takeover plain launch · --no-launch config only
+  npx openzoo voice      write like YOU — your own exports, paid per call
+                         voice ingest --telegram <telegram_messages.txt> --twitter <archive dir>
+                               parse your history into turns and bind the tier cascade
+                               (cream / all telegram / all twitter) to the gateway + leCore
+                         voice card --telegram <file>   distil the style card (one paid call)
+                         voice say "draft"              rewrite a draft in your voice
+                         voice login / voice watch      PREHOOK your own outgoing Telegram
+                               messages: type raw, the watcher revises in place (userbot;
+                               "." prefix sends raw). X has no edit API — no equivalent.
   npx openzoo openclaw   write the zoo into ~/.openclaw/openclaw.json as a model
                          provider WITH REAL PRICES (OpenClaw's own custom-provider
                          path hard-codes $0.00 and ignores /v1/models pricing)
@@ -150,8 +153,6 @@ env:
   OPENZOO_RAIL (unset — force a rail: solana | base | robinhood)
   OPENZOO_BASE_RPC (https://mainnet.base.org)  OPENZOO_RH_RPC (rpc.mainnet.chain.robinhood.com)
   OPENZOO_MAX_USD_PER_CALL (unset — NO per-call ceiling; set to add one)  OPENZOO_DEMO_MAX_USD (0.01)
-  OPENZOO_CONTEXT_MIN_CHARS (16384 — bodies bigger than this bind once + reuse)
-  OPENZOO_NO_CONTEXT_CACHE (0 — set 1 to always ship the full body)
   OPENZOO_ENABLE_RH (0 — let DEFAULT selection fall through to the Robinhood rail;
                      OPENZOO_RAIL=robinhood forces it without this)
   OPENZOO_TUNNEL_MAX_USD (unset — NO public-url session ceiling; set to add one)  OPENZOO_TUNNEL_TOKEN (pin the api key)
@@ -169,9 +170,6 @@ async function main() {
       // GUI editors read config files, not env vars — see lib/setup.js.
       await (await import('../lib/setup.js')).setupEditor(cmd === 'editor' ? undefined : cmd, process.argv[3]);
       break;
-    case 'grokbot':
-      await (await import('../lib/grokbot.js')).runGrokBot(process.argv.slice(3));
-      break;
     case 'grok-cli':
     case 'grok':
       // Grok Bot (com.anysphere.sand) fronts the `grok` CLI, and the CLI reads
@@ -182,18 +180,12 @@ async function main() {
     case 'openclaw':
       await (await import('../lib/openclaw.js')).setupOpenClaw(process.argv.slice(3));
       break;
+    case 'voice':
+      await (await import('../lib/voice.js')).runVoice(process.argv.slice(3));
+      break;
     case 'mcp':
       await (await import('../lib/mcp.js')).startMcp();
       break;
-    case 'xbot': {
-      const rest = process.argv.slice(3);
-      await (await import('../lib/xbot.js')).runXBot({
-        once: rest.includes('--once'),
-        dryRun: rest.includes('--dry-run'),
-        seed: rest.includes('--seed'),
-      });
-      break;
-    }
     case 'claude':
       await (await import('../lib/launch.js')).launchClaude(process.argv.slice(3));
       break;
