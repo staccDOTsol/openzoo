@@ -26,7 +26,14 @@
  */
 
 const ENDPOINT = 'http://127.0.0.1:8403/voice';
-const TIMEOUT_MS = 25_000;
+/**
+ * Generous, because the voice model is PINNED to fable-5 for consistency
+ * and that costs latency: MEASURED 34.9s on a real draft (model time plus
+ * the per-call x402 settlement — recall is 0.1s and not the bottleneck).
+ * A 25s ceiling here meant the hook timed out on every post and shipped
+ * the raw draft, which looks exactly like the extension not working.
+ */
+const TIMEOUT_MS = 90_000;
 /** Drafts shorter than this are left alone — "gm" needs no help. */
 const MIN_CHARS = 12;
 /** A leading "." means send exactly what I typed. Stripped before posting. */
@@ -160,7 +167,14 @@ async function intercept(button, resend) {
 
   const kind = kindOf(button, editor);
   busy = true;
-  toast('voicing…', 30_000);
+  // A ticking counter, because a silent 35s wait after clicking Post is
+  // indistinguishable from a hung page.
+  const startedAt = Date.now();
+  toast('voicing…');
+  const tick = setInterval(
+    () => toast(`voicing… ${Math.round((Date.now() - startedAt) / 1000)}s`),
+    1000,
+  );
   try {
     const { text, receipt } = await voice(draft, kind);
     const same = text.replace(/\s+/g, ' ').trim() === draft.replace(/\s+/g, ' ').trim();
@@ -170,6 +184,7 @@ async function intercept(button, resend) {
     // FAIL OPEN. The draft goes out as typed.
     toast(`voice unavailable — posting as typed\n(${String(e.message || e).slice(0, 80)})`, 3600);
   } finally {
+    clearInterval(tick);
     busy = false;
   }
   return true;
