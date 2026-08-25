@@ -240,4 +240,16 @@ document.addEventListener('keydown', (ev) => {
   });
 }, true);
 
-console.info('[openzoo voice] prehook armed — drafts are revised before they publish. Prefix with "." to send raw.');
+/**
+ * Version stamp. Chrome serves the OLD content script until the extension
+ * is explicitly reloaded AND the tab refreshed, so "I fixed it" and "the
+ * fix is running" are different claims — this is how you tell which build
+ * is actually armed without guessing from behaviour.
+ */
+const BUILD = 'v0.2.0 timeout=' + TIMEOUT_MS / 1000 + 's';
+console.info(
+  `%c[openzoo voice] ${BUILD} armed`,
+  'color:#1d9bf0;font-weight:bold',
+  '— drafts are revised before they publish. Prefix with "." to send raw.',
+);
+window.__openzooVoice = { BUILD, TIMEOUT_MS, ENDPOINT };
