@@ -7,3 +7,8 @@ lib/proxy.js.bak
 # machine-local live posteriors — shipped suite tables stay in
 # lib/modelroute/outcomes.json and vendor/modelroute/outcomes.json
 **/modelroute-outcomes.json
+
+# secrets — never commit (telegram token, rpc keys)
+.env
+.env.local
+.sonar/

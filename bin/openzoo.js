@@ -183,6 +183,9 @@ async function main() {
     case 'voice':
       await (await import('../lib/voice.js')).runVoice(process.argv.slice(3));
       break;
+    case 'sonar':
+      await (await import('../lib/sonar.js')).runSonar(process.argv.slice(3));
+      break;
     case 'mcp':
       await (await import('../lib/mcp.js')).startMcp();
       break;
