@@ -207,16 +207,31 @@ document.addEventListener('click', (ev) => {
 
   void intercept(button).then((ok) => {
     if (!ok) return;
-    PASS.add(button);
-    // Re-dispatch on the live node: X re-renders during the await, so the
-    // captured reference can be detached by the time we resubmit.
-    const fresh = document.querySelector(
-      SEND_BUTTONS.find((s) => button.matches(s)) || SEND_BUTTONS[0],
-    ) || button;
-    PASS.add(fresh);
-    fresh.click();
+    resubmit(button);
   });
 }, true);
+
+/**
+ * Re-dispatch the send. X re-renders during the await, so the captured
+ * node can be detached by then — but re-finding it with a bare
+ * document.querySelector was wrong: with media attached, or a reply box
+ * open under a post, several composers coexist and the FIRST match in the
+ * document is often not the one the user clicked. Prefer the original node
+ * while it is still connected, then fall back to the same dialog scope,
+ * and only then to the document.
+ */
+function resubmit(button) {
+  const sel = SEND_BUTTONS.find((s) => button.matches(s)) || SEND_BUTTONS.join(',');
+  let target = button;
+  if (!button.isConnected) {
+    const scope = button.closest('[role="dialog"]');
+    target = (scope && scope.isConnected ? scope.querySelector(sel) : null)
+      || document.querySelector(sel)
+      || button;
+  }
+  PASS.add(target);
+  target.click();
+}
 
 /** Cmd/Ctrl+Enter posts without touching the button — same treatment. */
 document.addEventListener('keydown', (ev) => {
@@ -225,7 +240,12 @@ document.addEventListener('keydown', (ev) => {
   if (!editor) return;
   if (busy) { ev.preventDefault(); ev.stopPropagation(); return; }
 
-  const button = document.querySelector(SEND_BUTTONS.join(','));
+  // Scoped to the composer being typed in, for the same reason resubmit()
+  // is: a document-wide query finds the first send button on the page,
+  // which with media attached or a reply box open is the wrong one.
+  const scope = editor.closest('[role="dialog"]') || document;
+  const button = scope.querySelector(SEND_BUTTONS.join(','))
+    || document.querySelector(SEND_BUTTONS.join(','));
   if (!button || PASS.has(button)) return;
 
   ev.preventDefault();
@@ -234,9 +254,7 @@ document.addEventListener('keydown', (ev) => {
 
   void intercept(button).then((ok) => {
     if (!ok) return;
-    const fresh = document.querySelector(SEND_BUTTONS.join(',')) || button;
-    PASS.add(fresh);
-    fresh.click();
+    resubmit(button);
   });
 }, true);
 
