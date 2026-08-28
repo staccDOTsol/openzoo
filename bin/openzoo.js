@@ -153,8 +153,8 @@ env:
   OPENZOO_RAIL (unset — force a rail: solana | base | robinhood)
   OPENZOO_BASE_RPC (https://mainnet.base.org)  OPENZOO_RH_RPC (rpc.mainnet.chain.robinhood.com)
   OPENZOO_MAX_USD_PER_CALL (unset — NO per-call ceiling; set to add one)  OPENZOO_DEMO_MAX_USD (0.01)
-  OPENZOO_ENABLE_RH (0 — let DEFAULT selection fall through to the Robinhood rail;
-                     OPENZOO_RAIL=robinhood forces it without this)
+  OPENZOO_ENABLE_RH (unset — every offered rail is a fallback, Robinhood tried LAST;
+                     set 0 to drop Robinhood rows from default selection)
   OPENZOO_TUNNEL_MAX_USD (unset — NO public-url session ceiling; set to add one)  OPENZOO_TUNNEL_TOKEN (pin the api key)
   OPENZOO_NO_TUNNEL (0 — set 1 for localhost-only, no public url)`;
 
@@ -186,6 +186,23 @@ async function main() {
     case 'sonar':
       await (await import('../lib/sonar.js')).runSonar(process.argv.slice(3));
       break;
+    // @openzoobot. runXBot was only ever reachable as a library export, so the
+    // obvious `openzoo xbot` printed usage and did nothing.
+    case 'xbot': {
+      const a = process.argv.slice(3);
+      // --interval accepts seconds (15) or ms (15000); anything under 1000 is
+      // read as seconds, because "--interval 15" meaning 15ms is never intended.
+      const iv = Number(a[a.indexOf('--interval') + 1]);
+      const intervalMs = a.includes('--interval') && Number.isFinite(iv) && iv > 0
+        ? (iv < 1000 ? iv * 1000 : iv) : undefined;
+      await (await import('../lib/xbot.js')).runXBot({
+        once: a.includes('--once'),
+        dryRun: a.includes('--dry-run') || a.includes('--dry'),
+        seed: a.includes('--seed'),
+        ...(intervalMs ? { intervalMs } : {}),
+      });
+      break;
+    }
     case 'mcp':
       await (await import('../lib/mcp.js')).startMcp();
       break;
@@ -263,9 +280,21 @@ async function main() {
     }
     case 'ask': {
       const question = process.argv[3];
-      if (!question) throw new Error('usage: openzoo ask "<question>" [--context <id>] [--model <id>]');
+      if (!question) throw new Error('usage: openzoo ask "<question>" [--context <id>] [--model <id>] [--system <text>]');
       const ci = process.argv.indexOf('--context');
       const mi = process.argv.indexOf('--model');
+      // A BARE QUESTION IS A DIFFERENT PRODUCT FROM A BRIEFED ONE.
+      //
+      // This path drives PayClient straight at the gateway, so it never passes
+      // through the local proxy that injects lib/brief.js — the model gets the
+      // user's words and nothing else. OBSERVED from the Omarchy bar widget:
+      // "do you even love omarchy thru this uiux?!?" came back "I think you
+      // mean *anarchy*?" from deepseek, while the same question in the terminal
+      // (Claude Code: full system prompt + the omarchy skill) answered about
+      // DHH, Hyprland and theming. Same gateway, same product, one had context.
+      // A caller that knows where it is running can now say so.
+      const si = process.argv.indexOf('--system');
+      const system = si !== -1 ? process.argv[si + 1] : '';
       const { PayClient } = await import('../lib/pay.js');
       const { config } = await import('../lib/config.js');
       const client = new PayClient();
@@ -276,7 +305,9 @@ async function main() {
         headers,
         body: JSON.stringify({
           model: (mi !== -1 && process.argv[mi + 1]) || process.env.OPENZOO_DEFAULT_MODEL || 'anthropic/claude-opus-5',
-          messages: [{ role: 'user', content: question }],
+          messages: system
+            ? [{ role: 'system', content: system }, { role: 'user', content: question }]
+            : [{ role: 'user', content: question }],
           max_tokens: Number(process.env.OPENZOO_ASK_MAX_TOKENS || 1024),
         }),
       });

@@ -1,0 +1,43 @@
+{
+  "name": "openzoo-paperclip-adapter",
+  "version": "0.1.6",
+  "description": "Paperclip external adapter: Claude Code as the harness, OpenZoo as the biller — every inference call pays x402 through the local openzoo proxy (adapter type: openzoo_claude)",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./ui-parser": "./ui-parser.cjs"
+  },
+  "paperclip": {
+    "adapterUiParser": "1.0.0"
+  },
+  "files": [
+    "index.js",
+    "ui-parser.cjs",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^2.1.245",
+    "@paperclipai/adapter-claude-local": "^2026.824.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/staccDOTsol/openzoo.git",
+    "directory": "paperclip-adapter"
+  },
+  "homepage": "https://openzoo.fun",
+  "keywords": [
+    "paperclip",
+    "paperclipai",
+    "adapter",
+    "openzoo",
+    "x402",
+    "claude-code",
+    "llm",
+    "payments"
+  ]
+}

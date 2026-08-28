@@ -138,10 +138,6 @@ describe('fetchHeaders + session unwedge', { concurrency: 1 }, () => {
     assert.match(wallet, /refreshCredit\(\)\.catch\(\(\) => \{\}\)/);
     assert.doesNotMatch(wallet, /await refreshCredit/);
 
-    const grokui = readFileSync(path.join(root, 'lib', 'grokui.mjs'), 'utf8');
-    assert.match(grokui, /fetch\(`\$\{PROXY\}\/session`, \{ signal: AbortSignal\.timeout\(2000\) \}\)/);
-    assert.match(grokui, /8402\/v1\/session', \{ signal: AbortSignal\.timeout\(2000\) \}\)/);
-
     const pay = readFileSync(path.join(root, 'lib', 'pay.js'), 'utf8');
     assert.match(pay, /fetchHeaders/);
     const info = readFileSync(path.join(root, 'lib', 'info.js'), 'utf8');

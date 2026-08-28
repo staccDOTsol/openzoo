@@ -3,42 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  skipWrapWhenEmpty, hintedUnderlyingMint, solanaFundingEmpty,
-  orderCandidatesByMemory, resetRailMemory,
-} from '../lib/pay.js';
-import { USDC_MINT, TOKEN_MINT } from '../lib/config.js';
+import { orderCandidatesByMemory, resetRailMemory } from '../lib/pay.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-test('skip wrap when wrapped and underlying are both empty', () => {
-  assert.equal(skipWrapWhenEmpty(0n, 0n, 17n), true);
-  assert.equal(skipWrapWhenEmpty(0, 0, 17), true);
-  assert.equal(skipWrapWhenEmpty(5n, 0n, 17n), true);
-});
-
-test('do not skip wrap when the wallet holds underlying to convert', () => {
-  assert.equal(skipWrapWhenEmpty(0n, 1_000_000n, 17n), false);
-  assert.equal(skipWrapWhenEmpty(16n, 100n, 17n), false);
-});
-
-test('already-funded wrapped balance does not look empty', () => {
-  assert.equal(skipWrapWhenEmpty(17n, 0n, 17n), false);
-  assert.equal(skipWrapWhenEmpty(20n, 0n, 17n), false);
-});
-
-test('hintedUnderlyingMint maps 402 twin symbols without RPC', () => {
-  assert.equal(hintedUnderlyingMint({ extra: { symbol: 'yUSDCx' } }), USDC_MINT);
-  assert.equal(hintedUnderlyingMint({ extra: { symbol: 'wTOKENx' } }), TOKEN_MINT);
-  assert.equal(hintedUnderlyingMint({ extra: { acquire: { underlying: { address: USDC_MINT } } } }), USDC_MINT);
-  assert.equal(hintedUnderlyingMint({ extra: { symbol: 'unknownTwin' } }), null);
-});
-
-test('solanaFundingEmpty is true only when every funding mint is 0', () => {
-  assert.equal(solanaFundingEmpty([]), false);
-  assert.equal(solanaFundingEmpty([{ raw: 0n }, { raw: 0n }, { raw: 0n }]), true);
-  assert.equal(solanaFundingEmpty([{ raw: 0n }, { raw: 1n }, { raw: 0n }]), false);
-});
 
 test('rail memory still prefers a funded last-good row', () => {
   resetRailMemory();
@@ -48,24 +15,38 @@ test('rail memory still prefers a funded last-good row', () => {
   assert.equal(ordered[0].asset, 'aaa');
 });
 
-test('underfunded 402 body is not a handshake to retry', async () => {
-  process.env.OZ_AGENT_PORTS = '0';
-  const { isUnderfunded402Body } = await import('../lib/podagent.mjs');
-  assert.equal(isUnderfunded402Body({ error: { message: 'openzoo wallet underfunded: this call needs more' } }), true);
-  assert.equal(isUnderfunded402Body({ error: { message: 'HTTP 402, the wallet is empty' } }), true);
-  assert.equal(isUnderfunded402Body({ error: { message: 'payment required' } }), false);
-  assert.equal(isUnderfunded402Body({ x402Version: 1, accepts: [], error: 'payment required' }), false);
+
+/**
+ * THE SHIM MUST NEVER WRAP. Every Solana accepts[] row is the raw native mint
+ * (canonical Circle USDC, the project tokens as their own mints), so a wallet
+ * that wraps moves funds into an escrow the gateway does not accept and then
+ * cannot pay with them. The whole conversion subsystem — pool discovery, NAV
+ * share maths, the 9-account Wrap, the ERC-4626 approve+deposit on Robinhood —
+ * is deleted, and a short row is simply short.
+ */
+/** Comments may cite the dead machinery as history; executable code may not. */
+function codeOnly(src) {
+  return src.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+}
+
+test('the pay path holds no conversion machinery', () => {
+  const pay = codeOnly(readFileSync(path.join(root, 'lib', 'pay.js'), 'utf8'));
+  for (const dead of [
+    'wrap.js', 'evmwrap.js', 'sendWrap', 'resolvePool', 'poolState',
+    'depositForShares', 'buildWrapInstructions', 'acquireWrappedIfNeeded',
+    'topUpQuotedAsset', 'skipWrapWhenEmpty', 'hintedUnderlyingMint',
+  ]) {
+    assert.doesNotMatch(pay, new RegExp(dead.replace('.', '\\.')), `${dead} must be gone from the pay path`);
+  }
+  // Short is short: one balance read decides it, with no pool walk behind it.
+  assert.match(pay, /if \(bal\.raw < need\) throw new UnderfundedError/);
 });
 
-test('topUpQuotedAsset fail-fasts on 0+0 before poolState / sendWrap', () => {
-  const pay = readFileSync(path.join(root, 'lib', 'pay.js'), 'utf8');
-  assert.match(pay, /function skipWrapWhenEmpty/);
-  assert.match(pay, /solanaFundingEmpty/);
-  assert.match(pay, /hintedUnderlyingMint/);
-  const top = pay.slice(pay.indexOf('async topUpQuotedAsset'), pay.indexOf('async fetch('));
-  assert.match(top, /skipWrapWhenEmpty/);
-  const wrapLoop = top.indexOf('for (let attempt = 0; attempt < 3');
-  const failFast = top.indexOf('skipWrapWhenEmpty');
-  assert.ok(failFast >= 0 && failFast < wrapLoop, 'empty check must run before the sendWrap loop');
-  assert.doesNotMatch(top.slice(0, wrapLoop), /sendWrap\(/);
+test('no module ships a wrapper mint, an escrow, or a transfer tax', () => {
+  for (const f of ['pay.js', 'x402.js', 'config.js', 'info.js', 'demo.js', 'proxy.js']) {
+    const code = codeOnly(readFileSync(path.join(root, 'lib', f), 'latin1'));
+    for (const dead of ['yUSDCx', 'wTOKENx', 'wLEOSx', 'wUSDGx', 'feeBps', 'escrow']) {
+      assert.doesNotMatch(code, new RegExp(dead, 'i'), `${f} still references ${dead}`);
+    }
+  }
 });

@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveModel, isTinyClassify, pickClassifierModel, raiseReasoningMaxTokens, rewriteChatModel, REASONING_MODEL_RE, displayNameFor, publishModelList, anthropicModelList, modelsListForRequest, anthropicNativeAlias, ANTHROPIC_NATIVE_ALIASES, isHarnessAliasId, isQuoteableModel, pickClaudePickerRows, quoteableRows } from '../lib/models.js';
+import { resolveModel, displayNameFor, publishModelList, anthropicModelList, modelsListForRequest, anthropicNativeAlias, ANTHROPIC_NATIVE_ALIASES, isHarnessAliasId, isQuoteableModel, pickClaudePickerRows, quoteableRows } from '../lib/models.js';
 import { applyClaudeCodeCatalogEnv, claudeZooEnv, resolveClaudeCli, claudeCodeBinDirs } from '../lib/launch.js';
-import { anthropicToOpenAI } from '../lib/anthropic.js';
 
 
 // Hermetic: resolveModel honours OPENZOO_DEFAULT_MODEL, so an ambient value
@@ -77,25 +76,6 @@ test('OPENZOO_DEFAULT_MODEL=opus-5 does not swallow an explicit catalog pick', (
   try {
     assert.equal(resolveModel('x-ai/grok-4.6', ids), null);
     assert.equal(resolveModel('openzoo-grok-4.6', ids), 'x-ai/grok-4.6');
-    const grok = rewriteChatModel({
-      model: 'x-ai/grok-4.6',
-      max_tokens: 2000,
-      messages: Array.from({ length: 20 }, (_, i) => ({
-        role: i % 2 ? 'assistant' : 'user',
-        content: `turn ${i} ${'x'.repeat(500)}`,
-      })),
-    }, ids);
-    assert.equal(grok.tiny, false);
-    assert.equal(grok.parsed.model, 'x-ai/grok-4.6');
-    const twin = rewriteChatModel({
-      model: 'openzoo-grok-4.6',
-      max_tokens: 2000,
-      messages: Array.from({ length: 20 }, (_, i) => ({
-        role: i % 2 ? 'assistant' : 'user',
-        content: `turn ${i} ${'x'.repeat(500)}`,
-      })),
-    }, ids);
-    assert.equal(twin.parsed.model, 'x-ai/grok-4.6');
   } finally {
     delete process.env.OPENZOO_DEFAULT_MODEL;
   }
@@ -116,9 +96,50 @@ test('every shipped alias id resolves against the live-shaped catalog', async ()
   const merged = augmentModelList({ object: 'list', data: rows });
   const ids = merged.data.map((m) => m.id);
   const quoteable = CATALOG.filter((id) => !id.includes(':batch') && !id.includes(':free'));
-  // quoteable real models + harness aliases + openzoo/auto — no openzoo-* twins
-  assert.equal(merged.data.length, quoteable.length + ALIAS_IDS.length + 1);
-  assert.ok(merged.data.some((m) => m.id === 'openzoo/auto'));
+  // quoteable real models + harness aliases + BARE-NAME twins, derived from the
+  // catalog so `/model deepseek-v4-pro-0813` resolves without that string having
+  // been hand-added to ALIAS_IDS. Computed, not hardcoded: the whole point is
+  // that this set tracks the catalog instead of drifting from it.
+  const taken = new Set([...quoteable, ...ALIAS_IDS]);
+  const bareExpected = [];
+  for (const id of quoteable) {
+    const short = id.includes('/') ? id.split('/').pop() : null;
+    if (!short || taken.has(short)) continue;
+    taken.add(short);
+    bareExpected.push(short);
+  }
+  // ...plus FAMILY shortcuts ('grok', 'deepseek', ...) — computed the same way
+  // augmentModelList computes them, because Claude Code validates /model
+  // against this list only (proven live: the fuzzy per-id probe answered 200
+  // and the client refused the id anyway).
+  const FAMILY_TOKENS = ['gpt', 'claude', 'gemini', 'grok', 'deepseek', 'qwen',
+    'mistral', 'llama', 'glm', 'kimi', 'minimax', 'command', 'nova', 'sonar'];
+  const familyExpected = [];
+  for (const tok of FAMILY_TOKENS) {
+    if (taken.has(tok)) continue;
+    const target = resolveModel(tok, quoteable);
+    if (!target || !quoteable.includes(target)) continue;
+    taken.add(tok);
+    familyExpected.push(tok);
+  }
+  // no auto row, no openzoo-* twins
+  assert.equal(merged.data.length, quoteable.length + ALIAS_IDS.length + bareExpected.length + familyExpected.length);
+  for (const tok of familyExpected) {
+    const row = merged.data.find((m) => m.id === tok);
+    assert.ok(row?.served_by, `family shortcut ${tok} missing or unresolved`);
+  }
+  // The bare name must be present AND point at the real id it came from.
+  for (const short of bareExpected) {
+    const row = merged.data.find((m) => m.id === short);
+    assert.ok(row, `bare alias ${short} missing`);
+    assert.ok(row.served_by && row.served_by.endsWith(`/${short}`), `bare alias ${short} resolves wrong`);
+  }
+  // A real id is never shadowed by a bare twin of some other vendor's row.
+  for (const id of quoteable) {
+    const row = merged.data.find((m) => m.id === id);
+    assert.equal(row.served_by, undefined, `real id ${id} was shadowed by an alias`);
+  }
+  assert.ok(!merged.data.some((m) => m.id === 'openzoo/auto'));
   assert.equal(ids.filter((id) => id.startsWith('openzoo-')).length, 0);
   assert.equal(ids.filter((id) => id.includes(':batch')).length, 0);
   assert.ok(!ids.includes('liquid/lfm-2.5-2.6b:free'));
@@ -154,188 +175,6 @@ test('an openzoo-* twin resolves EXACTLY to the model it was minted from', async
   } finally { delete process.env.OPENZOO_DEFAULT_MODEL; }
 });
 
-// Claude Code auto-mode classifier: 16-token yes/no must never hit the
-// reasoning floor or OPENZOO_DEFAULT_MODEL (that pair turned a classify
-// into a 4000-token Grok/DeepSeek think and timed out).
-
-const CLASSIFY = {
-  model: 'claude-sonnet-5',
-  max_tokens: 16,
-  messages: [{ role: 'user', content: 'Is this command safe? Reply yes or no.' }],
-};
-
-test('isTinyClassify matches the 16-token auto-mode shape', () => {
-  assert.equal(isTinyClassify(CLASSIFY), true);
-  assert.equal(isTinyClassify(Buffer.from(JSON.stringify(CLASSIFY))), true);
-  assert.equal(isTinyClassify({ ...CLASSIFY, max_tokens: 64 }), true);
-  assert.equal(isTinyClassify({ ...CLASSIFY, max_tokens: 256 }), true);
-  assert.equal(isTinyClassify({ ...CLASSIFY, max_tokens: 0 }), false);
-});
-
-test('3c-shaped grok nubs are tiny (max_tokens 128 or 2000 on a 1-2 message body)', () => {
-  const nub128 = { model: 'x-ai/grok-4.6', max_tokens: 128, messages: CLASSIFY.messages };
-  const nub2000 = { model: 'x-ai/grok-4.6', max_tokens: 2000, messages: CLASSIFY.messages };
-  const nubTwo = {
-    model: 'x-ai/grok-4.6',
-    max_tokens: 2000,
-    messages: [
-      { role: 'system', content: 'Be brief.' },
-      { role: 'user', content: 'Is this safe? yes or no.' },
-    ],
-  };
-  assert.equal(isTinyClassify(nub128), true);
-  assert.equal(isTinyClassify(nub2000), true);
-  assert.equal(isTinyClassify(nubTwo), true);
-  for (const body of [nub128, nub2000, nubTwo]) {
-    const out = rewriteChatModel(body, CATALOG);
-    assert.equal(out.tiny, true, `expected tiny for max_tokens=${body.max_tokens}`);
-    assert.equal(out.raised, false);
-    assert.equal(out.parsed.max_tokens, body.max_tokens);
-    assert.equal(out.parsed.model, 'google/gemini-3.7-flash');
-    assert.equal(REASONING_MODEL_RE.test(out.parsed.model), false);
-  }
-});
-
-test('raiseReasoningMaxTokens itself still floors a 16-token grok ask', () => {
-  // The floor is correct for a real reasoning turn. The classify skip is
-  // in rewriteChatModel, which must not call this for a tiny body.
-  const bump = raiseReasoningMaxTokens({ model: 'x-ai/grok-4.6', max_tokens: 16 });
-  assert.equal(bump.raised, true);
-  assert.ok(bump.to >= 4000);
-});
-
-test('tiny max_tokens=16 + grok model does NOT raise', () => {
-  const grok = { model: 'x-ai/grok-4.6', max_tokens: 16, messages: CLASSIFY.messages };
-  const out = rewriteChatModel(grok, CATALOG);
-  assert.equal(out.tiny, true);
-  assert.equal(out.raised, false);
-  assert.equal(out.parsed.max_tokens, 16);
-  assert.equal(REASONING_MODEL_RE.test(out.parsed.model), false);
-});
-
-test('tiny claude-sonnet-5 routes to flash when the catalog has it', () => {
-  const out = rewriteChatModel(CLASSIFY, CATALOG);
-  assert.equal(out.tiny, true);
-  assert.equal(out.parsed.model, 'google/gemini-3.7-flash');
-  assert.equal(out.parsed.max_tokens, 16);
-  assert.equal(out.to, 'google/gemini-3.7-flash');
-});
-
-test('fat grok chat (max_tokens 2000+ and a long transcript) still raises to >=4000', () => {
-  const grok = {
-    model: 'x-ai/grok-4.6',
-    max_tokens: 2000,
-    messages: Array.from({ length: 20 }, (_, i) => ({
-      role: i % 2 ? 'assistant' : 'user',
-      content: `turn ${i} ${'x'.repeat(2000)}`,
-    })),
-  };
-  assert.equal(isTinyClassify(grok), false);
-  const bump = raiseReasoningMaxTokens(grok);
-  assert.equal(bump.raised, true);
-  assert.ok(bump.to >= 4000, `expected floor >=4000, got ${bump.to}`);
-  const out = rewriteChatModel(grok, CATALOG);
-  assert.equal(out.tiny, false);
-  assert.equal(out.raised, true);
-  assert.ok(out.parsed.max_tokens >= 4000);
-  assert.equal(out.parsed.model, 'x-ai/grok-4.6');
-});
-
-test('OPENZOO_DEFAULT_MODEL does not capture a tiny classify', () => {
-  process.env.OPENZOO_DEFAULT_MODEL = 'x-ai/grok-4.6';
-  try {
-    const out = rewriteChatModel(CLASSIFY, CATALOG);
-    assert.equal(out.tiny, true);
-    assert.notEqual(out.parsed.model, 'x-ai/grok-4.6');
-    assert.equal(out.parsed.model, 'google/gemini-3.7-flash');
-    assert.equal(out.parsed.max_tokens, 16);
-    // A real rewrite still honours the override.
-    const fatMsgs = Array.from({ length: 20 }, (_, i) => ({
-      role: i % 2 ? 'assistant' : 'user',
-      content: `turn ${i} ${'x'.repeat(500)}`,
-    }));
-    const chat = rewriteChatModel({ model: 'gpt-4o', max_tokens: 2000, messages: fatMsgs }, CATALOG);
-    assert.equal(chat.tiny, false);
-    assert.equal(chat.parsed.model, 'x-ai/grok-4.6');
-    assert.ok(chat.parsed.max_tokens >= 4000);
-  } finally {
-    delete process.env.OPENZOO_DEFAULT_MODEL;
-  }
-});
-
-test('pickClassifierModel prefers env, then flash, then haiku, then first non-reasoner', () => {
-  assert.equal(pickClassifierModel(CATALOG), 'google/gemini-3.7-flash');
-  assert.equal(pickClassifierModel(['x-ai/grok-4.6', 'anthropic/claude-haiku-4.5']), 'anthropic/claude-haiku-4.5');
-  assert.equal(pickClassifierModel(['x-ai/grok-4.6', 'deepseek/deepseek-v4-pro-0813', 'qwen/qwen3.8-2.4t-a95b']), 'qwen/qwen3.8-2.4t-a95b');
-  assert.equal(pickClassifierModel(['x-ai/grok-4.6', 'deepseek/deepseek-v4-pro-0813']), null);
-  assert.equal(pickClassifierModel(CATALOG, 'nvidia/nemotron-3.5-lightning'), 'nvidia/nemotron-3.5-lightning');
-  process.env.OPENZOO_CLASSIFIER_MODEL = 'bytedance-seed/seed-2-1-turbo';
-  try {
-    assert.equal(pickClassifierModel(CATALOG), 'bytedance-seed/seed-2-1-turbo');
-  } finally {
-    delete process.env.OPENZOO_CLASSIFIER_MODEL;
-  }
-});
-
-// opus-5 is openzoo's default session model. HEAVY_RE matches `opus`, but
-// pickClassifierModel used to skip only REASONING_MODEL_RE, so a catalog of
-// [opus-5, grok] returned opus-5 as "first non-reasoner". rewriteChatModel
-// then did `(picked) || from` and a catalog miss left the classify on opus-5.
-// AUTO's classify timeout hard-blocks Bash ("cannot determine the safety").
-
-const OPUS5 = 'anthropic/claude-opus-5';
-const OPUS_CLASSIFY = {
-  model: OPUS5,
-  max_tokens: 16,
-  messages: [{ role: 'user', content: 'Is this command safe? Reply yes or no.' }],
-};
-const OPUS_ONLY = [OPUS5, 'x-ai/grok-4.6', 'deepseek/deepseek-v4-pro-0813'];
-
-function assertClassifyNotHardBlocked(out, { maxTokens = 16 } = {}) {
-  assert.equal(out.tiny, true);
-  assert.equal(out.raised, false);
-  assert.equal(out.parsed.max_tokens, maxTokens);
-  assert.notEqual(out.parsed.model, OPUS5);
-  assert.equal(/opus/i.test(out.parsed.model), false);
-  assert.equal(REASONING_MODEL_RE.test(out.parsed.model), false);
-  // A 4000-token reasoning floor on this body is what AUTO times out on.
-  const floor = raiseReasoningMaxTokens(out.parsed);
-  assert.equal(floor.raised, false, 'shipped classify body must not hit the reasoning floor');
-}
-
-test('pickClassifierModel never returns opus-5 as first non-reasoner', () => {
-  assert.equal(pickClassifierModel(OPUS_ONLY), null);
-  assert.equal(pickClassifierModel([OPUS5]), null);
-  assert.equal(pickClassifierModel([OPUS5, 'anthropic/claude-opus-5-fast', 'x-ai/grok-4.6']), null);
-});
-
-test('opus-5 AUTO classify never stays on opus-5 (full catalog, opus-only, catalog miss)', () => {
-  const catalogs = [CATALOG, OPUS_ONLY, []];
-  for (const ids of catalogs) {
-    const out = rewriteChatModel(OPUS_CLASSIFY, ids);
-    assertClassifyNotHardBlocked(out);
-    assert.equal(out.from, OPUS5);
-  }
-  const withFlash = rewriteChatModel(OPUS_CLASSIFY, CATALOG);
-  assert.equal(withFlash.parsed.model, 'google/gemini-3.7-flash');
-  const noFlash = rewriteChatModel(OPUS_CLASSIFY, OPUS_ONLY);
-  assert.equal(noFlash.parsed.model, 'google/gemini-3.7-flash');
-  const miss = rewriteChatModel(OPUS_CLASSIFY, []);
-  assert.equal(miss.parsed.model, 'google/gemini-3.7-flash');
-});
-
-test('opus-5 AUTO classify ignores OPENZOO_DEFAULT_MODEL and does not raise', () => {
-  process.env.OPENZOO_DEFAULT_MODEL = OPUS5;
-  try {
-    for (const ids of [CATALOG, OPUS_ONLY, []]) {
-      const out = rewriteChatModel(OPUS_CLASSIFY, ids);
-      assertClassifyNotHardBlocked(out);
-      assert.notEqual(out.parsed.model, process.env.OPENZOO_DEFAULT_MODEL);
-    }
-  } finally {
-    delete process.env.OPENZOO_DEFAULT_MODEL;
-  }
-});
 
 test('bare Anthropic classifier ids always alias to a priced anthropic/ twin', () => {
   // Fly x402-tokens 500s `claude-opus-5` ("unknown model") and 402s the twin.
@@ -364,56 +203,6 @@ test('bare Anthropic classifier ids always alias to a priced anthropic/ twin', (
     }
   }
 });
-
-test('non-tiny /v1/messages claude-opus-5 rewrites off the bare id', () => {
-  const fat = {
-    model: 'claude-opus-5',
-    max_tokens: 2000,
-    messages: Array.from({ length: 20 }, (_, i) => ({
-      role: i % 2 ? 'assistant' : 'user',
-      content: `turn ${i} ${'x'.repeat(500)}`,
-    })),
-  };
-  assert.equal(isTinyClassify(fat), false);
-  for (const ids of [CATALOG, [...CATALOG, 'anthropic/claude-opus-5'], [], ['claude-opus-5']]) {
-    const out = rewriteChatModel(fat, ids);
-    assert.equal(out.tiny, false);
-    assert.notEqual(out.parsed.model, 'claude-opus-5');
-    assert.equal(out.parsed.model.includes('/'), true, `expected vendor-prefixed id, got ${out.parsed.model}`);
-  }
-  const withTwin = rewriteChatModel(fat, [...CATALOG, 'anthropic/claude-opus-5']);
-  assert.equal(withTwin.parsed.model, 'anthropic/claude-opus-5');
-});
-
-test('tiny classify on bare claude-opus-5 still pins to flash, never the bare id', () => {
-  const body = {
-    model: 'claude-opus-5',
-    max_tokens: 16,
-    messages: [{ role: 'user', content: 'Is this command safe? Reply yes or no.' }],
-  };
-  for (const ids of [CATALOG, [], ['claude-opus-5', 'anthropic/claude-opus-5']]) {
-    const out = rewriteChatModel(body, ids);
-    assertClassifyNotHardBlocked(out);
-    assert.notEqual(out.parsed.model, 'claude-opus-5');
-  }
-});
-
-test('Anthropic Messages opus-5 classify is pinned off opus-5 after translate', () => {
-  // Claude Code speaks /v1/messages; proxy converts then rewriteChatModel.
-  const inbound = {
-    model: OPUS5,
-    max_tokens: 16,
-    system: 'Reply yes or no.',
-    messages: [{ role: 'user', content: 'Is this Bash command safe?' }],
-  };
-  const converted = anthropicToOpenAI(inbound);
-  assert.equal(isTinyClassify(converted), true);
-  for (const ids of [CATALOG, OPUS_ONLY, []]) {
-    const out = rewriteChatModel(converted, ids);
-    assertClassifyNotHardBlocked(out);
-  }
-});
-
 
 // Mock of GET {OPENZOO_API_BASE}/v1/models (live OpenRouter catalog).
 // Not a product "33-item" list — the real catalog is whatever the gateway
@@ -515,7 +304,7 @@ test('publishModelList keeps quoteable zoo ids, not a single opus-5 and not clon
   assert.equal(published.data.find((m) => m.id === 'x-ai/grok-4.6').display_name, 'grok-4.6 (x-ai)');
   assert.equal(displayNameFor('anthropic/claude-opus-5'), 'claude-opus-5 (anthropic)');
   assert.equal(published.object, 'list');
-  assert.ok(ids.includes('openzoo/auto'));
+  assert.ok(!ids.includes('openzoo/auto'));
   assert.ok(ALIAS_IDS.every((id) => ids.includes(id)));
   assert.ok(ids.includes('claude-opus-5'));
   assert.ok(ids.includes('claude-opus-5-fast'));
@@ -535,7 +324,7 @@ test('anthropicModelList is a short honest picker (Claude Code reads id + displa
   assert.ok(ids.includes('google/gemini-3.7-flash'));
   assert.ok(ids.includes('deepseek/deepseek-v4-pro-0813'));
   assert.ok(ids.includes('qwen/qwen3.8-2.4t-a95b'));
-  assert.ok(ids.includes('openzoo/auto'));
+  assert.ok(!ids.includes('openzoo/auto'));
   assert.ok(!ids.includes('anthropic/claude-opus-5:batch'));
   assert.ok(!ids.includes('openzoo-claude-fable-5'));
   assert.ok(!ids.includes('gpt-4o'));
@@ -591,7 +380,21 @@ test('claudeZooEnv is the openzoo claude writer: gateway token, no Anthropic API
   assert.match(env.PATH, /\/usr\/bin/);
   const dirs = claudeCodeBinDirs('/Users/x');
   assert.ok(dirs.some((d) => d.endsWith('/.local/bin')));
-  assert.equal(resolveClaudeCli({ PATH: '/no/such/claude-bin' }), null);
+  // A BOGUS PATH MUST NOT PRODUCE A BOGUS RESOLUTION — that is the real claim.
+  //
+  // This asserted `null`, which only held on a machine with no Claude Code
+  // installed: claudeCodeBinDirs() probes ~/.local/bin, /opt/homebrew/bin and
+  // /usr/local/bin BEFORE $PATH (deliberately — see resolveClaudeCli), and
+  // those are absolute, so no env stub can hide them. On any dev box that had
+  // `claude` the suite failed for a reason that was never a defect.
+  const resolved = resolveClaudeCli({ PATH: '/no/such/claude-bin' });
+  if (resolved !== null) {
+    assert.ok(
+      claudeCodeBinDirs().some((d) => resolved.startsWith(`${d}/`)),
+      `resolved ${resolved}, which is not one of the known bin dirs`,
+    );
+    assert.ok(!resolved.startsWith('/no/such/claude-bin'), 'resolved out of the bogus PATH');
+  }
 });
 
 test('GET /v1/models (OpenAI + Claude-shaped) returns the mocked zoo catalog, not opus-5-only', async () => {
@@ -626,7 +429,7 @@ test('GET /v1/models (OpenAI + Claude-shaped) returns the mocked zoo catalog, no
   const cids = shaped.data.map((m) => m.id);
   assert.ok(cids.includes('x-ai/grok-4.6'), 'Claude-shaped list must keep grok, not filter to claude-*');
   assert.ok(cids.includes('deepseek/deepseek-v4-pro-0813'));
-  assert.ok(cids.includes('openzoo/auto'));
+  assert.ok(!cids.includes('openzoo/auto'));
   assert.ok(cids.length > 1);
   assert.ok(cids.length <= 12);
   assert.equal(fakeClaudeAliases(cids).length, 0);
@@ -636,7 +439,7 @@ test('GET /v1/models (OpenAI + Claude-shaped) returns the mocked zoo catalog, no
 // Sidecar /v1/messages: Claude Code's classifier POSTs model=claude-opus-5.
 // Fly 500s that bare id. The proxy must rewrite before the request leaves.
 
-test('POST /v1/messages model=claude-opus-5 does not 500 unavailable', async (t) => {
+test('POST /v1/messages is forwarded byte-for-byte (passthrough shim)', async (t) => {
   const http = await import('node:http');
   const os = await import('node:os');
   const path = await import('node:path');
@@ -644,7 +447,7 @@ test('POST /v1/messages model=claude-opus-5 does not 500 unavailable', async (t)
   const { config } = await import('../lib/config.js');
   const { resetZooModelIdsCache } = await import('../lib/models.js');
 
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oz-opus5-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oz-pass-'));
   const prev = {
     apiBase: config.apiBase,
     port: config.port,
@@ -658,43 +461,24 @@ test('POST /v1/messages model=claude-opus-5 does not 500 unavailable', async (t)
   config.walletPath = path.join(tmp, 'wallet.json');
 
   const seen = [];
-  const catalog = {
-    object: 'list',
-    data: [
-      { id: 'anthropic/claude-opus-5', object: 'model' },
-      { id: 'anthropic/claude-opus-5-fast', object: 'model' },
-      { id: 'anthropic/claude-sonnet-5', object: 'model' },
-      { id: 'google/gemini-3.7-flash', object: 'model' },
-    ],
-  };
-  const completion = {
-    id: 'chatcmpl-test',
-    object: 'chat.completion',
-    choices: [{ index: 0, message: { role: 'assistant', content: 'yes' }, finish_reason: 'stop' }],
-    usage: { prompt_tokens: 8, completion_tokens: 1 },
-  };
-
   const up = await new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       if (req.method === 'GET' && req.url.split('?')[0] === '/v1/models') {
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify(catalog));
+        res.end(JSON.stringify({ object: 'list', data: [pricedRow('anthropic/claude-opus-5')] }));
         return;
       }
       let buf = '';
       req.on('data', (c) => { buf += c; });
       req.on('end', () => {
-        let body = {};
-        try { body = JSON.parse(buf || '{}'); } catch { body = {}; }
-        seen.push({ path: req.url, model: body.model });
-        const bare = String(body.model || '');
-        if (!bare.includes('/') && /^claude-/i.test(bare)) {
-          res.writeHead(500, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ error: `unknown model ${bare}` }));
-          return;
-        }
+        seen.push({ path: req.url.split('?')[0], raw: buf });
+        // Anthropic-shaped answer — the backend speaks /v1/messages natively.
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ ...completion, model: body.model }));
+        res.end(JSON.stringify({
+          id: 'msg_test', type: 'message', role: 'assistant',
+          content: [{ type: 'text', text: 'yes' }],
+          model: JSON.parse(buf || '{}').model, stop_reason: 'end_turn',
+        }));
       });
     });
     server.listen(0, '127.0.0.1', () => resolve(server));
@@ -729,58 +513,28 @@ test('POST /v1/messages model=claude-opus-5 does not 500 unavailable', async (t)
   });
 
   const port = proxy.server.address().port;
-  const post = (model, extra = {}) => fetch(`http://127.0.0.1:${port}/v1/messages`, {
+  const body = JSON.stringify({
+    model: 'claude-opus-5',
+    max_tokens: 32000,
+    messages: [{ role: 'user', content: 'continue the task' }],
+  });
+  const r = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({
-      model,
-      max_tokens: 16,
-      messages: [{ role: 'user', content: 'Is this command safe? Reply yes or no.' }],
-      ...extra,
-    }),
+    body,
   });
+  const text = await r.text();
+  assert.equal(r.status, 200, `expected 200, got ${r.status} ${text}`);
+  assert.match(text, /yes/);
 
-  for (const id of ['claude-opus-5', 'claude-opus-5-fast', 'claude-3-5-opus', 'claude-opus-5[1m]']) {
-    const r = await post(id);
-    const text = await r.text();
-    assert.notEqual(r.status, 500, `${id} must not 500: ${text}`);
-    assert.doesNotMatch(text, /unknown model|temporarily unavailable/i);
-    assert.equal(r.status, 200, `${id} expected 200, got ${r.status} ${text}`);
-    const msg = JSON.parse(text);
-    const content = msg.content ?? msg.choices?.[0]?.message?.content;
-    assert.match(JSON.stringify(content), /yes/, `body: ${text}`);
-  }
+  // THE CONTRACT: the path is preserved and the body reaches the backend
+  // byte-for-byte — no model rewrite, no classify pin, no translation.
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].path, '/v1/messages');
+  assert.equal(seen[0].raw, body);
 
-  const forwarded = seen.filter((h) => h.model != null);
-  assert.ok(forwarded.length >= 1, `expected an upstream POST, got ${JSON.stringify(seen)}`);
-  for (const hit of forwarded) {
-    assert.ok(String(hit.model).includes('/'), `upstream must not see a bare Anthropic id: ${hit.model}`);
-    assert.notEqual(hit.model, 'claude-opus-5');
-    assert.notEqual(hit.model, 'claude-opus-5-fast');
-    assert.notEqual(hit.model, 'claude-3-5-opus');
-  }
-  // Tiny classify pins to flash; that is a live priced id, not the bare one.
-  assert.ok(forwarded.some((h) => h.model === 'google/gemini-3.7-flash'));
-
+  // Alias probes still answer so harnesses validate their configured id.
   const probe = await fetch(`http://127.0.0.1:${port}/v1/models/claude-opus-5`);
   assert.equal(probe.status, 200);
   assert.equal((await probe.json()).id, 'claude-opus-5');
-
-  // Non-tiny chat with the same bare id must also rewrite (not only classify).
-  const fat = await fetch(`http://127.0.0.1:${port}/v1/messages`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({
-      model: 'claude-opus-5',
-      max_tokens: 2000,
-      messages: Array.from({ length: 20 }, (_, i) => ({
-        role: i % 2 ? 'assistant' : 'user',
-        content: `turn ${i} ${'x'.repeat(500)}`,
-      })),
-    }),
-  });
-  const fatText = await fat.text();
-  assert.equal(fat.status, 200, `fat claude-opus-5 expected 200, got ${fat.status} ${fatText}`);
-  const last = seen[seen.length - 1];
-  assert.equal(last.model, 'anthropic/claude-opus-5');
 });
