@@ -89,6 +89,19 @@ const HELP = `openzoo — local x402-paying proxy + MCP server for openzoo.fun
 usage:
   npx openzoo            start the proxy: http://localhost:8402/v1 (keyless) PLUS a
                          public HTTPS url for cloud IDEs (key required, printed at start)
+  npx openzoo bot             Grok Bot.app on the zoo. Starts :8402 + aiserver on
+                              :8443, then launches the app with
+                              CURSOR_API_BASE_URL=https://127.0.0.1:8443
+                              (no sudo, no /etc/hosts). Leave it running.
+                              After a reboot the login item comes back without
+                              that env — bot bounces it so send works. Already-
+                              hijacked sessions are left alone.
+                              --quit force bounce · --no-quit never bounce
+                              --web serve the renderer in a browser instead of
+                              launching the .app (http://127.0.0.1:4174)
+  npx openzoo web             Grok Bot renderer in the browser. Same hijack as
+                              bot (proxy :8402 + aiserver :8443) but no Electron.
+                              --no-open skip launching a tab
   npx openzoo cursor [dir]    start proxy+tunnel, write MCP config + every model
                               into the picker, and LAUNCH Cursor on [dir]
                               (defaults to the current directory; ~ works;
@@ -163,6 +176,12 @@ async function main() {
     case 'proxy':
     case 'start':
       await (await import('../lib/proxy.js')).startProxy({ autoTunnel: true });
+      break;
+    case 'bot':
+      await (await import('../lib/grokcli.js')).runBot(process.argv.slice(3));
+      break;
+    case 'web':
+      await (await import('../lib/grokbotweb.js')).runGrokBotWeb(process.argv.slice(3));
       break;
     case 'editor':
     case 'cursor':

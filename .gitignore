@@ -12,3 +12,10 @@ lib/proxy.js.bak
 .env
 .env.local
 .sonar/
+
+# third-party app bundles — local Docker build context only, never in git
+# (Dockerfile COPYs Grok Bot.app/Contents/Resources/app.asar from the working tree)
+Grok Bot.app/
+claude-app-patch/app/
+claude-app-patch/*.asar*
+.DS_Store

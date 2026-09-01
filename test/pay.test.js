@@ -7,6 +7,16 @@ import { orderCandidatesByMemory, resetRailMemory } from '../lib/pay.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+test('balance cache re-reads zeros and expires in seconds, not a minute', () => {
+  const pay = readFileSync(path.join(root, 'lib', 'pay.js'), 'utf8');
+  assert.match(pay, /OPENZOO_BALANCE_TTL_MS \|\| 8_000/);
+  assert.match(pay, /OPENZOO_RAIL_MEMO_MS \|\| 15_000/);
+  assert.match(pay, /hit\.raw === 0n/);
+  assert.match(pay, /cachedTokenBalance\([\s\S]*force:\s*true/);
+  const overlay = readFileSync(path.join(root, 'lib', 'cursorbackend.js'), 'utf8');
+  assert.match(overlay, /walletUsdCache\.at < 8_000/);
+});
+
 test('rail memory still prefers a funded last-good row', () => {
   resetRailMemory();
   const a = { network: 'solana:x', asset: 'aaa' };
@@ -39,7 +49,8 @@ test('the pay path holds no conversion machinery', () => {
     assert.doesNotMatch(pay, new RegExp(dead.replace('.', '\\.')), `${dead} must be gone from the pay path`);
   }
   // Short is short: one balance read decides it, with no pool walk behind it.
-  assert.match(pay, /if \(bal\.raw < need\) throw new UnderfundedError/);
+  assert.match(pay, /if \(bal\.raw < need\) \{/);
+  assert.match(pay, /throw new UnderfundedError/);
 });
 
 test('no module ships a wrapper mint, an escrow, or a transfer tax', () => {

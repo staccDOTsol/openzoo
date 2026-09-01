@@ -1,0 +1,204 @@
+#!/usr/bin/osascript -l JavaScript
+// Grok Bot desktop driver. argv[0] is a JSON payload {op, ...}.
+ObjC.import('Cocoa');
+ObjC.import('CoreGraphics');
+
+function run(argv) {
+  var a = {};
+  try { a = JSON.parse(argv[0] || '{}'); } catch (e) {
+    return JSON.stringify({ ok: false, error: 'bad json: ' + e.message });
+  }
+  try {
+    return JSON.stringify(dispatch(a));
+  } catch (e) {
+    return JSON.stringify({ ok: false, error: String(e.message || e) });
+  }
+}
+
+function dispatch(a) {
+  var op = String(a.op || '');
+  if (op === 'bounds') return bounds();
+  if (op === 'focus') return focusApp(a.app);
+  if (op === 'click') return click(a);
+  if (op === 'type') return typeText(a);
+  if (op === 'key') return keyPress(a);
+  if (op === 'tree') return uiTree(a);
+  if (op === 'open_url') return openUrl(a);
+  throw new Error('unknown op ' + op);
+}
+
+function bounds() {
+  var f = $.NSScreen.mainScreen.frame;
+  // Cocoa origin is bottom-left; width/height are points (not retina pixels).
+  return {
+    ok: true,
+    width: f.size.width,
+    height: f.size.height,
+    x: f.origin.x,
+    y: f.origin.y,
+  };
+}
+
+function focusApp(name) {
+  name = String(name || '').trim();
+  if (!name) throw new Error('app required');
+  var app = Application(name);
+  app.activate();
+  delay(0.25);
+  return { ok: true, app: name };
+}
+
+function click(a) {
+  if (a.app) focusApp(a.app);
+  if (a.query) {
+    var hit = findQuery(a.query, a.app);
+    if (!hit) throw new Error('no AX match for ' + a.query);
+    a.x = hit.x + Math.floor((hit.w || 8) / 2);
+    a.y = hit.y + Math.floor((hit.h || 8) / 2);
+    a.matched = hit.title || hit.role;
+  }
+  var x = Number(a.x);
+  var y = Number(a.y);
+  if (!isFinite(x) || !isFinite(y)) throw new Error('click needs x,y or query');
+  // CGEvent uses top-left origin in global display points — same as AX position.
+  var pt = $.CGPointMake(x, y);
+  var move = $.CGEventCreateMouseEvent(null, $.kCGEventMouseMoved, pt, 0);
+  $.CGEventPost($.kCGHIDEventTap, move);
+  delay(0.04);
+  var btn = String(a.button || 'left') === 'right' ? $.kCGMouseButtonRight : $.kCGMouseButtonLeft;
+  var downType = btn === $.kCGMouseButtonRight ? $.kCGEventRightMouseDown : $.kCGEventLeftMouseDown;
+  var upType = btn === $.kCGMouseButtonRight ? $.kCGEventRightMouseUp : $.kCGEventLeftMouseUp;
+  var down = $.CGEventCreateMouseEvent(null, downType, pt, btn);
+  var up = $.CGEventCreateMouseEvent(null, upType, pt, btn);
+  $.CGEventPost($.kCGHIDEventTap, down);
+  delay(0.03);
+  $.CGEventPost($.kCGHIDEventTap, up);
+  if (a.double) {
+    delay(0.05);
+    $.CGEventPost($.kCGHIDEventTap, down);
+    delay(0.03);
+    $.CGEventPost($.kCGHIDEventTap, up);
+  }
+  return { ok: true, x: x, y: y, matched: a.matched || null, mappedFromImage: !!a.mappedFromImage };
+}
+
+function typeText(a) {
+  if (a.app) focusApp(a.app);
+  var text = String(a.text == null ? '' : a.text);
+  if (!text) throw new Error('text required');
+  var se = Application('System Events');
+  var paste = a.paste === true || (a.paste !== false && text.length > 20);
+  if (paste) {
+    var app = Application.currentApplication();
+    app.includeStandardAdditions = true;
+    app.setTheClipboardTo(text);
+    delay(0.05);
+    se.keystroke('v', { using: 'command down' });
+    return { ok: true, method: 'paste', n: text.length };
+  }
+  se.keystroke(text);
+  return { ok: true, method: 'keystroke', n: text.length };
+}
+
+var KEYCODES = {
+  enter: 36, return: 36, tab: 48, escape: 53, esc: 53, space: 49,
+  delete: 51, backspace: 51, up: 126, down: 125, left: 123, right: 124,
+};
+
+function keyPress(a) {
+  if (a.app) focusApp(a.app);
+  var key = String(a.key || '').toLowerCase();
+  if (!key) throw new Error('key required');
+  var using = [];
+  if (a.cmd || a.command || a.meta) using.push('command down');
+  if (a.alt || a.option) using.push('option down');
+  if (a.shift) using.push('shift down');
+  if (a.ctrl || a.control) using.push('control down');
+  var se = Application('System Events');
+  var opts = using.length ? { using: using } : {};
+  var code = KEYCODES[key];
+  if (code != null) se.keyCode(code, opts);
+  else se.keystroke(key.length === 1 ? key : key.charAt(0), opts);
+  return { ok: true, key: key, mods: using };
+}
+
+function openUrl(a) {
+  var url = String(a.url || a.href || '').trim();
+  if (!/^https?:\/\//i.test(url)) throw new Error('url must be http(s)');
+  var appName = resolveBrave(a.app);
+  var app = Application(appName);
+  app.activate();
+  delay(0.2);
+  try {
+    app.windows[0].activeTab.url = url;
+  } catch (e) {
+    app.openLocation(url);
+  }
+  return { ok: true, app: appName, url: url };
+}
+
+function resolveBrave(name) {
+  name = String(name || 'Brave Browser');
+  if (/brave/i.test(name)) return 'Brave Browser';
+  return name;
+}
+
+function uiTree(a) {
+  var se = Application('System Events');
+  var proc;
+  if (a.app) {
+    proc = se.processes.byName(String(a.app));
+  } else {
+    proc = se.processes.whose({ frontmost: true })[0];
+  }
+  var limit = Math.min(120, Math.max(10, Number(a.limit) || 60));
+  var rows = [];
+  var win;
+  try { win = proc.windows[0]; } catch (e) { throw new Error('no window for ' + (a.app || 'front app')); }
+  function walk(el, depth) {
+    if (rows.length >= limit || depth > 10) return;
+    var role = '', title = '', val = '', pos = null, size = null;
+    try { role = String(el.role()); } catch (e) {}
+    try { title = String(el.title() || el.description() || el.name() || ''); } catch (e) {}
+    try {
+      var v = el.value();
+      val = v == null ? '' : String(v);
+    } catch (e) {}
+    try { pos = el.position(); } catch (e) {}
+    try { size = el.size(); } catch (e) {}
+    var interesting = /button|text|field|link|check|pop|menu|tab|combo|scroll|heading|web/i.test(role + ' ' + title);
+    if (interesting && (title || val || /button|field|link|check/i.test(role))) {
+      rows.push({
+        role: role,
+        title: title.slice(0, 80),
+        value: val.slice(0, 80),
+        x: pos ? pos[0] : null,
+        y: pos ? pos[1] : null,
+        w: size ? size[0] : null,
+        h: size ? size[1] : null,
+      });
+    }
+    var kids = [];
+    try { kids = el.uiElements(); } catch (e) { return; }
+    for (var i = 0; i < kids.length; i++) walk(kids[i], depth + 1);
+  }
+  walk(win, 0);
+  var title = '';
+  try { title = String(win.title()); } catch (e) {}
+  var pname = '';
+  try { pname = String(proc.name()); } catch (e) {}
+  return { ok: true, app: pname, window: title, n: rows.length, rows: rows };
+}
+
+function findQuery(q, app) {
+  var tree = uiTree({ app: app, limit: 120 });
+  var want = String(q || '').toLowerCase();
+  if (!want) return null;
+  var rows = tree.rows || [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var blob = ((r.title || '') + ' ' + (r.value || '') + ' ' + (r.role || '')).toLowerCase();
+    if (blob.indexOf(want) >= 0 && r.x != null && r.y != null) return r;
+  }
+  return null;
+}

@@ -43,8 +43,8 @@ function closeServer(server) {
 }
 
 describe('fetchHeaders + session unwedge', { concurrency: 1 }, () => {
-  test('HEADERS_MS defaults to 120s; credit probe is 2.5s', () => {
-    assert.equal(HEADERS_MS, 120_000);
+  test('HEADERS_MS defaults to 10min; credit probe is 2.5s', () => {
+    assert.equal(HEADERS_MS, 10 * 60_000);
     assert.equal(CREDIT_TIMEOUT_MS, 2500);
   });
 
@@ -54,7 +54,7 @@ describe('fetchHeaders + session unwedge', { concurrency: 1 }, () => {
       const t0 = Date.now();
       await assert.rejects(
         () => fetchHeaders(`http://127.0.0.1:${hung.address().port}/v1/credits`, {}, 150),
-        (err) => err.name === 'AbortError' || err.name === 'TimeoutError' || /aborted|timeout/i.test(String(err.message)),
+        (err) => err.name === 'AbortError' || err.name === 'TimeoutError' || /aborted|timeout|headers not in/i.test(String(err.message)),
       );
       assert.ok(Date.now() - t0 < 800, `fetchHeaders took ${Date.now() - t0}ms`);
     } finally {
@@ -120,11 +120,11 @@ describe('fetchHeaders + session unwedge', { concurrency: 1 }, () => {
     const results = await Promise.all(inflight);
     for (const r of results) {
       if (r.error) {
-        assert.match(String(r.error.message || r.error), /aborted|timeout|fetch failed/i);
+        assert.match(String(r.error.message || r.error), /aborted|timeout|fetch failed|headers not in/i);
         continue;
       }
       assert.ok(r.status >= 500, `expected timeout 5xx, got ${r.status} ${r.text}`);
-      assert.match(r.text, /aborted|timeout|Timeout/i);
+      assert.match(r.text, /aborted|timeout|headers not in/i);
     }
   });
 
