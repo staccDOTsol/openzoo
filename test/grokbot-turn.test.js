@@ -12,6 +12,7 @@ import {
   LOCAL_TOOL_NAMES,
   looksStoppedReply,
   selectedPageId,
+  canonicalZooModel,
 } from '../lib/cursorbackend.js';
 import { mapImageClick, resolveAppName } from '../lib/grokbotDesktop.js';
 
@@ -176,4 +177,9 @@ test('mapImageClick scales screenshot pixels to screen points', () => {
 test('selectedPageId reads the [selected] page out of chrome-devtools output', () => {
   assert.equal(selectedPageId('## Pages\n1: https://x.com/a (Home)\n2: https://x.com/b [selected]\n3: about:blank'), 2);
   assert.equal(selectedPageId('nothing'), null);
+});
+
+test('every grok spelling, including x-ai/grok-4.6, lands on the bare bazaar id', () => {
+  for (const id of ['grok', 'grok-4', 'grok-4.6', 'x-ai/grok-4.6', 'X-AI/GROK-4.6']) assert.equal(canonicalZooModel(id), 'grok-4.6');
+  assert.equal(canonicalZooModel('anthropic/claude-fable-5'), 'anthropic/claude-fable-5');
 });
