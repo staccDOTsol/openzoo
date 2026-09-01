@@ -1,8 +1,8 @@
 {
   "name": "openzoo-grokui",
-  "version": "1.6.13",
+  "version": "1.5.97",
   "private": true,
-  "description": "Standalone desktop chat client \u2014 same message canvas as Grok Bot, backed by openzoo.",
+  "description": "Standalone desktop chat client — same message canvas as Grok Bot, backed by openzoo.",
   "main": "main.js",
   "scripts": {
     "bundle-ui": "node scripts/bundle-grokui.js",
@@ -23,7 +23,6 @@
     "files": [
       "main.js",
       "sidecar-version.js",
-      "sidecar-heal.js",
       "preload.js",
       "lib/**/*",
       "build/**/*"
@@ -74,22 +73,10 @@
       "icon": "build/icon.ico"
     },
     "afterPack": "build/afterPack.js",
-    "npmRebuild": true,
-    "includeSubNodeModules": true,
-    "extraResources": [
-      {
-        "from": "node_modules/node-pty",
-        "to": "node-pty"
-      },
-      {
-        "from": "node_modules/openzoo-claude",
-        "to": "openzoo-claude"
-      }
-    ]
+    "npmRebuild": false,
+    "includeSubNodeModules": true
   },
   "dependencies": {
-    "node-pty": "1.1.0",
-    "openzoo-claude": "2.0.2",
     "@solana/codecs-core": "^2.0.0-rc.1",
     "@solana/codecs-data-structures": "^2.0.0-rc.1",
     "@solana/codecs-numbers": "^2.0.0-rc.1",

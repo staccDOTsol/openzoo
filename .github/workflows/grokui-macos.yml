@@ -25,18 +25,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      # grokui-v1.6.5 mac #91 died in ~3s on electron-builder npmRebuild of
-      # bigint-buffer: node-gyp → gyp_main.py → `from distutils.version import
-      # StrictVersion` → ModuleNotFoundError (Python 3.12+ dropped distutils).
-      # setuptools puts distutils back so node-pty (and the other natives
-      # npmRebuild walks) can compile for the Electron ABI.
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: setuptools for node-gyp (distutils)
-        run: |
-          python3 -m pip install --user setuptools
-          python3 -c "from distutils.version import StrictVersion; print('ok distutils')"
 
       # THE TAG IS THE VERSION. Without this the app's package.json drifts from
       # the tag and the release ships binaries named after an older build:
@@ -139,12 +127,6 @@ jobs:
       - name: Packed sidecar is the overlaid tree
         shell: bash
         run: node scripts/assert-overlaid-openzoo.mjs grokui-app/dist
-      - name: Packed sidecar lib loads livestatus (think.js present)
-        shell: bash
-        run: node scripts/assert-packed-openzoo-lib.mjs grokui-app/dist
-      - name: Packed node-pty + openzoo-claude for this arch
-        shell: bash
-        run: node scripts/assert-packed-node-pty.mjs grokui-app/dist
 
       - name: Verify signature
         shell: bash

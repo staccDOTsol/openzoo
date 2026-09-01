@@ -152,8 +152,6 @@ node "$REPO_ROOT/scripts/assert-packed-grokui-lib.mjs" dist \
   || die "packed grokui.mjs relatives missing"
 node "$REPO_ROOT/scripts/assert-overlaid-openzoo.mjs" dist \
   || die "packed node_modules/openzoo is not the overlaid sidecar"
-node "$REPO_ROOT/scripts/assert-packed-openzoo-lib.mjs" dist \
-  || die "packed openzoo lib missing think.js or cannot import livestatus"
 for d in "${DMGS[@]}"; do printf '    %s  %s\n' "$(du -h "$d" | cut -f1)" "$d"; done
 
 # ---- publish ----------------------------------------------------------------
