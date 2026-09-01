@@ -27,6 +27,7 @@ test('LOCAL_TOOLS includes screenshot, click/type, and create_agent', () => {
       'click', 'type_text', 'key', 'ui_tree', 'focus_app', 'open_url',
       'create_agent', 'set_brief', 'list_agents', 'message_agent',
       'schedule_wakeup', 'cancel_wakeup',
+      'ship_crew', 'ship_forge', 'ship_launch_worker', 'ship_status', 'ship_review', 'ship_open_pr',
     ],
   );
 });
