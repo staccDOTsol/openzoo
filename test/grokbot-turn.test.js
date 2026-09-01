@@ -148,8 +148,8 @@ test('wakeup cron is a host timer, not spawn', () => {
   assert.match(src, /Do not spawn more bots for persistence/);
 });
 
-test('click tools and the auto default are wired', () => {
-  assert.match(src, /DEFAULT_ZOO_MODEL = 'auto'/);
+test('click tools and the door-only grok-4.6 default are wired', () => {
+  assert.match(src, /DEFAULT_ZOO_MODEL = 'grok-4\.6'/);
   assert.match(src, /\|\| DEFAULT_ZOO_MODEL/);
   assert.match(src, /zai-org\/glm-5\.3-flash/);
   assert.match(src, /desktopAction\('click'/);
@@ -180,6 +180,6 @@ test('selectedPageId reads the [selected] page out of chrome-devtools output', (
 });
 
 test('every grok spelling, including x-ai/grok-4.6, lands on the bare bazaar id', () => {
-  for (const id of ['grok', 'grok-4', 'grok-4.6', 'x-ai/grok-4.6', 'X-AI/GROK-4.6']) assert.equal(canonicalZooModel(id), 'grok-4.6');
+  for (const id of ['grok', 'grok-4', 'grok-4.6', 'x-ai/grok-4.6', 'X-AI/GROK-4.6', 'auto', 'openrouter/auto']) assert.equal(canonicalZooModel(id), 'grok-4.6');
   assert.equal(canonicalZooModel('anthropic/claude-fable-5'), 'anthropic/claude-fable-5');
 });

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isBotMilestone, makeBotLogger, payBannerLines } from '../lib/botlog.js';
+import { isBotMilestone, makeBotLogger, payBannerLines, payBannerChat } from '../lib/botlog.js';
 
 test('quiet mode drops wire noise and keeps milestones and problems', () => {
   const noise = [
@@ -58,4 +58,12 @@ test('pay banner says where to send money, the card link, the chrome toggle, and
   const attached = payBannerLines({ solana: 'a', evm: 'b', chromeMode: 'real-chrome' }).join('\n');
   assert.match(attached, /attached to your real browser \(real-chrome\)/);
   assert.doesNotMatch(attached, /flip chrome:/);
+});
+
+test('payBannerChat is the same facts shaped for a canvas', () => {
+  const c = payBannerChat({ solana: 'SOL1', evm: '0xE', balances: { USDC: 1, TOKEN_UNITS: 2, LEOS_UNITS: 3, BASE_USDC: 4 }, chromeMode: 'real-chrome' });
+  assert.match(c, /^\[how to pay\]\nHOW TO PAY/);
+  assert.doesNotMatch(c, /openzoo: /);
+  assert.match(c, /LEOS +5xgsnby6/);
+  assert.match(c, /TOKEN 2 units · LEOS 3 units/);
 });
