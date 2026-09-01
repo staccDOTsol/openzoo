@@ -10,7 +10,18 @@ on:
 
 jobs:
   windows:
-    runs-on: windows-latest
+    # grokui-v1.6.5 win #91 died in ~5s on electron-builder npmRebuild of
+    # bigint-buffer: node-gyp `Could not find any Visual Studio installation`.
+    # windows-latest is windows-2025 + VS 2026 (major 18); the node-gyp
+    # bundled with @electron/rebuild does not recognize 18.x. windows-2022
+    # has VS 2022 (17.x) which that node-gyp can see, so node-pty/conpty
+    # rebuilds for the Electron ABI.
+    #
+    # grokui-v1.6.6 win #92 then died on the SAME distutils miss as mac #91:
+    # node-gyp gyp/pylib/gyp/input.py `from distutils.version import
+    # StrictVersion` → ModuleNotFoundError (Python 3.12+ has no distutils).
+    # setup-python 3.12 + setuptools (and py -m pip) puts it back.
+    runs-on: windows-2022
     permissions:
       contents: write
     steps:
@@ -18,6 +29,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      # grokui-v1.6.6 win #92 died on electron-builder npmRebuild of
+      # bigint-buffer: node-gyp → gyp_main.py → `from distutils.version import
+      # StrictVersion` → ModuleNotFoundError (Python 3.12+ dropped distutils).
+      # setuptools puts distutils back so node-pty/conpty (and the other natives
+      # npmRebuild walks) can compile for the Electron ABI. `py -m pip` covers
+      # the Windows launcher node-gyp often finds instead of PATH python.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: setuptools for node-gyp (distutils)
+        shell: bash
+        run: |
+          python -m pip install --user setuptools
+          python3 -m pip install --user setuptools || true
+          py -m pip install setuptools
+          python -c "from distutils.version import StrictVersion; print('ok distutils')"
+          py -c "from distutils.version import StrictVersion; print('ok distutils py')"
 
       # THE TAG IS THE VERSION. Without this the app's package.json drifts from
       # the tag and the release ships binaries named after an older build:
@@ -58,6 +86,12 @@ jobs:
       - name: Packed sidecar is the overlaid tree
         shell: bash
         run: node scripts/assert-overlaid-openzoo.mjs grokui-app/dist
+      - name: Packed sidecar lib loads livestatus (think.js present)
+        shell: bash
+        run: node scripts/assert-packed-openzoo-lib.mjs grokui-app/dist
+      - name: Packed node-pty + openzoo-claude for this arch
+        shell: bash
+        run: node scripts/assert-packed-node-pty.mjs grokui-app/dist
 
       - name: Verify output
         shell: bash
