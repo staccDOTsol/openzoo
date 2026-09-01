@@ -3,7 +3,7 @@ import test from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { claimTweet, markDone, releaseTweet, listClaims, tweetIdFrom, loadClaims } from '../lib/xclaims.js';
+import { claimTweet, markDone, releaseTweet, listClaims, tweetIdFrom, loadClaims, composePlan } from '../lib/xclaims.js';
 
 const tmpHome = () => fs.mkdtempSync(path.join(os.tmpdir(), 'oz-xclaims-'));
 
@@ -49,4 +49,16 @@ test('release gives a claim back only to its holder; garbage file is tolerated',
   assert.equal(claimTweet({ tweet: '555555555555', by: 'B', home, now: 2 }).ok, true);
   fs.writeFileSync(path.join(home, '.openzoo', 'xclaims.json'), '[]');
   assert.deepEqual(loadClaims(home), {});
+});
+
+test('composePlan types line by line with a real Enter between lines, then verifies', () => {
+  const p = composePlan('answer line\n\nhttps://openzoo.fun/core\nx402 · PAID $0.004 TOKEN');
+  assert.equal(p.lines, 4);
+  const seq = p.ops.map((o) => o.tool);
+  assert.equal(seq[0], 'evaluate_script');
+  assert.deepEqual(seq.slice(1, -1), ['type_text', 'press_key', 'press_key', 'type_text', 'press_key', 'type_text']);
+  assert.equal(seq[seq.length - 1], 'evaluate_script');
+  assert.equal(p.ops[1].args.text, 'answer line');
+  assert.equal(p.ops[2].args.key, 'Enter');
+  assert.match(p.ops[0].args.function, /tweetTextarea_0/);
 });
