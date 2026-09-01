@@ -46,7 +46,10 @@ test('pay banner says where to send money, the card link, the chrome toggle, and
   const text = lines.join('\n');
   assert.match(text, /HOW TO PAY/);
   assert.match(text, /Solana +HLyP…kku/);
-  assert.match(text, /send USDC or TOKEN here/);
+  assert.match(text, /USDC +EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/);
+  assert.match(text, /TOKEN +EVULoNF4DeMBN4dGiZiDfpiiTfNZgoCvXWWgaV3epump +\(half price\)/);
+  assert.match(text, /LEOS +5xgsnby6P9zqGK71J7H4yJLxzqPvNbC7rDZxNzjHmj7e +\(half price\)/);
+  assert.match(text, /USDC +0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913/);
   assert.match(text, /Base +0x6409…9AA1/);
   assert.match(text, /whop\.com\/staccoverflow\/openzoo/);
   assert.match(text, /chrome:\/\/inspect\/#remote-debugging/);
