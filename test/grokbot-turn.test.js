@@ -28,6 +28,7 @@ test('LOCAL_TOOLS includes screenshot, click/type, and create_agent', () => {
       'create_agent', 'set_brief', 'list_agents', 'message_agent',
       'schedule_wakeup', 'cancel_wakeup',
       'ship_crew', 'ship_forge', 'ship_launch_worker', 'ship_status', 'ship_review', 'ship_open_pr',
+      'x_claim', 'x_done', 'x_release', 'x_claims',
     ],
   );
 });
