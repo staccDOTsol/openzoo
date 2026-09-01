@@ -428,3 +428,7 @@ After the spend lines: `tx https://solscan.io/tx/<sig>` (or basescan on Base), t
 ## Grok Bot boxes: `sg docker` hangs forever; use `sudo -n docker`
 sg sits on a group-password prompt on headless boxes. sudo -n docker works. RPC on nodes is flux-only (public cluster removed — it 429s and made "flux down" out of transient faults); the site keeps Triton for historical reads (signatures/DAS/gPA) that flux cannot serve — do NOT make the site flux-only.
 **Why:** each was independently rediscovered the hard way this session.
+
+## Grok Bot.app + claude-app-patch/app are gitignored; Docker build needs them local (2026-09-01)
+`Grok Bot.app/` (307M) and `claude-app-patch/app/` (114M) never go to GitHub. The Dockerfile COPYs `Grok Bot.app/Contents/Resources/app.asar` from the working tree, so `fly deploy` only works from a checkout that has the app bundle sitting next to it — a fresh clone cannot build. `claude-app-patch/build.sh` is tracked; the unpacked app dir it repacks is not.
+**Why:** third-party signed binaries over GitHub's 100MB limit, and not ours to redistribute.
