@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   parseTomlMcpServers, fromJsonMcpServers, loadHostMcpConfigs,
-  mcpToOpenAiTool, toolOpenaiName, flattenMcpResult,
+  mcpToOpenAiTool, toolOpenaiName, flattenMcpResult, chromeArgsFor, chromeStatus, CHROME_TOGGLE_HINT,
 } from '../lib/mcpbridge.js';
 
 test('parseTomlMcpServers reads grok-style stdio + http + headers', () => {
@@ -105,4 +105,24 @@ test('mcpToOpenAiTool prefixes server__tool for the zoo payload', () => {
 test('flattenMcpResult keeps text and flags isError', () => {
   assert.equal(flattenMcpResult({ content: [{ type: 'text', text: 'ok' }] }), 'ok');
   assert.match(flattenMcpResult({ isError: true, content: [{ type: 'text', text: 'nope' }] }), /^ERROR nope/);
+});
+
+test('chrome-devtools prefers the real Chrome (autoConnect), then real Brave, then a debug port, then its own profile', () => {
+  const base = ['-y', 'chrome-devtools-mcp@latest'];
+  const real = chromeArgsFor(base, { chromePort: 51234 });
+  assert.equal(real.mode, 'real-chrome');
+  assert.ok(real.args.includes('--autoConnect'));
+  const brave = chromeArgsFor(base, { bravePort: 51235 });
+  assert.equal(brave.mode, 'real-brave');
+  assert.deepEqual(brave.args.slice(-2), ['--browserUrl', 'http://127.0.0.1:51235']);
+  const port = chromeArgsFor(base, { openPorts: [9333] });
+  assert.equal(port.mode, 'attached:9333');
+  const own = chromeArgsFor(base, {});
+  assert.equal(own.mode, 'own-profile');
+  assert.ok(!own.args.includes('--autoConnect'));
+  const explicit = chromeArgsFor([...base, '--browserUrl', 'http://x:1'], { chromePort: 1 });
+  assert.equal(explicit.mode, 'explicit');
+  assert.ok(!explicit.args.includes('--autoConnect'));
+  assert.match(CHROME_TOGGLE_HINT, /chrome:\/\/inspect\/#remote-debugging/);
+  assert.equal(typeof chromeStatus().mode, 'string');
 });
