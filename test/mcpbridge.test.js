@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   parseTomlMcpServers, fromJsonMcpServers, loadHostMcpConfigs,
-  mcpToOpenAiTool, toolOpenaiName, flattenMcpResult, chromeArgsFor, chromeStatus, CHROME_TOGGLE_HINT,
+  mcpToOpenAiTool, toolOpenaiName, flattenMcpResult, chromeArgsFor, chromeStatus, CHROME_TOGGLE_HINT, callHostMcp, registerHostMcpForTests,
 } from '../lib/mcpbridge.js';
 
 test('parseTomlMcpServers reads grok-style stdio + http + headers', () => {
@@ -125,4 +125,18 @@ test('chrome-devtools prefers the real Chrome (autoConnect), then real Brave, th
   assert.ok(!explicit.args.includes('--autoConnect'));
   assert.match(CHROME_TOGGLE_HINT, /chrome:\/\/inspect\/#remote-debugging/);
   assert.equal(typeof chromeStatus().mode, 'string');
+});
+
+test('callHostMcp: a hung MCP tool comes back as a timeout error, not a frozen turn', async () => {
+  registerHostMcpForTests('chrome-devtools__take_snapshot', {
+    client: { callTool: () => new Promise(() => {}) }, server: 'chrome-devtools', tool: 'take_snapshot', description: '', schema: {},
+  });
+  await assert.rejects(
+    () => callHostMcp('chrome-devtools__take_snapshot', {}, { timeoutMs: 60 }),
+    (e) => /timed out after 0s/.test(e.message) && /evaluate_script/.test(e.message),
+  );
+  registerHostMcpForTests('fast__ok', {
+    client: { callTool: async () => ({ content: [{ type: 'text', text: 'hi' }] }) }, server: 'fast', tool: 'ok', description: '', schema: {},
+  });
+  assert.equal(await callHostMcp('fast__ok', {}, { timeoutMs: 60 }), 'hi');
 });
