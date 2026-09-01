@@ -148,8 +148,8 @@ test('wakeup cron is a host timer, not spawn', () => {
   assert.match(src, /Do not spawn more bots for persistence/);
 });
 
-test('click tools and the bare grok-4.6 default are wired', () => {
-  assert.match(src, /DEFAULT_ZOO_MODEL = 'grok-4\.6'/);
+test('click tools and the auto default are wired', () => {
+  assert.match(src, /DEFAULT_ZOO_MODEL = 'auto'/);
   assert.match(src, /\|\| DEFAULT_ZOO_MODEL/);
   assert.match(src, /zai-org\/glm-5\.3-flash/);
   assert.match(src, /desktopAction\('click'/);
