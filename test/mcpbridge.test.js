@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   parseTomlMcpServers, fromJsonMcpServers, loadHostMcpConfigs,
-  mcpToOpenAiTool, toolOpenaiName, flattenMcpResult, chromeArgsFor, chromeStatus, CHROME_TOGGLE_HINT, callHostMcp, registerHostMcpForTests,
+  mcpToOpenAiTool, toolOpenaiName, flattenMcpResult, chromeArgsFor, chromeStatus, CHROME_TOGGLE_HINT, callHostMcp, registerHostMcpForTests, braveAttachArgs,
 } from '../lib/mcpbridge.js';
 
 test('parseTomlMcpServers reads grok-style stdio + http + headers', () => {
@@ -139,4 +139,9 @@ test('callHostMcp: a hung MCP tool comes back as a timeout error, not a frozen t
     client: { callTool: async () => ({ content: [{ type: 'text', text: 'hi' }] }) }, server: 'fast', tool: 'ok', description: '', schema: {},
   });
   assert.equal(await callHostMcp('fast__ok', {}, { timeoutMs: 60 }), 'hi');
+});
+
+test('Brave attaches by wsEndpoint when DevToolsActivePort carries a path (144+ style), else browserUrl', () => {
+  assert.deepEqual(braveAttachArgs({ port: 56212, ws: 'ws://127.0.0.1:56212/devtools/browser/abc' }), ['--wsEndpoint', 'ws://127.0.0.1:56212/devtools/browser/abc']);
+  assert.deepEqual(braveAttachArgs({ port: 9333, ws: '' }), ['--browserUrl', 'http://127.0.0.1:9333']);
 });

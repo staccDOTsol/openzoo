@@ -11,6 +11,7 @@ import {
   isSupersededError,
   LOCAL_TOOL_NAMES,
   looksStoppedReply,
+  selectedPageId,
 } from '../lib/cursorbackend.js';
 import { mapImageClick, resolveAppName } from '../lib/grokbotDesktop.js';
 
@@ -28,7 +29,7 @@ test('LOCAL_TOOLS includes screenshot, click/type, and create_agent', () => {
       'create_agent', 'set_brief', 'list_agents', 'message_agent',
       'schedule_wakeup', 'cancel_wakeup',
       'ship_crew', 'ship_forge', 'ship_launch_worker', 'ship_status', 'ship_review', 'ship_open_pr',
-      'x_claim', 'x_done', 'x_release', 'x_claims', 'x_compose',
+      'x_claim', 'x_done', 'x_release', 'x_claims', 'x_compose', 'x_open', 'x_close',
     ],
   );
 });
@@ -170,4 +171,9 @@ test('mapImageClick scales screenshot pixels to screen points', () => {
   assert.equal(p.x, 756);
   assert.equal(p.y, 491);
   assert.equal(resolveAppName('brave'), 'Brave Browser');
+});
+
+test('selectedPageId reads the [selected] page out of chrome-devtools output', () => {
+  assert.equal(selectedPageId('## Pages\n1: https://x.com/a (Home)\n2: https://x.com/b [selected]\n3: about:blank'), 2);
+  assert.equal(selectedPageId('nothing'), null);
 });
