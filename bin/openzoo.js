@@ -97,6 +97,8 @@ usage:
                               that env — bot bounces it so send works. Already-
                               hijacked sessions are left alone.
                               --quit force bounce · --no-quit never bounce
+                              --verbose  print every request the app makes
+                                         (default is quiet: milestones + problems)
                               --web serve the renderer in a browser instead of
                               launching the .app (http://127.0.0.1:4174)
   npx openzoo web             Grok Bot renderer in the browser. Same hijack as
