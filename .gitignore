@@ -19,3 +19,4 @@ Grok Bot.app/
 claude-app-patch/app/
 claude-app-patch/*.asar*
 .DS_Store
+openzoobot-posted.json
