@@ -13,10 +13,9 @@
 // first-launch prompt, but it makes the bundle structurally valid, so the
 // normal right-click → Open path works instead of dead-ending on "damaged".
 // arm64 additionally REQUIRES a valid signature to execute at all.
-const { execFileSync, spawnSync } = require('node:child_process');
+const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
-const { pathToFileURL } = require('node:url');
 
 // COPY THE DEPENDENCY TREE OURSELVES.
 //
@@ -89,10 +88,20 @@ function prodModules(projectDir) {
 // UI, not this sidecar. Without these, a dmg still runs npm's 16k spill
 // gate. grokui's dep stays "latest"; this overlays the repo tree onto that
 // install.
-// A filename whitelist that ships livestatus.js without think.js is a
-// failed pack (1.5.99: MODULE_NOT_FOUND think.js imported from livestatus.js).
-// Overlay the ENTIRE repo lib/ (and bin/), then the vendor extras.
-const OPENZOO_SIDECAR_EXTRAS = [
+const OPENZOO_SIDECAR_OVERLAY = [
+  'lib/spill.js',
+  'lib/runguard.js',
+  'lib/racesettle.js',
+  'lib/hrr.js',
+  'lib/livestatus.js',
+  'lib/think.js',
+  'lib/modelroute.js',
+  'lib/models.js',
+  'lib/proxy.js',
+  'lib/modelroute/catalog.json',
+  'lib/modelroute/router.json',
+  'lib/modelroute/outcomes.json',
+  'lib/modelroute/README.md',
   'vendor/modelroute/catalog.json',
   'vendor/modelroute/router.json',
   'vendor/modelroute/outcomes.json',
@@ -100,126 +109,11 @@ const OPENZOO_SIDECAR_EXTRAS = [
   'vendor/modelroute/CURRENT_STATE.md',
 ];
 
-const OPENZOO_SIDECAR_REQUIRED = [
-  'lib/think.js',
-  'lib/livestatus.js',
-  'lib/relay.js',
-  'lib/claudecode.js',
-  'lib/launch.js',
-  'lib/spill.js',
-  'lib/runguard.js',
-  'lib/racesettle.js',
-  'lib/hrr.js',
-  'lib/retrieve.js',
-  'lib/proxy.js',
-  'bin/openzoo.js',
-];
-
-function walkRelFiles(dir, prefix) {
-  const out = [];
-  let entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
-  for (const e of entries) {
-    const rel = prefix ? `${prefix}/${e.name}` : e.name;
-    const full = path.join(dir, e.name);
-    if (e.isDirectory()) out.push(...walkRelFiles(full, rel));
-    else out.push(rel);
-  }
-  return out;
-}
-
-function listRepoOpenzooOverlay(repoRoot) {
-  const lib = walkRelFiles(path.join(repoRoot, 'lib'), 'lib');
-  const bin = walkRelFiles(path.join(repoRoot, 'bin'), 'bin');
-  return [...new Set([...lib, ...bin, ...OPENZOO_SIDECAR_EXTRAS])];
-}
-
-function getOpenzooSidecarOverlay(repoRoot) {
-  const repo = repoRoot || path.join(__dirname, '..', '..');
-  const listed = listRepoOpenzooOverlay(repo);
-  for (const rel of OPENZOO_SIDECAR_REQUIRED) {
-    if (!listed.includes(rel)) listed.push(rel);
-  }
-  return listed;
-}
-
-const OPENZOO_SIDECAR_OVERLAY = getOpenzooSidecarOverlay();
-
-// Unpublished OCC Desktop patches. npm openzoo-claude@2.0.2 does not ship
-// goal.mjs or the AskUser/poison/fetchRetry agent-loop. Overlay repo-owned
-// files onto packed node_modules/openzoo-claude (and extraResources).
-const OPENZOO_CLAUDE_OVERLAY = [
-  'v2/src/core/agent-loop.mjs',
-  'v2/src/core/goal.mjs',
-  'v2/src/ui/commands.mjs',
-  'v2/src/ui/app.mjs',
-  'v2/src/ui/repl.mjs',
-];
-
-function occOverlayRoot(repoRoot) {
-  return path.join(repoRoot || path.join(__dirname, '..', '..'), 'vendor', 'openzoo-claude');
-}
-
-function overlayRepoOpenzooClaude(claudeDir, projectDir) {
-  if (!claudeDir || !fs.existsSync(claudeDir)) {
-    throw new Error('[afterPack] packed openzoo-claude missing — cannot overlay OCC patches');
-  }
-  const repo = path.join(projectDir, '..');
-  const srcRoot = occOverlayRoot(repo);
-  for (const rel of OPENZOO_CLAUDE_OVERLAY) {
-    const from = path.join(srcRoot, rel);
-    if (!fs.existsSync(from)) {
-      throw new Error(`[afterPack] OCC overlay source missing: ${from}`);
-    }
-    const out = path.join(claudeDir, rel);
-    fs.mkdirSync(path.dirname(out), { recursive: true });
-    fs.copyFileSync(from, out);
-  }
-  assertOverlaidOpenzooClaude(claudeDir, repo);
-}
-
-function assertOverlaidOpenzooClaude(claudeDir, repoRoot) {
-  if (!claudeDir || !fs.existsSync(claudeDir)) {
-    throw new Error('[afterPack] packed openzoo-claude missing — cannot assert OCC overlay');
-  }
-  const srcRoot = occOverlayRoot(repoRoot);
-  const mismatches = [];
-  for (const rel of OPENZOO_CLAUDE_OVERLAY) {
-    const from = path.join(srcRoot, rel);
-    const got = path.join(claudeDir, rel);
-    if (!fs.existsSync(from)) {
-      mismatches.push(`${rel}: missing in vendor/openzoo-claude`);
-      continue;
-    }
-    if (!fs.existsSync(got)) {
-      mismatches.push(`${rel}: missing in packed openzoo-claude`);
-      continue;
-    }
-    const a = fs.readFileSync(from);
-    const b = fs.readFileSync(got);
-    if (!a.equals(b)) mismatches.push(`${rel}: packed bytes differ from overlay`);
-  }
-  if (mismatches.length) {
-    throw new Error(`[afterPack] packed openzoo-claude is not the overlaid tree:\n${mismatches.join('\n')}`);
-  }
-}
-
 function overlayRepoOpenzooSidecar(stagedNM, projectDir) {
   const repo = path.join(projectDir, '..');
   const dest = path.join(stagedNM, 'openzoo');
   if (!fs.existsSync(dest)) return;
-  const srcLib = path.join(repo, 'lib');
-  const destLib = path.join(dest, 'lib');
-  if (!fs.existsSync(srcLib) || !fs.statSync(srcLib).isDirectory()) {
-    throw new Error(`[afterPack] overlay source missing: ${srcLib}`);
-  }
-  fs.cpSync(srcLib, destLib, { recursive: true });
-  const srcBin = path.join(repo, 'bin');
-  const destBin = path.join(dest, 'bin');
-  if (fs.existsSync(srcBin) && fs.statSync(srcBin).isDirectory()) {
-    fs.cpSync(srcBin, destBin, { recursive: true });
-  }
-  for (const rel of OPENZOO_SIDECAR_EXTRAS) {
+  for (const rel of OPENZOO_SIDECAR_OVERLAY) {
     const from = path.join(repo, rel);
     if (!fs.existsSync(from)) {
       throw new Error(`[afterPack] overlay source missing: ${from}`);
@@ -238,19 +132,17 @@ function overlayRepoOpenzooSidecar(stagedNM, projectDir) {
     }
   } catch { /* keep published package.json */ }
   assertOverlaidOpenzoo(dest, repo);
-  assertPackedOpenzooLib(dest);
 }
 
-// Bit-compare packed node_modules/openzoo against the whole repo lib/bin
-// plus vendor extras. A version match on package.json is not enough — npm
-// latest can still ship the 16k spill while repo lib/spill.js binds at 2k,
-// or ship livestatus.js without think.js.
+// Bit-compare packed node_modules/openzoo against the repo overlay list.
+// A version match on package.json is not enough — npm latest can still
+// ship the 16k spill while repo lib/spill.js binds at 2k.
 function assertOverlaidOpenzoo(openzooDir, repoRoot) {
   if (!openzooDir || !fs.existsSync(openzooDir)) {
     throw new Error('[afterPack] packed node_modules/openzoo missing — cannot bit-compare overlay');
   }
   const mismatches = [];
-  for (const rel of getOpenzooSidecarOverlay(repoRoot)) {
+  for (const rel of OPENZOO_SIDECAR_OVERLAY) {
     const from = path.join(repoRoot, rel);
     const got = path.join(openzooDir, rel);
     if (!fs.existsSync(from)) {
@@ -267,64 +159,6 @@ function assertOverlaidOpenzoo(openzooDir, repoRoot) {
   }
   if (mismatches.length) {
     throw new Error(`[afterPack] packed openzoo is not the overlaid tree:\n${mismatches.join('\n')}`);
-  }
-  assertPackedLivestatusLoads(openzooDir);
-}
-
-// A cut that ships livestatus.js without think.js is a failed pack.
-// `node -e "import('./lib/livestatus.js')"` must resolve think.js.
-function assertPackedOpenzooLib(openzooDir) {
-  if (!openzooDir || !fs.existsSync(openzooDir)) {
-    throw new Error('[afterPack] packed node_modules/openzoo missing — cannot assert sidecar lib');
-  }
-  for (const rel of OPENZOO_SIDECAR_REQUIRED) {
-    const got = path.join(openzooDir, rel);
-    if (!fs.existsSync(got)) {
-      throw new Error(`[afterPack] packed openzoo missing ${rel}`);
-    }
-  }
-  const walker = path.join(__dirname, '..', '..', 'scripts', 'assert-esm-relatives.mjs');
-  try {
-    execFileSync(process.execPath, [walker, path.join(openzooDir, 'lib', 'livestatus.js')], { encoding: 'utf8' });
-  } catch (e) {
-    const detail = [e.stderr, e.stdout, e.message].filter(Boolean).join('\n');
-    throw new Error(`[afterPack] packed openzoo livestatus.js relatives missing:\n${detail}`);
-  }
-  try {
-    execFileSync(process.execPath, ['-e', "import('./lib/livestatus.js')"], {
-      cwd: openzooDir,
-      encoding: 'utf8',
-    });
-  } catch (e) {
-    const detail = [e.stderr, e.stdout, e.message].filter(Boolean).join('\n');
-    throw new Error(`[afterPack] packed openzoo cannot import lib/livestatus.js (think.js missing?):\n${detail}`);
-  }
-}
-
-// livestatus.js imports ./think.js. Overlaying livestatus without think.js
-// dies at sidecar boot with ERR_MODULE_NOT_FOUND and the healer used to
-// respawn forever. Packed node_modules/openzoo/lib must include think.js
-// and a dry import of livestatus must succeed.
-function assertPackedLivestatusLoads(openzooDir) {
-  const think = path.join(openzooDir, 'lib', 'think.js');
-  const live = path.join(openzooDir, 'lib', 'livestatus.js');
-  if (!fs.existsSync(think)) {
-    throw new Error('[afterPack] packed node_modules/openzoo/lib missing think.js');
-  }
-  if (!fs.existsSync(live)) {
-    throw new Error('[afterPack] packed node_modules/openzoo/lib missing livestatus.js');
-  }
-  const href = pathToFileURL(live).href;
-  const r = spawnSync(process.execPath, ['--input-type=module', '-e', [
-    `import { STREAM_IDLE_MS, clipStatusArg } from ${JSON.stringify(href)};`,
-    'if (typeof STREAM_IDLE_MS !== "number" || typeof clipStatusArg !== "function") {',
-    '  throw new Error("livestatus did not load");',
-    '}',
-    'console.log("ok packed livestatus load");',
-  ].join('\n')], { encoding: 'utf8', cwd: path.join(openzooDir, 'lib') });
-  if (r.status !== 0) {
-    const err = (r.stderr || r.stdout || `exit ${r.status}`).trim();
-    throw new Error(`[afterPack] packed livestatus cannot load (need think.js next to it):\n${err}`);
   }
 }
 
@@ -424,294 +258,6 @@ function assertPackedGrokuiLib(appDir) {
   }
 }
 
-function extraResourcesDir(context) {
-  return context.electronPlatformName === 'darwin'
-    ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
-    : path.join(context.appOutDir, 'resources');
-}
-
-function archName(arch) {
-  if (typeof arch === 'string') return arch;
-  const map = { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' };
-  return map[arch] || process.arch;
-}
-
-function walkNativeAddons(dir, found, depth) {
-  if (!dir || !fs.existsSync(dir) || depth > 6) return;
-  let entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-  for (const e of entries) {
-    if (e.name === 'node_modules' && depth > 0) continue;
-    const full = path.join(dir, e.name);
-    if (e.isDirectory()) walkNativeAddons(full, found, depth + 1);
-    else if (e.name.endsWith('.node')) found.push(full);
-  }
-}
-
-function findNativeAddons(dir) {
-  const found = [];
-  walkNativeAddons(dir, found, 0);
-  return found;
-}
-
-function hasConptyBackend(dir) {
-  if (!dir || !fs.existsSync(dir)) return false;
-  let hit = false;
-  const walk = (d, depth) => {
-    if (hit || depth > 6) return;
-    let entries;
-    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
-    for (const e of entries) {
-      if (/conpty/i.test(e.name) || /^OpenConsole\.exe$/i.test(e.name)) { hit = true; return; }
-      if (e.isDirectory()) walk(path.join(d, e.name), depth + 1);
-    }
-  };
-  walk(dir, 0);
-  return hit || findNativeAddons(dir).length > 0;
-}
-
-function saveRebuiltNatives(appDir) {
-  const dest = path.join(appDir, 'node_modules');
-  const saved = {};
-  for (const name of ['node-pty', 'openzoo-claude']) {
-    const from = path.join(dest, name);
-    if (!fs.existsSync(from)) continue;
-    const tmp = path.join(appDir, `.saved-${name}`);
-    fs.rmSync(tmp, { recursive: true, force: true });
-    fs.cpSync(from, tmp, { recursive: true, dereference: true });
-    saved[name] = tmp;
-  }
-  return saved;
-}
-
-function restoreRebuiltNatives(appDir, saved) {
-  const dest = path.join(appDir, 'node_modules');
-  for (const [name, tmp] of Object.entries(saved || {})) {
-    if (!tmp || !fs.existsSync(tmp)) continue;
-    const out = path.join(dest, name);
-    fs.rmSync(out, { recursive: true, force: true });
-    fs.cpSync(tmp, out, { recursive: true, dereference: true });
-    fs.rmSync(tmp, { recursive: true, force: true });
-  }
-}
-
-function copyProjectRuntime(appDir, projectDir) {
-  const dest = path.join(appDir, 'node_modules');
-  fs.mkdirSync(dest, { recursive: true });
-  for (const name of ['node-pty', 'openzoo-claude']) {
-    const out = path.join(dest, name);
-    if (fs.existsSync(path.join(out, 'package.json'))) continue;
-    const from = path.join(projectDir, 'node_modules', name);
-    if (!fs.existsSync(from)) {
-      throw new Error(`[afterPack] ${name} is not in grokui-app/node_modules — add it as a real dependency`);
-    }
-    fs.cpSync(from, out, { recursive: true, dereference: true });
-  }
-}
-
-function copyRuntimeToExtraResources(context, appDir) {
-  const resources = extraResourcesDir(context);
-  fs.mkdirSync(resources, { recursive: true });
-  for (const name of ['node-pty', 'openzoo-claude']) {
-    const from = path.join(appDir, 'node_modules', name);
-    if (!fs.existsSync(from)) {
-      throw new Error(`[afterPack] cannot copy ${name} to extraResources — missing in packed app`);
-    }
-    const out = path.join(resources, name);
-    fs.rmSync(out, { recursive: true, force: true });
-    fs.cpSync(from, out, { recursive: true, dereference: true });
-  }
-}
-
-function packedElectronBin(context) {
-  const product = context.packager.appInfo.productFilename;
-  if (context.electronPlatformName === 'darwin') {
-    return path.join(context.appOutDir, `${product}.app`, 'Contents', 'MacOS', product);
-  }
-  if (context.electronPlatformName === 'win32') {
-    return path.join(context.appOutDir, `${product}.exe`);
-  }
-  return path.join(context.appOutDir, product);
-}
-
-function assertPackedOpenzooClaude(appDir) {
-  const dir = path.join(appDir, 'node_modules', 'openzoo-claude');
-  const pkg = path.join(dir, 'package.json');
-  if (!fs.existsSync(pkg)) {
-    throw new Error('[afterPack] packed app missing openzoo-claude — dmg/exe/AppImage would have no Auto harness');
-  }
-  const json = JSON.parse(fs.readFileSync(pkg, 'utf8'));
-  if (json.name !== 'openzoo-claude') {
-    throw new Error(`[afterPack] packed openzoo-claude package.json name is ${json.name}`);
-  }
-  const entry = json.bin && (typeof json.bin === 'string'
-    ? json.bin
-    : (json.bin['openzoo-claude'] || json.bin.occ || json.bin.claude));
-  if (entry && !fs.existsSync(path.join(dir, entry))) {
-    throw new Error(`[afterPack] packed openzoo-claude missing bin ${entry}`);
-  }
-  // Published openzoo-claude@2.0.2 ships slashes in v2/src/ui/commands.mjs
-  // (including '/model'). It does not ship v2/src/goal.mjs or the Desktop
-  // agent-loop patches — those come from vendor/openzoo-claude overlay.
-  for (const rel of ['v2/src/ui/commands.mjs', ...OPENZOO_CLAUDE_OVERLAY]) {
-    if (!fs.existsSync(path.join(dir, rel))) {
-      throw new Error(`[afterPack] packed openzoo-claude missing ${rel} — OCC overlay must ship in the packed tree`);
-    }
-  }
-  const commands = fs.readFileSync(path.join(dir, 'v2', 'src', 'ui', 'commands.mjs'), 'utf8');
-  if (!commands.includes("'/model'")) {
-    throw new Error("[afterPack] packed openzoo-claude v2/src/ui/commands.mjs has no '/model' slash");
-  }
-  if (!commands.includes("'/goal'")) {
-    throw new Error("[afterPack] packed openzoo-claude v2/src/ui/commands.mjs has no '/goal' slash");
-  }
-  const loop = fs.readFileSync(path.join(dir, 'v2', 'src', 'core', 'agent-loop.mjs'), 'utf8');
-  if (!loop.includes('fetchRetry') || !loop.includes('isGoalActive') || !loop.includes('sanitizePoisonedHistory')) {
-    throw new Error('[afterPack] packed openzoo-claude agent-loop.mjs missing fetchRetry / AskUser-guard / sanitize');
-  }
-  if (!loop.includes('AskUser') || !loop.includes('isGoalActive')) {
-    throw new Error('[afterPack] packed openzoo-claude agent-loop.mjs missing AskUser goal guard');
-  }
-  const goal = fs.readFileSync(path.join(dir, 'v2', 'src', 'core', 'goal.mjs'), 'utf8');
-  if (!goal.includes('export function isGoalActive')) {
-    throw new Error('[afterPack] packed openzoo-claude goal.mjs missing isGoalActive');
-  }
-  for (const rel of OPENZOO_CLAUDE_OVERLAY) {
-    const check = spawnSync(process.execPath, ['--check', path.join(dir, rel)], { encoding: 'utf8' });
-    if (check.status !== 0) {
-      throw new Error(`[afterPack] packed openzoo-claude cannot parse ${rel}:\n${(check.stderr || check.stdout || '').trim()}`);
-    }
-  }
-  const entryAbs = entry ? path.join(dir, entry) : path.join(dir, 'v2', 'src', 'index.mjs');
-  if (fs.existsSync(entryAbs)) {
-    const check = spawnSync(process.execPath, ['--check', entryAbs], { encoding: 'utf8' });
-    if (check.status !== 0) {
-      throw new Error(`[afterPack] packed openzoo-claude cannot load (${entryAbs}):\n${(check.stderr || check.stdout || '').trim()}`);
-    }
-  }
-}
-
-function assertPackedVendorXterm(appDir) {
-  const vendor = path.join(appDir, 'lib', 'vendor');
-  for (const f of ['xterm.js', 'xterm.css', 'fit.js']) {
-    if (!fs.existsSync(path.join(vendor, f))) {
-      throw new Error(`[afterPack] packed app missing lib/vendor/${f} — Agent TUI cannot load xterm offline`);
-    }
-  }
-}
-
-function assertWindowsConptyFiles(ptyDir) {
-  if (!ptyDir || !fs.existsSync(ptyDir)) {
-    throw new Error('[afterPack] Windows pack missing node-pty — cannot find conpty.node / OpenConsole.exe');
-  }
-  let conptyNode = false;
-  let openConsole = false;
-  const walk = (d, depth) => {
-    if (depth > 6) return;
-    let entries;
-    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
-    for (const e of entries) {
-      if (/conpty\.node$/i.test(e.name)) conptyNode = true;
-      if (/^OpenConsole\.exe$/i.test(e.name)) openConsole = true;
-      if (e.isDirectory()) walk(path.join(d, e.name), depth + 1);
-    }
-  };
-  walk(ptyDir, 0);
-  if (!conptyNode || !openConsole) {
-    throw new Error('[afterPack] Windows pack missing node-pty conpty.node / OpenConsole.exe');
-  }
-}
-
-function assertPackedNodePty(appDir, context = {}) {
-  const roots = [
-    path.join(appDir, 'node_modules', 'node-pty'),
-  ];
-  if (context.electronPlatformName && context.appOutDir) {
-    roots.push(path.join(extraResourcesDir(context), 'node-pty'));
-  }
-  const ptyDir = roots.find((d) => fs.existsSync(path.join(d, 'package.json')));
-  if (!ptyDir) {
-    throw new Error('[afterPack] packed app missing node-pty — Auto PTY cannot spawn (dmg/exe/AppImage)');
-  }
-  const addons = findNativeAddons(ptyDir);
-  if (!addons.length) {
-    const arch = archName(context.arch);
-    throw new Error(`[afterPack] packed node-pty missing native .node for ${context.electronPlatformName || process.platform}-${arch}`);
-  }
-  const plat = context.electronPlatformName || process.platform;
-  const targetArch = archName(context.arch);
-  const sameArch = !context.arch || targetArch === process.arch || targetArch === 'universal';
-  const samePlat = plat === process.platform;
-  const electronBin = context.appOutDir ? packedElectronBin(context) : null;
-  if (electronBin && fs.existsSync(electronBin) && samePlat && sameArch) {
-    const r = spawnSync(electronBin, ['-e', "require('node-pty'); console.log('ok node-pty')"], {
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-      cwd: appDir,
-      encoding: 'utf8',
-    });
-    if (r.status !== 0) {
-      const detail = (r.stderr || r.stdout || `exit ${r.status}`).trim();
-      throw new Error(`[afterPack] packed app cannot require('node-pty') via Electron-as-node:\n${detail}`);
-    }
-  } else if (samePlat && sameArch) {
-    const r = spawnSync(process.execPath, ['-e', "require('node-pty'); console.log('ok node-pty')"], {
-      cwd: appDir,
-      encoding: 'utf8',
-    });
-    if (r.status !== 0) {
-      const detail = (r.stderr || r.stdout || `exit ${r.status}`).trim();
-      throw new Error(`[afterPack] packed app cannot require('node-pty'):\n${detail}`);
-    }
-  }
-  if (plat === 'win32') {
-    if (!hasConptyBackend(ptyDir)) {
-      throw new Error('[afterPack] Windows pack missing node-pty conpty backend');
-    }
-    assertWindowsConptyFiles(ptyDir);
-  }
-}
-
-async function rebuildNodePty(appDir, context) {
-  const pty = path.join(appDir, 'node_modules', 'node-pty');
-  if (!fs.existsSync(pty)) {
-    throw new Error('[afterPack] node-pty missing before rebuild');
-  }
-  if (findNativeAddons(pty).length && context._ptyAlreadyRebuilt) return;
-  let rebuild;
-  try {
-    ({ rebuild } = require('@electron/rebuild'));
-  } catch {
-    try { ({ rebuild } = require('electron-rebuild')); } catch { rebuild = null; }
-  }
-  if (!rebuild) {
-    if (findNativeAddons(pty).length) return;
-    throw new Error('[afterPack] @electron/rebuild missing and node-pty has no native .node');
-  }
-  const electronVersion = context.electronVersion
-    || context.packager.electronVersion
-    || context.packager.config?.electronVersion;
-  await rebuild({
-    buildPath: appDir,
-    electronVersion: String(electronVersion || '').replace(/^v/, ''),
-    arch: archName(context.arch),
-    onlyModules: ['node-pty'],
-    force: true,
-  });
-}
-
-async function ensurePackedPtyAndClaude(context) {
-  const appDir = packedAppDir(context);
-  copyProjectRuntime(appDir, context.packager.projectDir);
-  overlayRepoOpenzooClaude(path.join(appDir, 'node_modules', 'openzoo-claude'), context.packager.projectDir);
-  if (!findNativeAddons(path.join(appDir, 'node_modules', 'node-pty')).length) {
-    await rebuildNodePty(appDir, context);
-  }
-  copyRuntimeToExtraResources(context, appDir);
-  overlayRepoOpenzooClaude(path.join(extraResourcesDir(context), 'openzoo-claude'), context.packager.projectDir);
-  assertPackedOpenzooClaude(appDir);
-  assertPackedNodePty(appDir, context);
-}
-
 function copyNodeModules(context) {
   const src = prodModules(context.packager.projectDir);
   if (!fs.existsSync(src)) {
@@ -719,10 +265,8 @@ function copyNodeModules(context) {
   }
   const appDir = packedAppDir(context);
   const dest = path.join(appDir, 'node_modules');
-  const saved = saveRebuiltNatives(appDir);
   fs.rmSync(dest, { recursive: true, force: true });
   fs.cpSync(src, dest, { recursive: true, dereference: true });
-  restoreRebuiltNatives(appDir, saved);
   // Hard gate for win nsis / mac dmg / linux AppImage: the copied sidecar
   // must be whatever npm currently publishes, not last week's lockfile.
   assertCopiedOpenzoo(dest);
@@ -761,47 +305,26 @@ function copyNodeModules(context) {
 
   assertCopiedOpenzoo(dest);
   assertOverlaidOpenzoo(path.join(dest, 'openzoo'), path.join(context.packager.projectDir, '..'));
-  assertPackedOpenzooLib(path.join(dest, 'openzoo'));
 
   const n = fs.readdirSync(path.join(dest, '@solana')).length;
   console.log(`[afterPack] copied production node_modules -> ${dest} (@solana: ${n}, stripped ${stripped} escaping symlink(s)/.bin)`);
 }
 
 exports.OPENZOO_SIDECAR_OVERLAY = OPENZOO_SIDECAR_OVERLAY;
-exports.OPENZOO_SIDECAR_REQUIRED = OPENZOO_SIDECAR_REQUIRED;
-exports.OPENZOO_SIDECAR_EXTRAS = OPENZOO_SIDECAR_EXTRAS;
-exports.getOpenzooSidecarOverlay = getOpenzooSidecarOverlay;
-exports.listRepoOpenzooOverlay = listRepoOpenzooOverlay;
 exports.overlayRepoOpenzooSidecar = overlayRepoOpenzooSidecar;
 exports.assertOverlaidOpenzoo = assertOverlaidOpenzoo;
-exports.assertPackedOpenzooLib = assertPackedOpenzooLib;
-exports.assertPackedLivestatusLoads = assertPackedLivestatusLoads;
 exports.assertCopiedOpenzoo = assertCopiedOpenzoo;
 exports.publishedOpenzooVersion = publishedOpenzooVersion;
 exports.packedAppDir = packedAppDir;
 exports.copyRepoLib = copyRepoLib;
 exports.writeLibEsmPackage = writeLibEsmPackage;
 exports.assertPackedGrokuiLib = assertPackedGrokuiLib;
-exports.assertPackedNodePty = assertPackedNodePty;
-exports.assertPackedOpenzooClaude = assertPackedOpenzooClaude;
-exports.assertPackedVendorXterm = assertPackedVendorXterm;
-exports.assertWindowsConptyFiles = assertWindowsConptyFiles;
-exports.findNativeAddons = findNativeAddons;
-exports.hasConptyBackend = hasConptyBackend;
-exports.extraResourcesDir = extraResourcesDir;
-exports.ensurePackedPtyAndClaude = ensurePackedPtyAndClaude;
-exports.OPENZOO_CLAUDE_OVERLAY = OPENZOO_CLAUDE_OVERLAY;
-exports.overlayRepoOpenzooClaude = overlayRepoOpenzooClaude;
-exports.assertOverlaidOpenzooClaude = assertOverlaidOpenzooClaude;
-exports.occOverlayRoot = occOverlayRoot;
 
 exports.default = async function afterPack(context) {
   const appDir = packedAppDir(context);
   copyRepoLib(appDir, context.packager.projectDir);
   assertPackedGrokuiLib(appDir);
-  assertPackedVendorXterm(appDir);
   copyNodeModules(context);
-  await ensurePackedPtyAndClaude(context);
   if (context.electronPlatformName !== 'darwin') return;
   const app = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
 

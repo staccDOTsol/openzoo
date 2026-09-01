@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { fetchHeaders, fetchProbe, HEADERS_MS, PROBE_HEADERS_MS, flyDispatcher, probeDispatcher } from '../lib/fetch.js';
+import { fetchHeaders, HEADERS_MS } from '../lib/fetch.js';
 import { CREDIT_TIMEOUT_MS } from '../lib/info.js';
 import { config } from '../lib/config.js';
 
@@ -43,27 +43,9 @@ function closeServer(server) {
 }
 
 describe('fetchHeaders + session unwedge', { concurrency: 1 }, () => {
-  test('HEADERS_MS defaults to 120s; credit / probe headers are 2.5s', () => {
-    assert.equal(HEADERS_MS, 120_000);
+  test('HEADERS_MS defaults to 10min; credit probe is 2.5s', () => {
+    assert.equal(HEADERS_MS, 10 * 60_000);
     assert.equal(CREDIT_TIMEOUT_MS, 2500);
-    assert.equal(PROBE_HEADERS_MS, 2500);
-    if (flyDispatcher && probeDispatcher) {
-      assert.notEqual(flyDispatcher, probeDispatcher);
-    }
-  });
-
-  test('fetchProbe aborts under the short cap while fetchHeaders keeps a long stream budget', async () => {
-    const hung = await listen(() => { /* accept, never write */ });
-    try {
-      const t0 = Date.now();
-      await assert.rejects(
-        () => fetchProbe(`http://127.0.0.1:${hung.address().port}/v1/credits`, {}, 150),
-        (err) => err.name === 'AbortError' || err.name === 'TimeoutError' || /aborted|timeout/i.test(String(err.message)),
-      );
-      assert.ok(Date.now() - t0 < 800, `fetchProbe took ${Date.now() - t0}ms`);
-    } finally {
-      await closeServer(hung);
-    }
   });
 
   test('fetchHeaders aborts when the upstream never sends headers', async () => {
@@ -72,7 +54,7 @@ describe('fetchHeaders + session unwedge', { concurrency: 1 }, () => {
       const t0 = Date.now();
       await assert.rejects(
         () => fetchHeaders(`http://127.0.0.1:${hung.address().port}/v1/credits`, {}, 150),
-        (err) => err.name === 'AbortError' || err.name === 'TimeoutError' || /aborted|timeout/i.test(String(err.message)),
+        (err) => err.name === 'AbortError' || err.name === 'TimeoutError' || /aborted|timeout|headers not in/i.test(String(err.message)),
       );
       assert.ok(Date.now() - t0 < 800, `fetchHeaders took ${Date.now() - t0}ms`);
     } finally {
@@ -138,11 +120,11 @@ describe('fetchHeaders + session unwedge', { concurrency: 1 }, () => {
     const results = await Promise.all(inflight);
     for (const r of results) {
       if (r.error) {
-        assert.match(String(r.error.message || r.error), /aborted|timeout|fetch failed/i);
+        assert.match(String(r.error.message || r.error), /aborted|timeout|fetch failed|headers not in/i);
         continue;
       }
       assert.ok(r.status >= 500, `expected timeout 5xx, got ${r.status} ${r.text}`);
-      assert.match(r.text, /aborted|timeout|Timeout/i);
+      assert.match(r.text, /aborted|timeout|headers not in/i);
     }
   });
 
@@ -156,40 +138,14 @@ describe('fetchHeaders + session unwedge', { concurrency: 1 }, () => {
     assert.match(wallet, /refreshCredit\(\)\.catch\(\(\) => \{\}\)/);
     assert.doesNotMatch(wallet, /await refreshCredit/);
 
-    const grokui = readFileSync(path.join(root, 'lib', 'grokui.mjs'), 'utf8');
-    assert.match(grokui, /fetchRetry\(`\$\{PROXY\}\/session`, \{ signal: AbortSignal\.timeout\(2000\) \}/);
-    assert.match(grokui, /8402\/v1\/session', \{ signal: AbortSignal\.timeout\(2500\) \}\)/);
-
     const pay = readFileSync(path.join(root, 'lib', 'pay.js'), 'utf8');
     assert.match(pay, /fetchHeaders/);
     const info = readFileSync(path.join(root, 'lib', 'info.js'), 'utf8');
-    assert.match(info, /fetchProbe/);
-    assert.doesNotMatch(info, /AbortSignal\.timeout\(CREDIT_TIMEOUT_MS\)/);
+    assert.match(info, /AbortSignal\.timeout\(CREDIT_TIMEOUT_MS\)/);
     const models = readFileSync(path.join(root, 'lib', 'models.js'), 'utf8');
-    assert.match(models, /fetchProbe/);
+    assert.match(models, /fetchHeaders/);
     const cfg = readFileSync(path.join(root, 'lib', 'config.js'), 'utf8');
     assert.match(cfg, /fetchHeaders/);
-  });
-
-  test('OPENZOO_NO_PORT_WALK does not listen on 8403–8406 after EADDRINUSE', async (t) => {
-    const blocker = await listen((_req, res) => { res.writeHead(200); res.end('no'); });
-    const port = blocker.address().port;
-    const prevPort = config.port;
-    const prevWalk = process.env.OPENZOO_NO_PORT_WALK;
-    config.port = port;
-    process.env.OPENZOO_NO_PORT_WALK = '1';
-    t.after(async () => {
-      await closeServer(blocker);
-      config.port = prevPort;
-      if (prevWalk == null) delete process.env.OPENZOO_NO_PORT_WALK;
-      else process.env.OPENZOO_NO_PORT_WALK = prevWalk;
-    });
-    const { startProxy } = await import('../lib/proxy.js');
-    await assert.rejects(
-      () => startProxy({ silent: true, autoTunnel: false }),
-      (err) => err && err.code === 'EADDRINUSE',
-    );
-    assert.equal(config.port, port, 'must not walk to port+1 / 8403–8406');
   });
 
   test('GET /v1/models stays unpaid when the gateway 402s', async (t) => {

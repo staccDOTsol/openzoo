@@ -3,24 +3,38 @@ import assert from 'node:assert/strict';
 import { railFundingHint, unfundableRails, fundingLine, USDC_MINT, TOKEN_MINT } from '../lib/config.js';
 
 test('the funding hint follows the rails a live 402 offers', () => {
-  assert.equal(railFundingHint(['solana']), 'USDC or TOKEN on Solana');
+  assert.equal(railFundingHint(['solana']), 'USDC or TOKEN or LEOS on Solana');
   assert.equal(railFundingHint(['base']), 'USDC on Base');
   assert.equal(
     railFundingHint(['solana', 'base']),
-    'USDC or TOKEN on Solana · USDC on Base',
+    'USDC or TOKEN or LEOS on Solana · USDC on Base',
   );
 });
 
-test('robinhood is fundable with plain tokens now the EVM conversion path exists', () => {
-  // lib/evmwrap.js converts plain USDG / memecoins into the quoted vault at
-  // payment time, so Robinhood funds like any other rail — with the gas caveat
-  // riding the hint, since the conversion txs are the wallet's own.
+// Robinhood is USDG and nothing else. The ODDBALLER / IOU / ROBINHOODS
+// memecoins were only ever payable through X402Wrapper vault twins the payer
+// had to mint first; the gateway dropped them along with every wrapped rail,
+// and offering to fund a wallet with a token no row accepts reads as "you have
+// funds" and then fails at payment. No conversion gas caveat either — canonical
+// Paxos USDG implements EIP-3009, so there is no approve+deposit to pay for.
+test('robinhood funds with USDG only, and needs no conversion gas', () => {
   assert.equal(
     railFundingHint(['solana', 'base', 'robinhood']),
-    'USDC or TOKEN on Solana · USDC on Base · USDG or ODDBALLER or IOU or ROBINHOODS on Robinhood Chain (plus a sliver of RH ETH for the conversion gas)',
+    'USDC or TOKEN or LEOS on Solana · USDC on Base · USDG on Robinhood Chain',
   );
   assert.deepEqual(unfundableRails(['solana', 'base', 'robinhood']), []);
   assert.deepEqual(unfundableRails(['solana', 'base']), []);
+});
+
+test('no funding copy names a memecoin the gateway stopped accepting', () => {
+  const copy = [
+    railFundingHint(['solana', 'base', 'robinhood']),
+    railFundingHint(['robinhood']),
+    fundingLine('SoMeAddreSS'),
+  ].join(' ');
+  for (const dead of ['ODDBALLER', 'IOU', 'ROBINHOODS']) {
+    assert.ok(!copy.includes(dead), `funding copy still offers ${dead}`);
+  }
 });
 
 test('an unrecognised network the zoo starts quoting is skipped, not invented', () => {

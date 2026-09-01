@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 // Copy the live UI into the Electron package so a packaged .app never
 // ships a stale grokui-app/lib snapshot. lib/ is the source — the ENTIRE
-// directory. A filename whitelist omitted info.js / hrr.js / spill.js /
-// subscription.js and left 1.5.86 on "starting…" forever
-// (ERR_MODULE_NOT_FOUND for lib/info.js). Same class of bug as the
-// docker-box two-file copy.
+// directory. A filename whitelist omitted info.js / hrr.js / spill.js and
+// left 1.5.86 on "starting…" forever (ERR_MODULE_NOT_FOUND for lib/info.js).
+// Same class of bug as the docker-box two-file copy.
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');

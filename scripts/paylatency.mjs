@@ -18,7 +18,7 @@
  */
 import { PayClient } from '../lib/pay.js';
 import { config } from '../lib/config.js';
-import { parse402, pickAccept, tokenBalance, railOf } from '../lib/x402.js';
+import { parse402, pickAccept, tokenBalance, railOf, paymentHeaders } from '../lib/x402.js';
 
 const model = process.argv[2] || 'openai/gpt-4o-mini';
 const repeats = Number(process.argv[3] || 3);
@@ -40,15 +40,18 @@ for (let i = 0; i < repeats; i++) {
     console.log(`run ${i + 1}: unexpected HTTP ${first.status} (no 402 to pay)`);
     continue;
   }
-  const accept = pickAccept(parse402(await first.json()), config.token, { allowRH: false });
+  // Keep the WHOLE challenge, not just the row: the envelope echoes its
+  // resource block and its x402 summary decides the network the verifier wants.
+  const challenge = parse402(await first.json());
+  const accept = pickAccept(challenge, config.token, { allowRH: false });
   const bal = await tokenBalance(client.connection, client.keypair.publicKey, accept.asset);
   mark(); // 2: balance
   const short = BigInt(accept.maxAmountRequired) > bal.raw;
-  const payment = await client.buildPaymentFor(accept);
+  const payment = await client.buildPaymentFor(accept, undefined, challenge);
   mark(); // 3: build+sign (includes a wrap top-up when short)
   const paid = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'X-PAYMENT': payment.header },
+    headers: { 'content-type': 'application/json', ...paymentHeaders(payment.header) },
     body,
   });
   const text = await paid.text();

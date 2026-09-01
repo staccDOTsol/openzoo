@@ -158,7 +158,9 @@ what it touches:
 
 - The benchmark numbers (8.7MB / 3 parts / 44s free; 5,296 tokens read;
   702,914 → 4,863; $0.35 vs $3.39). All measured, all still accurate.
-- "You never handle wrapped assets" — standing directive.
+- "You never handle wrapped assets" — standing directive, and since 2026-08-24
+  literally true rather than a promise the shim kept behind the scenes: the 402
+  quotes raw native mints and nothing converts anything.
 - The receipt line `paid $0.086130 · rail solana · tx …`.
 - No "lossless compression". No "128M attention window" — the honest phrasing is
   *bind 128M, the model reads what matters*. Retrieval is lossy; the benchmarks

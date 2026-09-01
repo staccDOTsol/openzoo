@@ -89,6 +89,19 @@ const HELP = `openzoo — local x402-paying proxy + MCP server for openzoo.fun
 usage:
   npx openzoo            start the proxy: http://localhost:8402/v1 (keyless) PLUS a
                          public HTTPS url for cloud IDEs (key required, printed at start)
+  npx openzoo bot             Grok Bot.app on the zoo. Starts :8402 + aiserver on
+                              :8443, then launches the app with
+                              CURSOR_API_BASE_URL=https://127.0.0.1:8443
+                              (no sudo, no /etc/hosts). Leave it running.
+                              After a reboot the login item comes back without
+                              that env — bot bounces it so send works. Already-
+                              hijacked sessions are left alone.
+                              --quit force bounce · --no-quit never bounce
+                              --web serve the renderer in a browser instead of
+                              launching the .app (http://127.0.0.1:4174)
+  npx openzoo web             Grok Bot renderer in the browser. Same hijack as
+                              bot (proxy :8402 + aiserver :8443) but no Electron.
+                              --no-open skip launching a tab
   npx openzoo cursor [dir]    start proxy+tunnel, write MCP config + every model
                               into the picker, and LAUNCH Cursor on [dir]
                               (defaults to the current directory; ~ works;
@@ -102,15 +115,10 @@ usage:
                                          only "Auto". Undo: npx openzoo unblock
   npx openzoo vscode [path]   same, for VS Code
   npx openzoo editor [path]   whichever is installed (Cursor wins if both)
-  npx openzoo claude [args]       launch openzoo-claude on the zoo (x402 per turn);
-                                  installs via npx -y openzoo-claude if needed;
-                                  --desktop for the Anthropic app
+  npx openzoo claude [dir]        Claude Code CLI on the zoo (x402 per turn); --desktop for the app
+                                          by default, --terminal for the Claude Code CLI
   npx openzoo launch <cmd> [args]   launch a TERMINAL Messages API client
                                     (claude, aider...) already pointed at the zoo
-  npx openzoo grokbot         KEEP Grok Bot's UI, serve YOUR RunPod box under it:
-                              spawns a CPU box, MITMs api2.cursor.sh, and answers
-                              EnsureSandBox with your box instead of a cursorvm pod.
-                              Inference x402-paid; needs RUNPOD_API_KEY + sudo.
   npx openzoo grok-cli        point the grok CLI at the zoo — GROK MODELS ONLY,
                               paid per call by x402 instead of xAI first-party billing,
                               then TAKE OVER the app's backend: pins api2.cursor.sh in
@@ -118,9 +126,20 @@ usage:
                               and launches Grok Bot with Node TLS override (sudo required;
                               ctrl-c restores /etc/hosts).
                               --no-takeover plain launch · --no-launch config only
-  npx openzoo occ        hosted OCC HTTP API for mobile Agent (subscription Bearer).
-                         Origin the iOS app uses: https://zoo.openzoo.fun
-                         POST /occ/sessions  /messages  /files  /stop
+  npx openzoo voice      write like YOU — your own exports, paid per call
+                         voice ingest --telegram <telegram_messages.txt> --twitter <archive dir>
+                               parse your history into turns and bind the tier cascade
+                               (cream / all telegram / all twitter) to the gateway + leCore
+                         voice card --telegram <file>   distil the style card (one paid call)
+                         voice say "draft"              rewrite a draft in your voice
+                         voice login / voice watch      PREHOOK your own outgoing Telegram
+                               messages: type raw, the watcher revises in place (userbot;
+                               "." prefix sends raw). X has no edit API — no equivalent.
+  npx openzoo openclaw   write the zoo into ~/.openclaw/openclaw.json as a model
+                         provider WITH REAL PRICES (OpenClaw's own custom-provider
+                         path hard-codes $0.00 and ignores /v1/models pricing)
+                         --all (whole catalog) --models a,b (exact ids)
+                         --default <id> (set the agents' primary model)
   npx openzoo mcp        stdio MCP server (tools: zoo_ask, zoo_bind, zoo_models, zoo_wallet, zoo_contexts)
   npx openzoo unblock    restore the editor's own backend in the hosts file
   npx openzoo tunnel     public-url-only mode (everything key-gated, no keyless localhost)
@@ -147,15 +166,10 @@ env:
   OPENZOO_RAIL (unset — force a rail: solana | base | robinhood)
   OPENZOO_BASE_RPC (https://mainnet.base.org)  OPENZOO_RH_RPC (rpc.mainnet.chain.robinhood.com)
   OPENZOO_MAX_USD_PER_CALL (unset — NO per-call ceiling; set to add one)  OPENZOO_DEMO_MAX_USD (0.01)
-  OPENZOO_CONTEXT_MIN_CHARS (16384 — bodies bigger than this bind once + reuse)
-  OPENZOO_NO_CONTEXT_CACHE (0 — set 1 to always ship the full body)
-  OPENZOO_ENABLE_RH (0 — let DEFAULT selection fall through to the Robinhood rail;
-                     OPENZOO_RAIL=robinhood forces it without this)
+  OPENZOO_ENABLE_RH (unset — every offered rail is a fallback, Robinhood tried LAST;
+                     set 0 to drop Robinhood rows from default selection)
   OPENZOO_TUNNEL_MAX_USD (unset — NO public-url session ceiling; set to add one)  OPENZOO_TUNNEL_TOKEN (pin the api key)
-  OPENZOO_NO_TUNNEL (0 — set 1 for localhost-only, no public url)
-  OPENZOO_OCC_PORT (8410)  OPENZOO_OCC_BIND (127.0.0.1)  OPENZOO_OCC_ROOT (~/.openzoo/occ-sessions)
-  OPENZOO_OCC_BASE_URL (zoo completions door; default OPENZOO_API_BASE/v1)
-  OPENZOO_OCC_UPLOAD_MAX (8388608)`;
+  OPENZOO_NO_TUNNEL (0 — set 1 for localhost-only, no public url)`;
 
 async function main() {
   switch (cmd) {
@@ -163,14 +177,17 @@ async function main() {
     case 'start':
       await (await import('../lib/proxy.js')).startProxy({ autoTunnel: true });
       break;
+    case 'bot':
+      await (await import('../lib/grokcli.js')).runBot(process.argv.slice(3));
+      break;
+    case 'web':
+      await (await import('../lib/grokbotweb.js')).runGrokBotWeb(process.argv.slice(3));
+      break;
     case 'editor':
     case 'cursor':
     case 'vscode':
       // GUI editors read config files, not env vars — see lib/setup.js.
       await (await import('../lib/setup.js')).setupEditor(cmd === 'editor' ? undefined : cmd, process.argv[3]);
-      break;
-    case 'grokbot':
-      await (await import('../lib/grokbot.js')).runGrokBot(process.argv.slice(3));
       break;
     case 'grok-cli':
     case 'grok':
@@ -179,18 +196,35 @@ async function main() {
       // is enough; no patching of the app bundle.
       await (await import('../lib/grokcli.js')).setupGrokBot(process.argv.slice(3));
       break;
+    case 'openclaw':
+      await (await import('../lib/openclaw.js')).setupOpenClaw(process.argv.slice(3));
+      break;
+    case 'voice':
+      await (await import('../lib/voice.js')).runVoice(process.argv.slice(3));
+      break;
+    case 'sonar':
+      await (await import('../lib/sonar.js')).runSonar(process.argv.slice(3));
+      break;
+    // @openzoobot. runXBot was only ever reachable as a library export, so the
+    // obvious `openzoo xbot` printed usage and did nothing.
+    case 'xbot': {
+      const a = process.argv.slice(3);
+      // --interval accepts seconds (15) or ms (15000); anything under 1000 is
+      // read as seconds, because "--interval 15" meaning 15ms is never intended.
+      const iv = Number(a[a.indexOf('--interval') + 1]);
+      const intervalMs = a.includes('--interval') && Number.isFinite(iv) && iv > 0
+        ? (iv < 1000 ? iv * 1000 : iv) : undefined;
+      await (await import('../lib/xbot.js')).runXBot({
+        once: a.includes('--once'),
+        dryRun: a.includes('--dry-run') || a.includes('--dry'),
+        seed: a.includes('--seed'),
+        ...(intervalMs ? { intervalMs } : {}),
+      });
+      break;
+    }
     case 'mcp':
       await (await import('../lib/mcp.js')).startMcp();
       break;
-    case 'occ':
-    case 'hosted-occ': {
-      const { startHostedOcc, OCC_PUBLIC_ORIGIN } = await import('../lib/hosted-occ.js');
-      const started = await startHostedOcc();
-      console.log(`hosted OCC  ${started.url}/occ`);
-      console.log(`public door ${OCC_PUBLIC_ORIGIN}/occ  (iOS Agent)`);
-      console.log('auth        Authorization: Bearer <OpenZoo subscription key>');
-      break;
-    }
     case 'claude':
       await (await import('../lib/launch.js')).launchClaude(process.argv.slice(3));
       break;
@@ -265,9 +299,21 @@ async function main() {
     }
     case 'ask': {
       const question = process.argv[3];
-      if (!question) throw new Error('usage: openzoo ask "<question>" [--context <id>] [--model <id>]');
+      if (!question) throw new Error('usage: openzoo ask "<question>" [--context <id>] [--model <id>] [--system <text>]');
       const ci = process.argv.indexOf('--context');
       const mi = process.argv.indexOf('--model');
+      // A BARE QUESTION IS A DIFFERENT PRODUCT FROM A BRIEFED ONE.
+      //
+      // This path drives PayClient straight at the gateway, so it never passes
+      // through the local proxy that injects lib/brief.js — the model gets the
+      // user's words and nothing else. OBSERVED from the Omarchy bar widget:
+      // "do you even love omarchy thru this uiux?!?" came back "I think you
+      // mean *anarchy*?" from deepseek, while the same question in the terminal
+      // (Claude Code: full system prompt + the omarchy skill) answered about
+      // DHH, Hyprland and theming. Same gateway, same product, one had context.
+      // A caller that knows where it is running can now say so.
+      const si = process.argv.indexOf('--system');
+      const system = si !== -1 ? process.argv[si + 1] : '';
       const { PayClient } = await import('../lib/pay.js');
       const { config } = await import('../lib/config.js');
       const client = new PayClient();
@@ -278,7 +324,9 @@ async function main() {
         headers,
         body: JSON.stringify({
           model: (mi !== -1 && process.argv[mi + 1]) || process.env.OPENZOO_DEFAULT_MODEL || 'anthropic/claude-opus-5',
-          messages: [{ role: 'user', content: question }],
+          messages: system
+            ? [{ role: 'system', content: system }, { role: 'user', content: question }]
+            : [{ role: 'user', content: question }],
           max_tokens: Number(process.env.OPENZOO_ASK_MAX_TOKENS || 1024),
         }),
       });

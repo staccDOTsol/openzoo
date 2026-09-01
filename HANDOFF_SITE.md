@@ -155,9 +155,11 @@ Keep the four-item nav. Suggested page order:
 - `openzoo@0.12.0` on npm; source github.com/staccDOTsol/openzoo
 - ~435 models; gateway `x402-tokens.fly.dev`; wallet path is OpenRouter prices, plus 33% of savings vs direct when any (no 3× markup)
 - Rails live and settling: **Solana** (default), **Base**, **Robinhood Chain**
-- Accepted unwrapped tokens: USDC/TOKEN (Solana), USDC (Base), USDG + ODDBALLER
-  / IOU / ROBINHOODS (Robinhood Chain). Users never handle wrapped assets — the
-  shim converts at payment time. **Never show a wrapped ticker on the site.**
+- Accepted tokens, all raw and native: USDC/TOKEN/LEOS (Solana), USDC (Base),
+  USDG (Robinhood Chain). These are the exact mints the 402 quotes — nothing is
+  wrapped and nothing is converted, so **never show a wrapped ticker on the
+  site**. The ODDBALLER / IOU / ROBINHOODS memecoins were dropped 2026-08-24
+  with the rest of the wrapped rails; do not list them as fundable.
 - Contexts are isolated per wallet (namespace hashed into the sidecar tenant)
 - Model ids are forgiving: unknown ids are matched to the nearest served model
   (`gpt-4o` → `openai/gpt-4o`, `composer-2.5` → a code model, etc.)

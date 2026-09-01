@@ -1,46 +1,47 @@
-# Hosted OCC on Fly. App name: openzoo-occ.
-# Deploy from the stacc Mac (jarettdunn has no flyctl): `flyctl deploy`
-#
-# This process speaks /occ and GET /healthz. zoo.openzoo.fun still HTML-404s
-# /occ — a later Vercel rewrite will point that path here. Do not treat
-# *.fly.dev as the product URL. Do not set ANTHROPIC_API_KEY.
-
-app = "openzoo-occ"
+app = "openzoo-grokbot"
 primary_region = "iad"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
 
 [build]
   dockerfile = "Dockerfile"
 
 [env]
-  OPENZOO_OCC_BIND = "0.0.0.0"
-  OPENZOO_OCC_PORT = "8080"
-  PORT = "8080"
-  OPENZOO_OCC_BASE_URL = "https://x402-tokens.fly.dev/v1"
-  OPENZOO_API_BASE = "https://x402-tokens.fly.dev"
-  OPENZOO_OCC_ROOT = "/var/lib/openzoo/occ-sessions"
-  NODE_ENV = "production"
+  OPENZOO_NO_TUNNEL = "1"
+  OZ_GROKBOT_WEB_PORT = "4174"
+  OZ_GROKBOT_WEB_BIND = "0.0.0.0"
+  OPENZOO_BIND = "0.0.0.0"
+  GROK_BOT_ASAR = "/app/asar/app.asar"
+  HOME = "/data"
 
 [http_service]
-  internal_port = 8080
+  internal_port = 4174
   force_https = true
-  auto_stop_machines = "off"
+  auto_stop_machines = false
   auto_start_machines = true
   min_machines_running = 1
   processes = ["app"]
 
   [http_service.concurrency]
     type = "requests"
-    soft_limit = 40
-    hard_limit = 80
+    hard_limit = 200
+    soft_limit = 100
 
-[[http_service.checks]]
-  grace_period = "15s"
-  interval = "15s"
-  method = "GET"
-  path = "/healthz"
-  timeout = "5s"
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "90s"
+    method = "GET"
+    path = "/oz-health"
 
 [[vm]]
-  memory = "2gb"
-  cpu_kind = "shared"
-  cpus = 1
+  size = "performance-16x"
+  memory = "32gb"
+
+[[mounts]]
+  source = "grokbot_data"
+  destination = "/data"
+
+[[restart]]
+  policy = "always"
+  retries = 10
