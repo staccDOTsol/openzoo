@@ -22,7 +22,7 @@ import {
   firstmateBrief,
   crewmateBrief,
 } from '../lib/ship.js';
-import { LOCAL_TOOL_NAMES } from '../lib/cursorbackend.js';
+import { LOCAL_TOOL_NAMES, shipNudgeText } from '../lib/cursorbackend.js';
 
 const tmpHome = () => fs.mkdtempSync(path.join(os.tmpdir(), 'oz-ship-'));
 
@@ -199,4 +199,11 @@ test('briefs name the tools and the gate; ship tools are registered for bots', (
   for (const t of ['ship_crew', 'ship_forge', 'ship_launch_worker', 'ship_status', 'ship_review', 'ship_open_pr']) {
     assert.ok(LOCAL_TOOL_NAMES.includes(t), t);
   }
+});
+
+test('overlay nudges its user to set up Grok Ship, with the exact phrase to type', () => {
+  const n = shipNudgeText();
+  assert.match(n, /^\[grok ship\]/);
+  assert.match(n, /set up Grok Ship for ~\/path\/to\/repo/);
+  assert.match(n, /You merge/);
 });
