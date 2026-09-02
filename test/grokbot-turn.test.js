@@ -250,3 +250,8 @@ test('history strips upstream-echo keys off assistant turns', () => {
   assert.deepEqual(Object.keys(out[1]).sort(), ['role', 'tool_calls']);
   assert.equal(out.length, 3);
 });
+
+test('max_tokens defaults to 32768 and clamps to the catalog cap', () => {
+  assert.match(src, /OPENZOO_ASK_MAX_TOKENS \|\| 32768/);
+  assert.match(src, /max_output_tokens \?\? row\?\.top_provider\?\.max_completion_tokens/);
+});
