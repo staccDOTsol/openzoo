@@ -25,18 +25,20 @@ test('quiet mode drops wire noise and keeps milestones and problems', () => {
     'cursor-backend:      wakeups restored 13',
     'cursor-backend:      sendPrompt done agent=abc seq=9 text="…"',
     'cursor-backend:      mcp brave-devtools attached tools=29',
+    'cursor-backend:      zoo POST :8402 model=grok-4.6 helper=0 hist=28 "GO"',
+    'cursor-backend:      << zoo 200 1628c model=grok-4.6 finish=stop',
   ];
   for (const l of keep) assert.equal(isBotMilestone(l), true, l);
 });
 
 test('makeBotLogger: verbose prints everything, quiet prints milestones only', () => {
   const out = [];
-  const quiet = makeBotLogger({ verbose: false, write: (m) => out.push(m) });
+  const quiet = makeBotLogger({ verbose: false, write: (m) => out.push(m), file: null });
   quiet('cursor-tls: connected alpn=none sni=?');
   quiet('cursor-backend:      mcp ready servers=x tools=1');
   assert.deepEqual(out, ['  backend: cursor-backend:      mcp ready servers=x tools=1']);
   const all = [];
-  const loud = makeBotLogger({ verbose: true, write: (m) => all.push(m) });
+  const loud = makeBotLogger({ verbose: true, write: (m) => all.push(m), file: null });
   loud('cursor-tls: connected alpn=none sni=?');
   assert.equal(all.length, 1);
 });
@@ -66,4 +68,19 @@ test('payBannerChat is the same facts shaped for a canvas', () => {
   assert.doesNotMatch(c, /openzoo: /);
   assert.match(c, /LEOS +5xgsnby6/);
   assert.match(c, /TOKEN 2 units · LEOS 3 units/);
+});
+
+test('quiet mode still writes every line to the full log file', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'oz-botlog-')), 'bot.log');
+  const out = [];
+  const log = makeBotLogger({ verbose: false, write: (m) => out.push(m), file: f });
+  log('cursor-tls: connected alpn=none sni=?');
+  log('cursor-backend:      mcp ready servers=x tools=1');
+  const body = fs.readFileSync(f, 'utf8');
+  assert.match(body, /cursor-tls: connected/);
+  assert.match(body, /mcp ready/);
+  assert.equal(out.length, 1);
 });
