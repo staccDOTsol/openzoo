@@ -235,3 +235,8 @@ test('an assistant entry with null content and no tool_calls is dropped from his
   assert.deepEqual(out.map((m) => m.role), ['user', 'assistant', 'tool']);
   assert.equal(out[0].content, 'a\n\nb');
 });
+
+test('an empty finish=length reply is said once, never re-bought', () => {
+  assert.match(src, /empty finish=length — not re-buying/);
+  assert.match(src, /reasoning_content \?\? msg\?\.reasoning/);
+});
