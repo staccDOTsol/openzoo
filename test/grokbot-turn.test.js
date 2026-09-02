@@ -223,3 +223,15 @@ test('history folds same-role neighbours so strict providers accept it', () => {
   assert.equal(out[1].content, 'a\n\nb\n\nc');
   assert.equal(out[2].content, 'x\n\ny');
 });
+
+test('an assistant entry with null content and no tool_calls is dropped from history', () => {
+  const out = foldSameRole([
+    { role: 'user', content: 'a' },
+    { role: 'assistant', content: null },
+    { role: 'user', content: 'b' },
+    { role: 'assistant', content: null, tool_calls: [{ id: '1' }] },
+    { role: 'tool', tool_call_id: '1', content: 'r' },
+  ]);
+  assert.deepEqual(out.map((m) => m.role), ['user', 'assistant', 'tool']);
+  assert.equal(out[0].content, 'a\n\nb');
+});
