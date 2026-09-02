@@ -330,7 +330,7 @@ async function main() {
     }
     case 'ask': {
       const question = process.argv[3];
-      if (!question) throw new Error('usage: openzoo ask "<question>" [--context <id>] [--model <id>] [--system <text>]');
+      if (!question) throw new Error('usage: openzoo ask "<question>" [--context <id>] [--model <id>] [--system <text>] [--web [--web-results N]]');
       const ci = process.argv.indexOf('--context');
       const mi = process.argv.indexOf('--model');
       // A BARE QUESTION IS A DIFFERENT PRODUCT FROM A BRIEFED ONE.
@@ -344,7 +344,20 @@ async function main() {
       // DHH, Hyprland and theming. Same gateway, same product, one had context.
       // A caller that knows where it is running can now say so.
       const si = process.argv.indexOf('--system');
-      const system = si !== -1 ? process.argv[si + 1] : '';
+      let system = si !== -1 ? process.argv[si + 1] : '';
+      // --web: a keyless DuckDuckGo search, top results injected into THIS
+      // call's system prompt. The x402 rail strips OpenRouter's `plugins`
+      // field, so search-then-inject has to happen here, on the caller's
+      // side. EGRESS: the question text goes to duckduckgo.com. Also on with
+      // OPENZOO_ASK_WEB=1; --web-results N caps the count (default 5).
+      const wantWeb = process.argv.includes('--web') || process.env.OPENZOO_ASK_WEB === '1';
+      if (wantWeb) {
+        const wi = process.argv.indexOf('--web-results');
+        const n = wi !== -1 ? Number(process.argv[wi + 1]) || 5 : 5;
+        const { webSearch, formatWebResults } = await import('../lib/websearch.js');
+        const hits = await webSearch(question, n).catch((e) => { console.error(`web search failed: ${e.message}`); return []; });
+        if (hits.length) system = (system ? system + '\n\n' : '') + formatWebResults(question, hits);
+      }
       const { PayClient } = await import('../lib/pay.js');
       const { config } = await import('../lib/config.js');
       const client = new PayClient();
