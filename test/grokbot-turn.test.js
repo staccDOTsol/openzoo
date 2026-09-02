@@ -15,6 +15,7 @@ import {
   canonicalZooModel,
   capTools,
   MAX_TOOLS,
+  foldSameRole,
 } from '../lib/cursorbackend.js';
 import { mapImageClick, resolveAppName } from '../lib/grokbotDesktop.js';
 import { mediaKindOf } from '../lib/models.js';
