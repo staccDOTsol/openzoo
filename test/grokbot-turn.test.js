@@ -244,7 +244,7 @@ test('an empty finish=length reply is said once, never re-bought', () => {
 test('history strips upstream-echo keys off assistant turns', () => {
   const out = foldSameRole([
     { role: 'user', content: 'a' },
-    { role: 'assistant', content: null, refusal: null, reasoning: 'hmm', annotations: [], tool_calls: [{ id: 'c1', type: 'function', function: { name: 'x', arguments: '{}' } }] },
+    { role: 'assistant', content: null, refusal: null, reasoning: 'hmm', annotations: [], name: null, tool_call_id: null, function_call: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'x', arguments: '{}' } }] },
     { role: 'tool', tool_call_id: 'c1', content: 'r' },
   ]);
   assert.deepEqual(Object.keys(out[1]).sort(), ['role', 'tool_calls']);
