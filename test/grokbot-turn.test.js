@@ -13,6 +13,8 @@ import {
   looksStoppedReply,
   selectedPageId,
   canonicalZooModel,
+  capTools,
+  MAX_TOOLS,
 } from '../lib/cursorbackend.js';
 import { mapImageClick, resolveAppName } from '../lib/grokbotDesktop.js';
 
@@ -184,4 +186,17 @@ test('every grok spelling, including x-ai/grok-4.6, lands on the bare bazaar id'
   for (const id of ['auto', 'openrouter/auto', 'openzoo/auto']) assert.equal(canonicalZooModel(id), 'openzoo/auto');
   assert.equal(canonicalZooModel('anthropic/fable-5.1'), 'anthropic/claude-fable-5.1');
   assert.equal(canonicalZooModel('anthropic/claude-fable-5'), 'anthropic/claude-fable-5');
+});
+
+test('capTools keeps locals and browser MCPs, drops the tail past 128', () => {
+  const mk = (n) => ({ type: 'function', function: { name: n, parameters: { type: 'object', properties: {} } } });
+  const locals = LOCAL_TOOL_NAMES.map(mk);
+  const browser = Array.from({ length: 58 }, (_, i) => mk(`${i % 2 ? 'brave' : 'chrome'}-devtools__t${i}`));
+  const other = Array.from({ length: 60 }, (_, i) => mk(`styxx__t${i}`));
+  const capped = capTools([...other, ...browser, ...locals]);
+  assert.equal(capped.length, MAX_TOOLS);
+  for (const n of LOCAL_TOOL_NAMES) assert.ok(capped.some((t) => t.function.name === n), n);
+  assert.equal(capped.filter((t) => /devtools__/.test(t.function.name)).length, 58);
+  assert.ok(capped.filter((t) => /^styxx__/.test(t.function.name)).length < 60);
+  assert.equal(capTools(locals).length, locals.length);
 });
