@@ -209,3 +209,16 @@ test('a video/image model row turns the prompt into a render, not a chat', () =>
   assert.match(src, /mediaTurn\(\{ model, kind: mediaKind/);
   assert.match(src, /\/v1\/\$\{kind\}s\/generations/);
 });
+
+test('history folds same-role neighbours so strict providers accept it', () => {
+  const out = foldSameRole([
+    { role: 'system', content: 's' },
+    { role: 'user', content: 'a' }, { role: 'user', content: 'b' }, { role: 'user', content: 'c' },
+    { role: 'assistant', content: 'x' }, { role: 'assistant', content: 'y' },
+    { role: 'assistant', content: null, tool_calls: [{ id: '1' }] }, { role: 'tool', tool_call_id: '1', content: 'r' },
+    { role: 'assistant', content: 'z' },
+  ]);
+  assert.deepEqual(out.map((m) => m.role), ['system', 'user', 'assistant', 'assistant', 'tool', 'assistant']);
+  assert.equal(out[1].content, 'a\n\nb\n\nc');
+  assert.equal(out[2].content, 'x\n\ny');
+});
