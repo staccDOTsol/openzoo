@@ -377,6 +377,17 @@ async function main() {
     case '-h':
       console.log(HELP);
       break;
+    case 'version':
+    case '--version':
+    case '-v':
+    case '-V': {
+      // Every installer, mise shim and shell script that probes a CLI asks
+      // this first; answering "unknown command" to it failed real installs.
+      const { readFileSync } = await import('fs');
+      const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+      console.log(pkg.version);
+      break;
+    }
     default:
       console.error(`unknown command: ${cmd}\n`);
       console.log(HELP);
