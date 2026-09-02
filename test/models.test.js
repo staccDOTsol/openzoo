@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveModel, displayNameFor, publishModelList, anthropicModelList, modelsListForRequest, anthropicNativeAlias, ANTHROPIC_NATIVE_ALIASES, isHarnessAliasId, isQuoteableModel, pickClaudePickerRows, quoteableRows } from '../lib/models.js';
+import { resolveModel, unopenrouter, displayNameFor, publishModelList, anthropicModelList, modelsListForRequest, anthropicNativeAlias, ANTHROPIC_NATIVE_ALIASES, isHarnessAliasId, isQuoteableModel, pickClaudePickerRows, quoteableRows } from '../lib/models.js';
 import { applyClaudeCodeCatalogEnv, claudeZooEnv, resolveClaudeCli, claudeCodeBinDirs } from '../lib/launch.js';
 
 
@@ -537,4 +537,19 @@ test('POST /v1/messages is forwarded byte-for-byte (passthrough shim)', async (t
   const probe = await fetch(`http://127.0.0.1:${port}/v1/models/claude-opus-5`);
   assert.equal(probe.status, 200);
   assert.equal((await probe.json()).id, 'claude-opus-5');
+});
+
+
+test('unopenrouter: a vendor-prefixed id becomes the bare door id when the catalog serves it', () => {
+  const ids = ['grok-4.3', 'claude-sonnet-5', 'x-ai/grok-4.6', 'openzoo/auto'];
+  assert.equal(resolveModel('x-ai/grok-4.3', ids), 'grok-4.3');
+  assert.equal(resolveModel('anthropic/claude-sonnet-5', ids), 'claude-sonnet-5');
+  assert.equal(unopenrouter('x-ai/grok-4.6', ids), null);      // no bare row: untouched
+  assert.equal(unopenrouter('openzoo/auto', ids), null);       // router alias is not a vendor
+  assert.equal(unopenrouter('openzoo-opus-5', ids), null);     // twins are not vendors
+  process.env.OPENZOO_UNOPENROUTER = '1';
+  assert.equal(unopenrouter('x-ai/grok-4.6', ids), 'grok-4.6');
+  process.env.OPENZOO_UNOPENROUTER = '0';
+  assert.equal(unopenrouter('x-ai/grok-4.3', ids), null);
+  delete process.env.OPENZOO_UNOPENROUTER;
 });
