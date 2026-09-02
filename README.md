@@ -25,6 +25,10 @@ paid $0.002137 (9.5× cheaper than direct) · rail solana · tx 5Kd…
 
 **Claude Code / grokui Auto** — `openzoo claude` sets the Anthropic API key + base URL to the local OpenZoo proxy (x402 pay-per-call). You do **not** need to authenticate Claude first. grokui orange Auto is this harness, not a `RUN:` text parser. PATH `~/.local/bin` is required on Mac so `claude` is found.
 
+**Agent of Empires** (tmux session manager for coding agents, [agent-of-empires](https://github.com/agent-of-empires/agent-of-empires)) — `openzoo aoe` registers an `openzoo` agent in aoe's `config.toml` (`[session.custom_agents] openzoo = "openzoo claude"`, detected as `claude` so status hooks, resume and fork all work), starts a background proxy if none is listening (no public tunnel unless `--tunnel`), then runs `aoe`. `openzoo aoe add . -l` creates and launches one session in the current directory; in the TUI pick **openzoo** from the agent picker. `Alt+z` opens a tool session with the wallet balance and the live receipts log. Terminal view only: aoe's structured view runs `claude-agent-acp` itself, which bills Anthropic, not the zoo. `--override-claude` additionally makes aoe's built-in `claude` agent launch through openzoo; `--no-launch` writes config only.
+
+**Orca** ([stablyai/orca](https://github.com/stablyai/orca), the desktop orchestrator for parallel agents) — Orca launches any CLI agent in a worktree terminal, so type `openzoo claude` as the agent command (or pick **openzoo** from the agent picker once the upstream catalog entry lands). Orca treats it as Claude Code: same process, same hooks and status dots, same `--dangerously-skip-permissions` default. No account switching applies, because nothing is logged in; every turn pays x402.
+
 `GET /v1/models` is the live OpenRouter catalog **after** dropping `:batch`, `$0` / missing prices, and `openzoo-*` twins. Claude Code's `/model` picker (Anthropic-shaped GET) is a short list: current Opus/Sonnet/Haiku-class + a few real gateway models + `openzoo/auto`.
 
 Mac:

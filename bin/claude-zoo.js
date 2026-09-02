@@ -90,6 +90,25 @@ function zooEnv(base) {
 }
 
 const base = await ensureProxy();
+// `claude auth status --json` / `claude auth login` — answered here, never
+// forwarded. Tools that embed Claude Code as an AI provider (OKX's okx-a2a
+// daemon probes exactly this before it will run) expect a JSON
+// {"loggedIn":true} and a zero exit. occ has no `auth` command: it read the
+// words as a prompt and sat waiting for input, so the probe timed out and the
+// provider was reported "not logged in". Through the zoo the credential is
+// the gateway token set above, so logged-in is simply true.
+if (process.argv[2] === 'auth') {
+  const sub = process.argv[3];
+  if (sub === 'status') {
+    process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'openzoo', apiProvider: 'openzoo', baseUrl: PROXY_URL }) + '\n');
+    process.exit(0);
+  }
+  if (sub === 'login' || sub === 'logout') {
+    process.stdout.write(`openzoo: nothing to ${sub} — every call pays x402 through ${PROXY_URL}\n`);
+    process.exit(0);
+  }
+}
+
 const child = spawn(occ, process.argv.slice(2), {
   stdio: 'inherit',
   env: zooEnv(process.env),

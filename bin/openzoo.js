@@ -142,6 +142,15 @@ usage:
                          path hard-codes $0.00 and ignores /v1/models pricing)
                          --all (whole catalog) --models a,b (exact ids)
                          --default <id> (set the agents' primary model)
+  npx openzoo aoe [aoe args]  Agent of Empires (tmux session manager for coding
+                         agents): registers "openzoo" as an agent in aoe's
+                         config.toml (= Claude Code on the zoo, detected as
+                         claude so status/resume work), starts a background
+                         proxy if none is up, then runs aoe.
+                         aoe add . -l   one session in this dir, launched
+                         --no-launch (config only) --no-proxy --tunnel
+                         --override-claude (aoe's built-in claude pays via
+                         the zoo too) --no-receipts (skip the Alt+z tool)
   npx openzoo mcp        stdio MCP server (tools: zoo_ask, zoo_bind, zoo_models, zoo_wallet, zoo_contexts)
   npx openzoo unblock    restore the editor's own backend in the hosts file
   npx openzoo tunnel     public-url-only mode (everything key-gated, no keyless localhost)
@@ -200,6 +209,9 @@ async function main() {
       break;
     case 'openclaw':
       await (await import('../lib/openclaw.js')).setupOpenClaw(process.argv.slice(3));
+      break;
+    case 'aoe':
+      await (await import('../lib/aoe.js')).setupAoe(process.argv.slice(3));
       break;
     case 'voice':
       await (await import('../lib/voice.js')).runVoice(process.argv.slice(3));
