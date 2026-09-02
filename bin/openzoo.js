@@ -284,6 +284,9 @@ async function main() {
         ? process.argv[ei + 1].split(',').map((e) => (e.startsWith('.') ? e : `.${e}`))
         : undefined;
       const mb = (n) => (n / 1048576).toFixed(1);
+      // Delta uploads are routinely a few KB against a multi-MB corpus; "0.0MB
+      // of 3.2MB" reads as a bug. Pick the unit per number.
+      const hb = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` : n >= 1024 ? `${(n / 1024).toFixed(0)}KB` : `${n}B`);
       const out = await bindPath(target, {
         exts,
         force: process.argv.includes('--force'),
@@ -291,9 +294,23 @@ async function main() {
           if (p.stage === 'reused') console.log(`already bound — ${mb(p.bytes)}MB across ${p.files} file(s) reused, nothing uploaded`);
           if (p.stage === 'start') console.log(`binding ${mb(p.bytes)}MB from ${p.files} file(s) in ${p.parts} part(s)...`);
           if (p.stage === 'part') console.log(`  part ${p.index}/${p.of} bound (${mb(p.bytes)}MB)`);
+          // DELTA: the server already holds most of a re-bound repo, so say
+          // how much is actually crossing the wire — that number is the reason
+          // re-binding after an edit is cheap, and hiding it makes the feature
+          // look like a no-op.
+          if (p.stage === 'delta') {
+            console.log(p.missing === 0
+              ? `delta: server already holds all ${p.chunks} chunk(s) of ${hb(p.bytes)} — nothing to upload`
+              : `delta: ${p.missing} of ${p.chunks} chunk(s) missing on the server, uploading only those...`);
+          }
+          if (p.stage === 'delta-fill') console.log(`  shipped ${hb(p.shipped)} of ${hb(p.of)}${p.remaining ? ` (${p.remaining} still missing)` : ''}`);
         },
       });
       console.log('');
+      if (out.delta) {
+        const pct = out.bytes ? ((100 * out.shipped) / out.bytes).toFixed(1) : '0.0';
+        console.log(`bound via delta — uploaded ${hb(out.shipped)} of ${hb(out.bytes)} (${pct}%)`);
+      }
       console.log(`context: ${out.contextId}`);
       console.log(`ask it:  npx openzoo ask "your question" --context ${out.contextId}`);
       console.log('or send X-HRR-Context: <id> with a small body to /v1/chat/completions');
