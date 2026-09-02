@@ -24,6 +24,7 @@ test('quiet mode drops wire noise and keeps milestones and problems', () => {
     'upstream outage: model=auto openzoo gateway upstream is out of credits',
     'cursor-backend:      wakeups restored 13',
     'cursor-backend:      sendPrompt done agent=abc seq=9 text="…"',
+    'cursor-backend:      >> sendPrompt agent=abc keys=agentId,prompt prompt="jarett"',
     'cursor-backend:      mcp brave-devtools attached tools=29',
     'cursor-backend:      zoo POST :8402 model=grok-4.6 helper=0 hist=28 "GO"',
     'cursor-backend:      << zoo 200 1628c model=grok-4.6 finish=stop',
@@ -83,4 +84,17 @@ test('quiet mode still writes every line to the full log file', async () => {
   assert.match(body, /cursor-tls: connected/);
   assert.match(body, /mcp ready/);
   assert.equal(out.length, 1);
+});
+
+test('the full log appends across runs instead of truncating', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'oz-botlog-')), 'bot.log');
+  makeBotLogger({ verbose: false, write: () => {}, file: f })('first run line');
+  makeBotLogger({ verbose: false, write: () => {}, file: f })('second run line');
+  const body = fs.readFileSync(f, 'utf8');
+  assert.match(body, /first run line/);
+  assert.match(body, /second run line/);
+  assert.equal((body.match(/# openzoo bot run/g) || []).length, 2);
 });

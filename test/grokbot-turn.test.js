@@ -17,6 +17,7 @@ import {
   MAX_TOOLS,
 } from '../lib/cursorbackend.js';
 import { mapImageClick, resolveAppName } from '../lib/grokbotDesktop.js';
+import { mediaKindOf } from '../lib/models.js';
 
 const src = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'lib/cursorbackend.js'),
@@ -199,4 +200,12 @@ test('capTools keeps locals and browser MCPs, drops the tail past 128', () => {
   assert.equal(capped.filter((t) => /devtools__/.test(t.function.name)).length, 58);
   assert.ok(capped.filter((t) => /^styxx__/.test(t.function.name)).length < 60);
   assert.equal(capTools(locals).length, locals.length);
+});
+
+test('a video/image model row turns the prompt into a render, not a chat', () => {
+  assert.equal(mediaKindOf({ id: 'ByteDance/Seedance-2.5', kind: 'video', endpoint: '/v1/videos/generations' }), 'video');
+  assert.equal(mediaKindOf({ id: 'x', endpoint: '/v1/images/generations' }), 'image');
+  assert.equal(mediaKindOf({ id: 'x-ai/grok-4.6', pricing: { prompt: 1, completion: 2 } }), null);
+  assert.match(src, /mediaTurn\(\{ model, kind: mediaKind/);
+  assert.match(src, /\/v1\/\$\{kind\}s\/generations/);
 });
