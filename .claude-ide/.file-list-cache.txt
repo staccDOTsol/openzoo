@@ -1,4 +1,5 @@
 pnpm-lock.yaml
+index-Dl1Aho6j.js
 box.Dockerfile
 box-boot.sh
 .DS_Store
@@ -18,7 +19,9 @@ _race.mjs
 package-lock.json
 package.json
 .env
+.gitattributes
 fly.toml
+hi
 wzma_configs.csv
 grokbot-replied.json
 _tun.mjs
@@ -29,12 +32,14 @@ extension/manifest.json
 extension/content.js
 test/onramp.test.js
 test/grokbot-fetch.test.js
+test/cursor-tls.test.js
 test/mcpbridge.test.js
 test/spend-proof.test.js
 test/think.test.js
 test/actual-billed.test.js
 test/atomic-fallback.test.mjs
 test/grokbot-uploads.test.js
+test/cursor-auth.test.js
 test/grokbot-account.test.js
 test/session.test.js
 test/livestatus.test.js
