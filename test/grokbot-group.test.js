@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { groupReplyIsPass } from '../lib/cursorbackend.js';
+import { groupReplyIsPass, groupReplyIsRepeat } from '../lib/cursorbackend.js';
 
 test('groupReplyIsPass treats PASS and wrap-up lines as done', () => {
   assert.equal(groupReplyIsPass('PASS'), true);
@@ -37,5 +37,17 @@ test('groupReplyIsPass: real turns stay in the ping/pong', () => {
   ), false);
   assert.equal(groupReplyIsPass(
     'The arcade restore still needs CopyBtn aria-label plus a clipboard failure state.',
+  ), false);
+});
+
+test('groupReplyIsPass treats loop/recursion meta-talk as done', () => {
+  const loop = 'It sounds like you are facing a challenge with infinite bot chatter recursion. This can often happen when bots keep triggering each other\'s responses in a loop.';
+  assert.equal(groupReplyIsPass(loop), true);
+  assert.equal(groupReplyIsRepeat(loop, [
+    'It sounds like you are facing a challenge with infinite bot chatter recursion. This can often happen when bots keep triggering each other.',
+  ]), true);
+  assert.equal(groupReplyIsRepeat(
+    'Keep the worker alive until origin has the footer comment, then review the PR.',
+    ['The arcade restore still needs CopyBtn aria-label plus a clipboard failure state.'],
   ), false);
 });
