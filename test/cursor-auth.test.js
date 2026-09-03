@@ -13,6 +13,7 @@ import {
   sandAccountKey,
   grokBotUserDataDirs,
   claimGrokBotMachine,
+  seedGrokBotFakeLogin,
   ensureGrokBotOpenShim,
 } from '../lib/grokcli.js';
 
@@ -120,6 +121,23 @@ test('Linux userData is ~/.config/Grok Bot (Electron productName)', () => {
   const dirs = grokBotUserDataDirs('/home/u', {}, 'linux');
   assert.ok(dirs.includes('/home/u/.config/Grok Bot'));
   assert.ok(dirs.includes('/home/u/.config/sand'));
+});
+
+test('seedGrokBotFakeLogin writes plaintext JWTs into sand-secrets.json', () => {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'oz-seed-'));
+  try {
+    const r = seedGrokBotFakeLogin({ home: tmp, platform: 'win32', env: { APPDATA: path.join(tmp, 'AppData', 'Roaming') } });
+    assert.ok(r.written.length >= 1);
+    const p = path.join(tmp, 'AppData', 'Roaming', 'Grok Bot', 'sand-secrets.json');
+    const j = JSON.parse(readFileSync(p, 'utf8'));
+    assert.ok(String(j['cursor-access-token']).startsWith('plaintext:v1:'));
+    const raw = Buffer.from(j['cursor-access-token'].slice('plaintext:v1:'.length), 'base64').toString('utf8');
+    const payload = JSON.parse(Buffer.from(raw.split('.')[1], 'base64url').toString('utf8'));
+    assert.equal(payload.sub, 'openzoo-user');
+    assert.ok(String(j['cursor-refresh-token']).startsWith('plaintext:v1:'));
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test('claimGrokBotMachine writes version-1 binding so authorize short-circuits', () => {

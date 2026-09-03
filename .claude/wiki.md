@@ -4,6 +4,10 @@
 Cafe/Grok Bot isGroup sendPrompt used to peek/pong until every member said PASS or 8 rounds / 16 calls. Members echoed the same "infinite bot chatter recursion" essay instead of PASS. Default cap is 2 peek rounds / 6 calls. `groupReplyIsPass` treats recursion/loop meta-talk as done. `groupReplyIsRepeat` drops a turn whose first 90 normalized chars match a just-painted member. Peek prompt no longer says "continue ping/pong".
 **Why:** screenshot "hi and hello worlds" — Squid then hi pasted the same recursion essay
 
+## Windows loginDeepControl: seed sand-secrets, PATH shim is Unix-only (2026-09-03)
+asar `waitForBrowserLogin` always `shell.openExternal(https://127.0.0.1:8443/loginDeepControl)` then polls. Linux PATH `xdg-open` shim swallows it. Windows uses ShellExecute → Edge, which shows `NET::ERR_CERT_AUTHORITY_INVALID` (system browser, not Grok Bot's `--ignore-certificate-errors`). Fix: write `Grok Bot/sand-secrets.json` with `plaintext:v1:` + base64 fake JWTs (`cursor-access-token` / `cursor-refresh-token`) so getStatus is already logged-in and login never starts. On win32, bounce Grok Bot after seeding so it re-reads the file.
+**Why:** Windows screenshot — Edge privacy error on loginDeepControl
+
 ## Windows hijack cert: no openssl (2026-09-03)
 `ensureCert` used `execFileSync('openssl')`. Windows OpenZoo Bot log: `8443 bind failed after kill ( spawnSync openssl ENOENT )`. Mint with npm `selfsigned` (already a dependency); openssl is fallback only. `killListen` on win32 uses `netstat -ano` + `taskkill /F` — lsof/kill do not exist, which is why :8402 stayed EADDRINUSE across daemon retries. `bigint: Failed to load bindings` is @solana/web3.js optional native; ignore.
 **Why:** Windows screenshot — openssl ENOENT + EADDRINUSE :8402
