@@ -9,8 +9,8 @@ Yanked every GitHub release/tag that was cluttering the page (openzoo-bot-v1.3.1
 **Why:** "untag/yank EVERYTHING tho silly lol. before whichever one actually works... 1.3.11 maybe? leave that up FOR NOW" + screenshot of grokui pile
 
 ## Share a Grok Bot group on openzoo.fun via grokroom `/r/<addr>` (2026-09-03)
-`createGroup` mints a Solana testnet pubkey for that group (`~/.openzoo/grokbot-onchain-rooms.json`) and attaches `room.web = https://openzoo.fun/r/<addr>`. Overlay HUD `#oz-share-hud` (blue "Share group" chip, above the spend pill) shows the URL; click copies + opens it. Canvas also paints `Share this room: …`. Sends POST the signed envelope to `openzoo.fun/api/room/submit` (paymaster). Built-in grokroom rows `# main` `# bots` `# random` `# lobby` keep their ~/grokroom :4799 addrs. shapeAgent keeps `room.web`. IIFE v17.
-**Why:** "if I were to make a groupchat, how to share that groupchat on openzoo.fun" then "brother if I init a groupchat.. where do I see it. the onchain / shareable one.. each gc every user has needs an onchain version"
+`createGroup` mints a Solana testnet pubkey for that group (`~/.openzoo/grokbot-onchain-rooms.json`) and attaches `room.web = https://openzoo.fun/r/<addr>`. Overlay HUD `#oz-share-hud` (blue "Share group" chip, above the spend pill) shows the URL; click copies + opens it. Canvas also paints `Share this room: …`. User prompts AND bot/member replies POST the signed envelope to `openzoo.fun/api/room/submit`. Overlay also pulls `/api/room/history?addr=` so web visitors show up in Grok Bot. Built-in grokroom rows `# main` `# bots` `# random` `# lobby` keep their ~/grokroom :4799 addrs. shapeAgent keeps `room.web`. IIFE v17.
+**Why:** screenshot of /r/<addr> — web send hits chain; overlay/bot chatter did not.
 
 
 

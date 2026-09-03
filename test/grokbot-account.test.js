@@ -7,7 +7,7 @@ import {
   accountSlug, accountDir, accountAgentsPath, houseAgentsPath, rosterForAccount, rosterForEvent,
   callerKeyFromAuth, readHouseRoster, mergeAgentRecords, shapeAgent, agentBrief, briefFromName,
   looksLikeAgentId, nameFromBrief, displayName, preferNamedAgent,
-  grokroomAgentId, grokroomMemberId, grokroomShareUrl, agentShareUrl, groupShareState,
+  grokroomAgentId, grokroomMemberId, grokroomShareUrl, grokroomFromHandle, agentShareUrl, groupShareState,
   mintOnchainRoom, ensureOnchainRoom, attachOnchainRoom,
   isGrokRoomAgent, isGrokRoomMember,
   parseWakeupEvery, wantsWakeupCron, shapeWakeup, readWakeups, writeWakeups, wakeupsPath,
@@ -294,6 +294,13 @@ test('grokroom ids are stable and detect room vs member', () => {
   assert.equal(isGrokRoomAgent({ id: 'c7929c8e-258c-4907-a0fd-58aab79144ad', name: 'Firstmate' }), false);
   assert.equal(isGrokRoomMember({ id: 'roombot-bob', hidden: true }), true);
   assert.equal(isGrokRoomMember({ id: 'firstmate', name: 'Firstmate' }), false);
+});
+
+test('grokroomFromHandle is paymaster-safe', () => {
+  assert.equal(grokroomFromHandle('stacc'), 'stacc');
+  assert.equal(grokroomFromHandle('6 · Content Studio'), '6 Content Studio');
+  assert.equal(grokroomFromHandle(''), 'anon');
+  assert.ok(grokroomFromHandle('x'.repeat(40)).length <= 24);
 });
 
 test('grokroomShareUrl is openzoo.fun/r/<pubkey>', () => {
