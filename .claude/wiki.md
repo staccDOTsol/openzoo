@@ -1,8 +1,14 @@
 # Project Wiki
 
-## Machine-claim lock: SAND_DEV_ALLOW_ACCOUNT_REBIND (2026-09-03)
-Grok Bot asar i18n `DKMHuY` / cause `refused-credentials-retained`: "The first Cursor account that used this computer claimed it…". `SAND_HOST_GATEWAY_URL` (we set it for Helper) enables `userData/.env-descriptor-account-bindings.json`. Fake `openzoo-user` ≠ the bound Cursor account → `authorizeAccount` false → overlay/spend still work (hijack is up) but the shell stays logged-out. asar `createDesktopAccountAuthorizer` rebinds when `SAND_DEV_ALLOW_ACCOUNT_REBIND=1`. Set that in `grokBotLaunchEnv`.
-**Why:** "sign in the first cursor account that used this computer claimed it… but overlay / spend works"
+## Share a Grok Bot group on openzoo.fun via grokroom `/r/<addr>` (2026-09-03)
+Two different "groups": (1) Grok Bot **createGroup** is local to the house tray — cafe visitors on *this* hijack see it, it is not a public URL. (2) **grokroom** rows `# main` `# bots` `# random` `# lobby` (from `~/grokroom` :4799) are Solana testnet accounts; grokroom `/state` already emits `web: https://openzoo.fun/r/<room-pubkey>` (site route `r.$addr.tsx` + paymaster `/api/room/submit`). Overlay paints `Share: https://openzoo.fun/r/…` on room intro; createGroup injects a canvas hint with those public URLs (or "start ~/grokroom" if :4799 is down).
+**Why:** "if I were to make a groupchat, how to share that groupchat on openzoo.fun" + overlay/chat injection
+
+
+
+## Machine-claim lock: pre-seed binding, not just REBIND (2026-09-03)
+Grok Bot asar i18n `DKMHuY` / cause `refused-credentials-retained`: "The first Cursor account that used this computer claimed it…". `SAND_HOST_GATEWAY_URL` (Helper) enables `userData/.env-descriptor-account-bindings.json`. authorize is: same account → ok; other account + `SAND_DEV_ALLOW_ACCOUNT_REBIND=1` → rewrite; **no row for this URL** + not first-startup-claim + `hasExistingDurableData()` → refuse. Packaged AppImage always reports durable data (dev-box control plane is off). Mid-session fake login after "Log in with Cursor" is not first-startup-claim. Hijack URL `https://127.0.0.1:8443` is a new descriptor key, so 1.3.10's REBIND never ran and poll/oauth/GetMe were followed by `POST /auth/logout`. Fix: write the binding for `openzoo-user` + canonical URL (`new URL(u).toString()` trailing slash) under Electron userData (`~/.config/Grok Bot` on Linux) before spawn; keep REBIND=1 in case the slot is not exactly `openzoo-user`.
+**Why:** "1.3.10 has same error buddy" — bot.log FAKE poll/oauth then `/auth/logout`
 
 
 

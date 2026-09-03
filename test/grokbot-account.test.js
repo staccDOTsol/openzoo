@@ -7,7 +7,7 @@ import {
   accountSlug, accountDir, accountAgentsPath, houseAgentsPath, rosterForAccount, rosterForEvent,
   callerKeyFromAuth, readHouseRoster, mergeAgentRecords, shapeAgent, agentBrief, briefFromName,
   looksLikeAgentId, nameFromBrief, displayName, preferNamedAgent,
-  grokroomAgentId, grokroomMemberId, isGrokRoomAgent, isGrokRoomMember,
+  grokroomAgentId, grokroomMemberId, grokroomShareUrl, isGrokRoomAgent, isGrokRoomMember,
   parseWakeupEvery, wantsWakeupCron, shapeWakeup, readWakeups, writeWakeups, wakeupsPath,
   WAKEUP_MIN_SEC, WAKEUP_DEFAULT_SEC,
   addDeletedIds, filterDeleted, readDeletedIds,
@@ -291,4 +291,11 @@ test('grokroom ids are stable and detect room vs member', () => {
   assert.equal(isGrokRoomAgent({ id: 'c7929c8e-258c-4907-a0fd-58aab79144ad', name: 'Firstmate' }), false);
   assert.equal(isGrokRoomMember({ id: 'roombot-bob', hidden: true }), true);
   assert.equal(isGrokRoomMember({ id: 'firstmate', name: 'Firstmate' }), false);
+});
+
+test('grokroomShareUrl is openzoo.fun/r/<pubkey>', () => {
+  const addr = 'DJgLAZuzhVwmjXSGyfEPLUDbTRYPbvQS3AC9za3cUTTm';
+  assert.equal(grokroomShareUrl(addr), 'https://openzoo.fun/r/' + addr);
+  assert.equal(grokroomShareUrl('nope'), '');
+  assert.equal(grokroomShareUrl(''), '');
 });
