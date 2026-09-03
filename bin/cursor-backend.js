@@ -45,5 +45,5 @@ process.on('unhandledRejection', (e) => {
   log(`cursor-backend: UNHANDLED REJECTION ${e && e.message ? e.message : e}`);
 });
 
-startCursorBackend({ port, models, log });
+await startCursorBackend({ port, models, log });
 log(`cursor-backend: standalone up on :${port} (${models.length} models)`);

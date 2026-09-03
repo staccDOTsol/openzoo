@@ -27,6 +27,25 @@ test('killListen kills other pids on the port, not us', () => {
   assert.ok(!ran.some((c) => c === `kill ${process.pid}`));
 });
 
+test('killListen on Windows uses netstat + taskkill (no openssl/lsof)', () => {
+  const ran = [];
+  const run = (cmd) => {
+    ran.push(String(cmd));
+    if (String(cmd).includes('netstat')) {
+      return [
+        'TCP    127.0.0.1:8402    0.0.0.0:0    LISTENING    7708',
+        `TCP    127.0.0.1:8402    0.0.0.0:0    LISTENING    ${process.pid}`,
+        'TCP    127.0.0.1:443     0.0.0.0:0    LISTENING    4',
+      ].join('\r\n');
+    }
+    return '';
+  };
+  const pids = killListen(8402, run, 'win32');
+  assert.deepEqual(pids, [7708]);
+  assert.ok(ran.some((c) => c.includes('taskkill /PID 7708 /F')));
+  assert.ok(!ran.some((c) => c.startsWith('lsof') || c.startsWith('kill ')));
+});
+
 test('startProxy bounces a listener instead of reusing it', () => {
   const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'lib/proxy.js'), 'utf8');
   assert.match(src, /killed proxy on/);

@@ -51,7 +51,8 @@ let lastStatus = {
 };
 
 function takeLog(buf) {
-  const s = String(buf);
+  const s = String(buf).replace(/^.*bigint: Failed to load bindings.*\n?/gm, '');
+  if (!s) return;
   botLog += s;
   if (botLog.length > 12000) botLog = botLog.slice(-12000);
   try { process.stderr.write(s); } catch { /* ignore */ }

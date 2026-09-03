@@ -1,5 +1,9 @@
 # Project Wiki
 
+## Windows hijack cert: no openssl (2026-09-03)
+`ensureCert` used `execFileSync('openssl')`. Windows OpenZoo Bot log: `8443 bind failed after kill ( spawnSync openssl ENOENT )`. Mint with npm `selfsigned` (already a dependency); openssl is fallback only. `killListen` on win32 uses `netstat -ano` + `taskkill /F` — lsof/kill do not exist, which is why :8402 stayed EADDRINUSE across daemon retries. `bigint: Failed to load bindings` is @solana/web3.js optional native; ignore.
+**Why:** Windows screenshot — openssl ENOENT + EADDRINUSE :8402
+
 ## GitHub releases: only 1.3.11 + vendor grokbot-v0.36.0 (2026-09-03)
 Yanked every GitHub release/tag that was cluttering the page (openzoo-bot-v1.3.10, all grokui-v1.6.*, grokbot-v1.6.21). Left `openzoo-bot-v1.3.11` (Latest) and `grokbot-v0.36.0` (vendor Grok Bot binaries — `grokbotFetch` looks up `grokbot-v*` on the releases API). npm tag `v0.49.9` is not a release.
 **Why:** "untag/yank EVERYTHING tho silly lol. before whichever one actually works... 1.3.11 maybe? leave that up FOR NOW" + screenshot of grokui pile
