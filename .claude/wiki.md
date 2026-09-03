@@ -1,5 +1,11 @@
 # Project Wiki
 
+## Hijack fakes Cursor login — no "Log in with Cursor" (2026-09-03)
+Linux bot.log: `GET /auth/poll?uuid=…&verifier=… -> empty-ok`. Grok Bot's `SandBackendLoginManager.waitForResult` requires JSON `{accessToken, refreshToken}` (JWT with sub/email/exp). `{}` is a 200 without those keys → bad_200 → login UI. Hijack now answers poll + `/oauth/token` with a local JWT session (`user@openzoo.local`) and serves `/loginDeepControl` itself. Launch env sets `SAND_CURSOR_WEBSITE_URL` to the hijack so the login tab is not cursor.com. Sniff/`OPENZOO_PASSTHRU=1` still hits real api2. Overlay list includes `cursorbackend.js` / `cursorapi.js` or the AppImage keeps npm last week.
+**Why:** "the grok bot launched and it still gave me login with cursor bullshit. IT SHOULD THINK IT'S LOGGED"
+
+
+
 ## `openzoo bot --daemon` + strip ELECTRON_RUN_AS_NODE (2026-09-03)
 The Linux OpenZoo Bot AppImage ran `openzoo bot` in the foreground and inherited `ELECTRON_RUN_AS_NODE=1` into vendor Grok Bot, so the pay-banner QUIET line printed and no Grok Bot window opened. `--daemon` / `-d` re-execs the sidecar detached (`~/.openzoo/bot.pid`, log `bot.log`) and the wrapper uses that flag. `grokBotLaunchEnv` deletes ELECTRON_RUN_AS_NODE / APPIMAGE / APPDIR / LD_LIBRARY_PATH before spawn; Linux AppImages also get `APPIMAGE_EXTRACT_AND_RUN=1`. `--stop` kills the pidfile.
 **Why:** "on linux it did all the steps then is just logging add --verbose… I think we need a daemon launch flag"

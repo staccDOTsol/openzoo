@@ -35,13 +35,12 @@ import zlib from 'node:zlib';
 import { execFileSync, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import tls from 'node:tls';
-import { randomUUID, generateKeyPairSync, createPrivateKey, sign as cryptoSign } from 'node:crypto';
-import { encodeAvailableModels, encodeForMethod, encodeEnsureSandBox, encodeGetGrokBotSendStatus, decodeProtoFields, unwrapConnect, fakeCursorAuthReply } from './cursorapi.js';
+import { randomUUID } from 'node:crypto';
+import { encodeAvailableModels, encodeForMethod, encodeEnsureSandBox, encodeGetGrokBotSendStatus, decodeProtoFields, unwrapConnect } from './cursorapi.js';
 import {
   accountPodPath, accountAgentsPath, rosterForAccount, rosterForEvent,
   readHouseRoster, houseAgentsPath, shapeAgent, agentBrief, briefFromName,
   preferNamedAgent, looksLikeAgentId,
-  grokroomAgentId, grokroomMemberId, isGrokRoomAgent, isGrokRoomMember,
   readWakeups, writeWakeups, shapeWakeup, parseWakeupEvery, wantsWakeupCron,
   DEFAULT_WAKEUP_PROMPT, addDeletedIds, filterDeleted,
 } from './grokbotAccount.js';
@@ -653,10 +652,10 @@ async function fetchEnsureSandBox(req, body, log) {
   try {
     const remote = await podJson('/api/listAgents', {}, log);
     if (Array.isArray(remote) && remote.length) {
-      const merged = rosterForEvent(mergeAgentLists(remote), agentActivity, { includeHidden: true }); // GROKROOM-HIDDEN-BOTS
+      const merged = rosterForEvent(mergeAgentLists(remote), agentActivity);
       saveAgents(merged);
       const active = focusedAgentId || merged[0]?.id;
-      ssePush('agents', { agents: merged.filter((a) => !a.hidden), activeAgentId: active }); // GROKROOM-HIDDEN-BOTS
+      ssePush('agents', { agents: merged, activeAgentId: active });
       log(`cursor-backend:      discovered roster n=${merged.length} account=${realPod.accountId}`);
     }
   } catch (e) {
@@ -838,9 +837,9 @@ async function proxyPodHttp(req, res, full, body, log) {
       try {
         const parsed = JSON.parse(String(inflateBody(cap.buf, cap.respHeaders)));
         if (Array.isArray(parsed)) {
-          const merged = rosterForEvent(mergeAgentLists(parsed), agentActivity, { includeHidden: true }); // GROKROOM-HIDDEN-BOTS
+          const merged = rosterForEvent(mergeAgentLists(parsed), agentActivity);
           saveAgents(merged);
-          jsonSend(res, merged.filter((a) => !a.hidden)); // GROKROOM-HIDDEN-BOTS
+          jsonSend(res, merged);
           log(`cursor-backend:      listAgents 200 merged n=${merged.length} account=${activeAccountId || '?'}`);
           return true;
         }
@@ -943,7 +942,7 @@ function sortAgentsByActivity(list) {
     return ay - ax;
   });
 }
-function bumpAgent(id, { preview = '', notify = true, select = true } = {}) {
+function bumpAgent(id, { preview = '', notify = true } = {}) {
   const now = Date.now();
   const a = agentActivity.get(id) || { unreadCount: 0 };
   a.updatedAt = now;
@@ -961,7 +960,7 @@ function bumpAgent(id, { preview = '', notify = true, select = true } = {}) {
   if (idx >= 0) list[idx] = agent;
   else list.unshift(agent);
   saveAgents(sortAgentsByActivity(list.map(shapeAgent)));
-  pushCreatedAgent(agent, { select });
+  pushCreatedAgent(agent);
 }
 
 /** asar ingestAgentsEvent does Ae.agents.map — `{action:"created"}` has no
@@ -973,7 +972,7 @@ function pushCreatedAgent(agent, { select = true } = {}) {
   const active = focusedAgentId || agent.id;
   const list = rosterForEvent(cachedAgentList() || [], agentActivity);
   ssePush('agent-upserted', { agent, activeAgentId: active });
-  ssePush('agents', { agents: list.filter((a) => !a.hidden), activeAgentId: active }); // GROKROOM-HIDDEN-BOTS
+  ssePush('agents', { agents: list, activeAgentId: active });
 }
 
 /** Grok Bot Helper daemon: GET /local-exec/requests is SSE, POST /local-exec/responses
@@ -1157,7 +1156,6 @@ function appendLine(agentId, role, text, extra = {}) {
       requestId,
       ...(extra.author && typeof extra.author === 'object' ? { author: extra.author } : {}),
       ...(extra.ephemeral ? { ephemeral: true } : {}),
-      ...(extra.sig ? { sig: String(extra.sig) } : {}),
     };
   }
   t.entries.push(e);
@@ -1454,7 +1452,6 @@ function kickBriefedAgent(agent, log = () => {}) {
 
 function seedBriefOnCanvas(agent, log) {
   if (!agent?.id || !String(agent.brief || '').trim()) return false;
-  if (isGrokRoomAgent(agent) || isGrokRoomMember(agent)) return false;
   const t = agentTranscript(agent.id);
   if (!(t.entries || []).length) {
     const nonce = `oz-brief-${agent.id}`;
@@ -1475,7 +1472,6 @@ let payNudged = false;
 /** The terminal banner, on the canvas too: a new user reads the chat, not the shell. */
 async function seedPayNudge(list, activeId, log = () => {}) {
   if (payNudged || !activeId) return false;
-  if (isGrokRoomAgent({ id: activeId }) || /^roombot-/.test(String(activeId))) return false;
   payNudged = true;
   try {
     const t = agentTranscript(activeId);
@@ -1498,7 +1494,6 @@ async function seedPayNudge(list, activeId, log = () => {}) {
 let shipNudged = false;
 function seedShipNudge(list, activeId) {
   if (shipNudged || !activeId) return false;
-  if (isGrokRoomAgent({ id: activeId }) || /^roombot-/.test(String(activeId))) return false;
   const roster = Array.isArray(list) ? list : [];
   if (roster.some((a) => /^firstmate$/i.test(String(a?.name || '')))) { shipNudged = true; return false; }
   const t = agentTranscript(activeId);
@@ -1608,7 +1603,7 @@ function mergeAgentLists(remote) {
   return sortAgentsByActivity(filterDeleted(out, HOME));
 }
 function gatewayEntry(e) {
-  const { seq, pulledRemote, promptRaw, ephemeral, sig, ...rest } = e;
+  const { seq, pulledRemote, promptRaw, ephemeral, ...rest } = e;
   return rest;
 }
 
@@ -3333,7 +3328,7 @@ async function handleHijackedPodHttp(req, res, full, body, log) {
     try { parsed = JSON.parse(String(body || '{}')); } catch { parsed = {}; }
     const every = String(parsed.every || '5m');
     const wakes = readWakeups(HOME);
-    const list = (cachedAgentList() || []).filter((a) => a?.id && !a.isGroup && !isGrokRoomAgent(a) && !isGrokRoomMember(a));
+    const list = (cachedAgentList() || []).filter((a) => a?.id && !a.isGroup);
     const armed = [];
     const already = [];
     for (const a of list) {
@@ -3526,7 +3521,7 @@ async function handleHijackedPodHttp(req, res, full, body, log) {
     try { parsed = JSON.parse(String(body || '{}')); } catch { parsed = {}; }
     const ids = new Set([].concat(parsed.ids || parsed.id || []).map(String));
     const next = (cachedAgentList() || []).filter((a) => !ids.has(a.id));
-    addDeletedIds(HOME, [...ids].filter((id) => !/^(room-|roombot-)/.test(id)));
+    addDeletedIds(HOME, [...ids]);
     saveAgents(next);
     for (const id of ids) {
       transcripts.delete(id);
@@ -3599,20 +3594,6 @@ async function handleHijackedPodHttp(req, res, full, body, log) {
     log(`cursor-backend:      >> sendPrompt agent=${agentId} keys=${Object.keys(parsed).join(',')} attachments=${attN}${visitor ? ` visitor=${visitor.shortname}` : ''} prompt=${JSON.stringify((prompt || '').slice(0, 80))}`);
     lastSendEchoId = String(nonce);
     jsonSend(res, { accepted: true });
-    const roomAgent = grokroomLookup(agentId);
-    if (roomAgent) {
-      const userLine = fanoutLine(agentId, 'user', uiText, {
-        clientNonce: nonce,
-        requestId: nonce,
-        richText: visitor ? prefixVisitorRichText(parsed.richText, visitor.shortname, uiText) : parsed.richText,
-        promptRaw: prompt,
-      });
-      noteFocus(agentId);
-      bumpAgent(agentId, { preview: prompt, notify: false, select: false });
-      ssePush('transcript', { ...gatewayEntry(userLine), agentId });
-      grokroomSend(roomAgent, prompt, log);
-      return true;
-    }
     if (!visitor && wantsWakeupCron(prompt)) {
       const cron = scheduleAgentWakeup(agentId, { every: '5m' });
       log(`cursor-backend:      never-stop cron agent=${agentId} every=${cron.everySec}s`);
@@ -3698,7 +3679,6 @@ async function handleHijackedPodHttp(req, res, full, body, log) {
     noteFocus(id);
     tailedAgents.add(id);
     const t = agentTranscript(id);
-    if (isGrokRoomAgent({ id }) || /^roombot-/.test(id)) t.pulledRemote = true;
     if (!t.pulledRemote && realPod?.agent && !useHouseRoster()) {
       const remote = await podJson('/api/getAgentTranscriptTail', {
         id, agentId: id, limit: 200, beforeSeq: parsed.beforeSeq,
@@ -3819,250 +3799,6 @@ function respond(req, res, method, models) {
   res.end(bodyProto);
 }
 
-// ===== GROKROOM-BRIDGE v1 (overlay) =====
-// Rooms from 127.0.0.1:4799 as native Grok Bot group threads.
-// One room = one sidebar row (# main / # bots / # random / # lobby).
-// Each remote sender is a hidden bubble-member (no sidebar row). Sends POST a
-// signed ed25519 envelope to /submit — the chain is the log. Additive: any
-// failure here must never break zoo chat. Interval starts from startCursorBackend
-// so importing this module in tests does not poll.
-const GROKROOM_API = process.env.OZ_GROKROOM_URL || 'http://127.0.0.1:4799';
-const GROKROOM_ID_FILE = path.join(HOME, '.openzoo', 'grokroom-identity.json');
-const GROKROOM_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
-const GROKROOM_HANDLE = (process.env.OZ_ROOM_HANDLE || process.env.USER || 'anon')
-  .replace(/[^A-Za-z0-9 _.'-]/g, '').trim().slice(0, 24) || 'anon';
-const GROKROOM_B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-
-function grokroomB58(buf) {
-  const digits = [0];
-  for (const byte of buf) {
-    let carry = byte;
-    for (let i = 0; i < digits.length; i++) { carry += digits[i] << 8; digits[i] = carry % 58; carry = (carry / 58) | 0; }
-    while (carry) { digits.push(carry % 58); carry = (carry / 58) | 0; }
-  }
-  let out = '';
-  for (const b of buf) { if (b === 0) out += '1'; else break; }
-  return out + digits.reverse().map((d) => GROKROOM_B58[d]).join('');
-}
-
-let grokroomIdCache = null;
-function grokroomIdentity() {
-  if (grokroomIdCache) return grokroomIdCache;
-  let id = null;
-  try {
-    const j = JSON.parse(fs.readFileSync(GROKROOM_ID_FILE, 'utf8'));
-    if (j.pub && j.seed) id = j;
-  } catch { /* first run */ }
-  if (!id) {
-    const pair = generateKeyPairSync('ed25519');
-    const rawPub = pair.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32);
-    const rawSeed = pair.privateKey.export({ format: 'der', type: 'pkcs8' }).subarray(-32);
-    id = { pub: grokroomB58(Buffer.from(rawPub)), seed: Buffer.from(rawSeed).toString('base64') };
-    try {
-      fs.mkdirSync(path.dirname(GROKROOM_ID_FILE), { recursive: true });
-      fs.writeFileSync(GROKROOM_ID_FILE, JSON.stringify(id, null, 2));
-    } catch { /* in-memory is fine */ }
-  }
-  grokroomIdCache = id;
-  return id;
-}
-
-async function grokroomPost(roomId, body) {
-  const id = grokroomIdentity();
-  const ts = Date.now();
-  const from = GROKROOM_HANDLE;
-  const pub = id.pub;
-  const canonical = JSON.stringify({ body, from, pub, room: roomId, ts });
-  const key = createPrivateKey({ key: Buffer.concat([GROKROOM_PKCS8_PREFIX, Buffer.from(id.seed, 'base64')]), format: 'der', type: 'pkcs8' });
-  const sig = grokroomB58(cryptoSign(null, Buffer.from(canonical, 'utf8'), key));
-  const r = await fetch(GROKROOM_API + '/submit', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ room: roomId, from, pub, body, ts, sig }),
-    signal: AbortSignal.timeout(30000),
-  });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok || j.ok === false) throw new Error(j.error || ('submit HTTP ' + r.status));
-  return j;
-}
-
-function grokroomLookup(agentId) {
-  const list = cachedAgentList() || [];
-  return list.find((a) => a.id === agentId && isGrokRoomAgent(a)) || null;
-}
-
-function grokroomUpsertAgent(parsed, { select = false } = {}) {
-  const id = String(parsed.id);
-  const prev = (cachedAgentList() || []).find((a) => a.id === id) || {};
-  const agent = shapeAgent({
-    ...prev,
-    ...parsed,
-    id,
-    createdAt: prev.createdAt || parsed.createdAt || Date.now(),
-    updatedAt: Date.now(),
-  });
-  const list = cachedAgentList() || [];
-  const i = list.findIndex((a) => a.id === id);
-  if (i < 0) list.unshift(agent);
-  else list[i] = { ...list[i], ...agent };
-  saveAgents(list.map(shapeAgent));
-  agentTranscript(id);
-  if (agent.hidden) {
-    const visible = rosterForEvent(list, agentActivity);
-    ssePush('agents', { agents: visible, activeAgentId: focusedAgentId || visible[0]?.id || id });
-  } else {
-    pushCreatedAgent(agent, { select });
-  }
-  return agent;
-}
-
-function grokroomMemberEnsure(group, name) {
-  const mid = grokroomMemberId(name);
-  const list = cachedAgentList() || [];
-  let member = list.find((a) => a.id === mid);
-  if (!member) {
-    member = grokroomUpsertAgent({
-      id: mid,
-      name: String(name || 'anon').slice(0, 80),
-      hidden: true,
-      hiddenFromSidebar: true,
-      brief: '',
-      description: '',
-    });
-  }
-  const have = group.memberIds || [];
-  if (have.includes(mid)) return group;
-  return grokroomUpsertAgent({
-    id: group.id,
-    name: group.name,
-    isGroup: true,
-    memberIds: [...have, mid],
-    brief: '',
-    description: '',
-    room: group.room,
-  });
-}
-
-function grokroomEnsureGroup(roomId, name, addr) {
-  const id = grokroomAgentId(roomId);
-  if (!id) return null;
-  const list = cachedAgentList() || [];
-  const prev = list.find((a) => a.id === id || a.room?.id === roomId);
-  if (prev) {
-    if (addr && prev.room && !prev.room.addr) {
-      return grokroomUpsertAgent({ ...prev, room: { id: roomId, addr } }, { select: false });
-    }
-    return prev;
-  }
-  const agent = grokroomUpsertAgent({
-    id,
-    name: name || ('# ' + roomId),
-    isGroup: true,
-    memberIds: [],
-    brief: '',
-    description: '',
-    room: { id: roomId, addr: addr || '' },
-  }, { select: false });
-  const nonce = `oz-room-${id}`;
-  grokroomMemberEnsure(agent, 'room');
-  const text = 'Linked to ' + agent.name + ' on Solana testnet. Every message here is a signed memo on-chain — the chain is the log.'
-    + (addr ? ' Explorer: https://solscan.io/account/' + addr + '?cluster=testnet' : '');
-  const line = fanoutLine(id, 'assistant', text, {
-    clientNonce: nonce,
-    requestId: nonce,
-    author: { kind: 'agent', id: grokroomMemberId('room'), name: 'room' },
-  });
-  ssePush('transcript', { ...gatewayEntry(line), agentId: id });
-  return agent;
-}
-
-function grokroomSend(agent, body, log = () => {}) {
-  const text = String(body || '').trim().slice(0, 400);
-  if (!text || !agent?.room?.id) return;
-  grokroomPost(agent.room.id, text).catch((e) => {
-    grokroomMemberEnsure(agent, 'room');
-    const line = fanoutLine(agent.id, 'assistant', '⚠ could not reach the room: ' + e.message, {
-      author: { kind: 'agent', id: grokroomMemberId('room'), name: 'room' },
-    });
-    ssePush('transcript', { ...gatewayEntry(line), agentId: agent.id });
-    log(`cursor-backend:      grokroom send fail ${agent.room.id} ${e.message}`);
-  });
-}
-
-let grokroomBusy = false;
-async function grokroomSync(log = () => {}) {
-  if (grokroomBusy) return;
-  grokroomBusy = true;
-  try {
-    const stRes = await fetch(GROKROOM_API + '/state', { signal: AbortSignal.timeout(4000) });
-    if (!stRes.ok) return;
-    const st = await stRes.json();
-    const rooms = Array.isArray(st.rooms) ? st.rooms : [];
-    if (!grokroomSync._logged) {
-      grokroomSync._logged = true;
-      log(`cursor-backend:      grokroom sync tick: rooms=${rooms.map((r) => r.id).join(',')}`);
-    }
-    for (const r of rooms) {
-      const roomId = r.id || r.name;
-      if (!roomId) continue;
-      let group = grokroomEnsureGroup(roomId, r.name, r.addr || r.address);
-      if (!group) continue;
-      const feedRes = await fetch(GROKROOM_API + '/feed?room=' + encodeURIComponent(roomId), { signal: AbortSignal.timeout(4000) });
-      if (!feedRes.ok) continue;
-      const feed = await feedRes.json();
-      const msgs = Array.isArray(feed.messages) ? feed.messages : [];
-      const names = new Set();
-      for (const m of msgs) {
-        const from = String(m.from || m.node || '').slice(0, 24);
-        if (from) names.add(from);
-      }
-      for (const from of names) group = grokroomMemberEnsure(group, from);
-      const t = agentTranscript(group.id);
-      const seen = new Set((t.entries || []).filter((h) => h.sig).map((h) => h.sig));
-      let dirty = 0;
-      for (const m of msgs) {
-        const msig = m.sig || m.txSig || m.envsig || (m.pub && m.ts ? m.pub + ':' + m.ts : null);
-        if (!msig || seen.has(msig)) continue;
-        seen.add(msig);
-        const from = String(m.from || m.node || 'anon').slice(0, 24);
-        const body = String(m.body || m.text || '');
-        if (!body) continue;
-        if (from === GROKROOM_HANDLE && (t.entries || []).slice(-50).some((h) => h.role === 'user' && String(h.content || '') === body)) continue;
-        group = grokroomMemberEnsure(group, from);
-        const mid = grokroomMemberId(from);
-        const line = fanoutLine(group.id, 'assistant', body, {
-          author: { kind: 'agent', id: mid, name: from },
-          sig: msig,
-        });
-        ssePush('transcript', { ...gatewayEntry(line), agentId: group.id });
-        if (m.ts && m.ts > (agentActivity.get(group.id)?.updatedAt || 0)) {
-          /* keep */
-        }
-        dirty += 1;
-      }
-      if (dirty) {
-        bumpAgent(group.id, { preview: msgs[msgs.length - 1]?.body || '', notify: true, select: false });
-        log(`cursor-backend:      grokroom ${roomId} +${dirty} bubbles history=${agentTranscript(group.id).entries.length}`);
-      }
-    }
-  } catch (e) {
-    log(`cursor-backend:      grokroom sync: ${e.message}`);
-  } finally {
-    grokroomBusy = false;
-  }
-}
-
-function startGrokroomBridge(log = () => {}) {
-  if (startGrokroomBridge._on) return;
-  if (process.env.OZ_GROKROOM === '0') {
-    log('cursor-backend:      grokroom bridge off (OZ_GROKROOM=0)');
-    return;
-  }
-  startGrokroomBridge._on = true;
-  const tick = () => grokroomSync(log);
-  setTimeout(tick, 800);
-  setInterval(tick, 4000);
-}
-
 /**
  * Start the impersonation server. Binds `port` (default 8443 — a privileged
  * 443->port redirect is installed alongside the /etc/hosts entry, so this stays
@@ -4070,7 +3806,6 @@ function startGrokroomBridge(log = () => {}) {
  */
 export function startCursorBackend({ port = 8443, models, log = () => {} } = {}) {
   restoreAgentWakeups(log);
-  startGrokroomBridge(log);
   const { cert, key } = ensureCert(log);
   const certPem = fs.readFileSync(cert);
   const keyPem = fs.readFileSync(key);
@@ -4160,21 +3895,6 @@ export function startCursorBackend({ port = 8443, models, log = () => {} } = {})
         return;
       }
       log(`cursor-backend: #${conns} ${req.method} ${full}  ct=${ct}  body=${body.length}b`);
-      // HIJACK LOGIN. Measured Linux 2026-09-03: GET /auth/poll -> empty-ok
-      // (`{}`) so SandBackendLoginManager threw bad_200 and the UI stayed on
-      // "Log in with Cursor". Poll must return accessToken+refreshToken JWT.
-      // /oauth/token refresh is the same session — do NOT passthrough fake
-      // tokens to real api2. Sniff/passthru keeps the real issuer.
-      {
-        const fakeAuth = fakeCursorAuthReply(full, { passthrough: sniffOn() || process.env.OPENZOO_PASSTHRU === '1' });
-        if (fakeAuth) {
-          if (req.method === 'OPTIONS') { res.writeHead(204, CORS); res.end(); return; }
-          res.writeHead(200, { 'content-type': fakeAuth.contentType, ...CORS });
-          res.end(fakeAuth.body);
-          log(`cursor-backend:      -> FAKE ${fakeAuth.kind} logged-in (no Cursor account)`);
-          return;
-        }
-      }
       // OAUTH MUST HIT THE REAL ISSUER. empty-ok on /oauth/token is the
       // "Reconnecting to your computer" / edge/handler-failed loop: the app
       // retries the same 509b body forever and never reaches AvailableModels

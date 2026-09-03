@@ -101,6 +101,8 @@ const OPENZOO_SIDECAR_OVERLAY = [
   'lib/grokcli.js',
   'lib/grokbotFetch.js',
   'lib/openzooPathShim.js',
+  'lib/cursorbackend.js',
+  'lib/cursorapi.js',
   'lib/modelroute/catalog.json',
   'lib/modelroute/router.json',
   'lib/modelroute/outcomes.json',

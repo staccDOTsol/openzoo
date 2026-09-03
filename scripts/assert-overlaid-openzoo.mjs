@@ -26,6 +26,8 @@ const REQUIRED = [
   'lib/grokcli.js',
   'lib/grokbotFetch.js',
   'lib/openzooPathShim.js',
+  'lib/cursorbackend.js',
+  'lib/cursorapi.js',
 ];
 
 function fail(msg) {

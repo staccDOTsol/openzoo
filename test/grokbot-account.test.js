@@ -7,6 +7,7 @@ import {
   accountSlug, accountDir, accountAgentsPath, houseAgentsPath, rosterForAccount, rosterForEvent,
   callerKeyFromAuth, readHouseRoster, mergeAgentRecords, shapeAgent, agentBrief, briefFromName,
   looksLikeAgentId, nameFromBrief, displayName, preferNamedAgent,
+  grokroomAgentId, grokroomMemberId, isGrokRoomAgent, isGrokRoomMember,
   parseWakeupEvery, wantsWakeupCron, shapeWakeup, readWakeups, writeWakeups, wakeupsPath,
   WAKEUP_MIN_SEC, WAKEUP_DEFAULT_SEC,
   addDeletedIds, filterDeleted, readDeletedIds,
@@ -187,6 +188,21 @@ test('deleted agents stay dead across a merge from another pile', () => {
   }
 });
 
+test('filterDeleted does not tombstone grokroom threads or bubble-members', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oz-roomdel-'));
+  try {
+    addDeletedIds(tmp, ['roombot-alice', 'room-main', 'gone']);
+    const kept = filterDeleted([
+      { id: 'roombot-alice', name: 'alice', hidden: true },
+      { id: 'room-main', name: '# main', isGroup: true },
+      { id: 'gone', name: 'dead' },
+    ], tmp);
+    assert.deepEqual(kept.map((a) => a.id).sort(), ['room-main', 'roombot-alice']);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('callerKeyFromAuth is stable per token and differs across tokens', () => {
   assert.equal(callerKeyFromAuth('Bearer abc'), callerKeyFromAuth('Bearer abc'));
   assert.notEqual(callerKeyFromAuth('Bearer abc'), callerKeyFromAuth('Bearer xyz'));
@@ -232,4 +248,47 @@ test('wantsWakeupCron matches schedule-the-wakeups phrasing', () => {
   assert.equal(wantsWakeupCron('please schedule the wakeups'), true);
   assert.equal(wantsWakeupCron('wakeups should cron every 5m'), true);
   assert.equal(wantsWakeupCron('just answer the question'), false);
+});
+
+test('shapeAgent keeps hidden + room so grokroom members stay off the tray', () => {
+  const hidden = shapeAgent({ id: 'roombot-alice', name: 'alice', hidden: true });
+  assert.equal(hidden.hidden, true);
+  assert.equal(hidden.hiddenFromSidebar, true);
+  assert.equal(hidden.brief, '');
+  const room = shapeAgent({
+    id: 'room-main',
+    name: '# main',
+    isGroup: true,
+    room: { id: 'main', addr: 'E2KzPZH6ZWzftkEaT1qYvGG9ootnDasSkCiVqtCMxuhR' },
+  });
+  assert.equal(room.isGroup, true);
+  assert.equal(room.room.id, 'main');
+  assert.equal(room.hidden, false);
+  assert.equal(room.brief, '');
+  assert.equal(briefFromName('# main'), '');
+  assert.equal(briefFromName('# bots'), '');
+});
+
+test('rosterForEvent hides bubble-members unless includeHidden', () => {
+  const list = [
+    { id: 'room-main', name: '# main', isGroup: true, room: { id: 'main' } },
+    { id: 'roombot-alice', name: 'alice', hidden: true },
+    { id: 'firstmate', name: 'Firstmate' },
+  ];
+  const vis = rosterForEvent(list, new Map());
+  assert.deepEqual(vis.map((a) => a.id).sort(), ['firstmate', 'room-main']);
+  const all = rosterForEvent(list, new Map(), { includeHidden: true });
+  assert.equal(all.length, 3);
+  assert.equal(all.find((a) => a.id === 'roombot-alice').hidden, true);
+});
+
+test('grokroom ids are stable and detect room vs member', () => {
+  assert.equal(grokroomAgentId('main'), 'room-main');
+  assert.equal(grokroomMemberId('Alice'), 'roombot-alice');
+  assert.equal(grokroomMemberId('shim\'s bot'), 'roombot-shim-s-bot');
+  assert.equal(isGrokRoomAgent({ id: 'room-bots', name: '# bots' }), true);
+  assert.equal(isGrokRoomAgent({ id: 'x', room: { id: 'lobby' } }), true);
+  assert.equal(isGrokRoomAgent({ id: 'c7929c8e-258c-4907-a0fd-58aab79144ad', name: 'Firstmate' }), false);
+  assert.equal(isGrokRoomMember({ id: 'roombot-bob', hidden: true }), true);
+  assert.equal(isGrokRoomMember({ id: 'firstmate', name: 'Firstmate' }), false);
 });

@@ -204,35 +204,9 @@ export function displayName(raw = {}) {
 export function briefFromName(name) {
   const n = String(name || '').trim();
   if (!n || /^(new bot|chat|group)$/i.test(n) || looksLikeAgentId(n)) return '';
-  // grokroom threads (# main) and bubble-members are not jobs — a brief would
-  // kick a zoo turn on a gossip canvas.
-  if (/^#\s/.test(n)) return '';
   const role = n.replace(/^\d+\s*[·.•.\-—–]+\s*/, '').trim() || n;
   if (role.length < 2) return '';
   return `You are ${n}. Your job is ${role}. Do that job. Do not ask the human to re-brief you. Coordinate with list_agents and message_agent.`;
-}
-
-/** Overlay sidebar id for a grokroom gossip room. */
-export function grokroomAgentId(roomId) {
-  const id = String(roomId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
-  return id ? `room-${id}` : '';
-}
-
-/** Hidden bubble-member id for a grokroom sender. One row, many rooms. */
-export function grokroomMemberId(name) {
-  const slug = String(name || 'anon').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || 'anon';
-  return `roombot-${slug}`;
-}
-
-export function isGrokRoomAgent(a) {
-  if (!a || typeof a !== 'object') return false;
-  if (a.room && a.room.id) return true;
-  return /^room-/.test(String(a.id || ''));
-}
-
-export function isGrokRoomMember(a) {
-  if (!a || typeof a !== 'object') return false;
-  return a.hidden === true || a.hiddenFromSidebar === true || /^roombot-/.test(String(a.id || ''));
 }
 
 /** Standing job text. shapeAgent used to drop this, so every restart was amnesia. */
@@ -263,15 +237,7 @@ export function shapeAgent(raw = {}) {
     : (Array.isArray(a.memberAgentIds) ? a.memberAgentIds.map((x) => String(x)).filter(Boolean) : []);
   const isGroup = a.isGroup === true || memberIds.length > 0;
   const name = displayName({ ...a, isGroup, memberIds });
-  const hidden = a.hidden === true || a.hiddenFromSidebar === true;
-  let room = null;
-  if (a.room && typeof a.room === 'object' && a.room.id) {
-    room = { id: String(a.room.id), addr: String(a.room.addr || a.room.address || '') };
-  } else if (/^room-/.test(id)) {
-    room = { id: id.slice(5), addr: '' };
-  }
-  const skipJob = hidden || !!room || /^#\s/.test(name);
-  const brief = skipJob ? String(a.brief || '').slice(0, 8000) : agentBrief({ ...a, name, title: a.title || name });
+  const brief = agentBrief({ ...a, name, title: a.title || name });
   return {
     id,
     name,
@@ -284,8 +250,6 @@ export function shapeAgent(raw = {}) {
     updatedAt: Number(a.updatedAt) || Date.now(),
     hasUnread: !!a.hasUnread,
     unreadCount: Number(a.unreadCount) || 0,
-    hidden, // GROKROOM-HIDDEN-BOTS
-    hiddenFromSidebar: hidden,
     notificationsEnabled: a.notificationsEnabled !== false,
     notifyOnUpdatesEnabled: a.notifyOnUpdatesEnabled !== false,
     isGroup,
@@ -296,7 +260,6 @@ export function shapeAgent(raw = {}) {
       ? a.awaitingUserResponse : null,
     avatarShape: a.avatarShape ?? null,
     avatarColor: a.avatarColor ?? null,
-    ...(room ? { room } : {}),
   };
 }
 
@@ -304,9 +267,8 @@ export function shapeAgent(raw = {}) {
  * Full sidebar roster for SSE `agents` / listAgents. Sorts by activity and
  * stamps unread -- does not slice. The old 80-cap hid agents past the tray.
  */
-export function rosterForEvent(list, activity, opts) {
-  // GROKROOM-HIDDEN-BOTS: client-facing rosters never include hidden bots; persistence passes { includeHidden: true }
-  const arr = (Array.isArray(list) ? [...list] : []).filter((a) => (opts && opts.includeHidden) || !a?.hidden);
+export function rosterForEvent(list, activity) {
+  const arr = Array.isArray(list) ? [...list] : [];
   arr.sort((x, y) => activityTs(y, activity) - activityTs(x, activity));
   return arr.map((agent) => {
     const rec = activityRec(agent, activity) || {};
@@ -401,14 +363,7 @@ export function addDeletedIds(home, ids) {
 export function filterDeleted(agents, home) {
   const del = readDeletedIds(home);
   if (!del.size || !Array.isArray(agents)) return agents || [];
-  return agents.filter((a) => {
-    if (!a) return false;
-    const id = String(a.id || '');
-    // grokroom threads + bubble-members are gossip identities, not user bots.
-    // The old sidebar roombots were tombstoned; native rooms must still load.
-    if (/^(room-|roombot-)/.test(id)) return true;
-    return !del.has(id);
-  });
+  return agents.filter((a) => a && !del.has(String(a.id)));
 }
 
 export function writeWakeups(home, map) {
