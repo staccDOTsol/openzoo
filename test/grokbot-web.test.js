@@ -89,7 +89,7 @@ test('coordinator getHostStatus is the renderer-valid shape, not hijack {status:
   });
   assert.deepEqual(value, HOST_STATUS);
   assert.equal(typeof value.isBusy, 'boolean');
-  assert.equal(value.hostVersion, '0.30.0');
+  assert.equal(value.hostVersion, '0.36.0');
 });
 
 test('coordinator sendPrompt unwraps hijack {accepted:true}', async () => {
@@ -128,6 +128,37 @@ test('coordinator listAgents passes a raw array through', async () => {
     fetchImpl: async () => ({ ok: true, text: async () => JSON.stringify(list) }),
   });
   assert.deepEqual(value, list);
+});
+
+test('coordinator resolveAgentCreation is kind box so first-bot setup is not malformed-reply', async () => {
+  const value = await handleCoordinatorRequest('resolveAgentCreation', {}, {
+    fetchImpl: async () => ({ ok: true, text: async () => JSON.stringify({ kind: 'box' }) }),
+  });
+  assert.equal(value.kind, 'box');
+});
+
+test('coordinator host/box stubs match renderer ARt (isBusy, agentId+state, boolean tunnel)', async () => {
+  assert.equal(typeof HOST_STATUS.isBusy, 'boolean');
+  assert.ok(HOST_STATUS.hostVersion === null || typeof HOST_STATUS.hostVersion === 'string');
+  const box = await handleCoordinatorRequest('getForeverBoxStatus', { id: 'n1' }, {
+    fetchImpl: async () => ({ ok: true, text: async () => JSON.stringify({ agentId: 'n1', state: 'running' }) }),
+  });
+  assert.equal(typeof box.agentId, 'string');
+  assert.equal(typeof box.state, 'string');
+  const tunnel = await handleCoordinatorRequest('isEgressTunnelAvailable', {}, {});
+  assert.equal(tunnel, false);
+});
+
+test('hijack pod replies include box route, running box-status, and no pgrep', () => {
+  const src = fs.readFileSync(new URL('../lib/cursorbackend.js', import.meta.url), 'utf8');
+  assert.match(src, /kind: 'box'/);
+  assert.match(src, /resolveAgentCreation/);
+  assert.match(src, /state: 'running'/);
+  assert.match(src, /isBusy: false/);
+  assert.match(src, /isEgressTunnelAvailable/);
+  const cli = fs.readFileSync(new URL('../lib/grokcli.js', import.meta.url), 'utf8');
+  assert.match(cli, /tasklist \/FI/);
+  assert.match(cli, /platform === 'win32'/);
 });
 
 test('coordinator createAgent keeps agent.id for the renderer launcher', async () => {

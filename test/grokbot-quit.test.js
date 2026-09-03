@@ -4,6 +4,7 @@ import {
   grokBotQuitPlan,
   inspectGrokBotHijack,
   grokBotLaunchEnv,
+  grokBotPids,
   wantsBotDaemon,
   isBotDaemonChild,
 } from '../lib/grokcli.js';
@@ -25,6 +26,35 @@ test('killListen kills other pids on the port, not us', () => {
   assert.ok(ran.some((c) => c === 'kill 111'));
   assert.ok(ran.some((c) => c === 'kill 222'));
   assert.ok(!ran.some((c) => c === `kill ${process.pid}`));
+});
+
+test('grokBotPids on Windows uses tasklist, never pgrep', () => {
+  const ran = [];
+  const run = (cmd) => {
+    ran.push(String(cmd));
+    if (String(cmd).includes('tasklist') && String(cmd).includes('Grok Bot.exe')) {
+      return '"Grok Bot.exe","8812","Console","1","120,000 K"\r\n';
+    }
+    throw new Error('pgrep is not recognized');
+  };
+  const pids = grokBotPids(run, 'win32');
+  assert.deepEqual(pids, ['8812']);
+  assert.ok(ran.every((c) => c.includes('tasklist')));
+  assert.ok(!ran.some((c) => c.includes('pgrep')));
+});
+
+test('inspect on Windows finds Grok Bot via tasklist', () => {
+  const url = 'https://127.0.0.1:8443';
+  const run = (cmd) => {
+    const s = String(cmd);
+    if (s.includes('tasklist')) return '"Grok Bot.exe","4242","Console","1","80,000 K"\r\n';
+    if (s.includes('netstat')) return 'TCP    127.0.0.1:8443    127.0.0.1:9    ESTABLISHED    4242';
+    throw new Error('pgrep is not recognized');
+  };
+  const s = inspectGrokBotHijack(url, 8443, run, 9444, 'win32');
+  assert.equal(s.running, true);
+  assert.deepEqual(s.pids, ['4242']);
+  assert.equal(s.hijacked, true);
 });
 
 test('killListen on Windows uses netstat + taskkill (no openssl/lsof)', () => {
