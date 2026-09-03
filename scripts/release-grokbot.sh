@@ -28,13 +28,14 @@ VERSION="${GROKBOT_VERSION:-}"
 
 mkdir -p "$STAGE"
 
-jsonget() { printf '%s' "$1" | grep -o "\"$2\":\"[^\"]*\"" | head -1 | cut -d'"' -f4; }
+jsonget() { printf '%s' "$1" | { grep -o "\"$2\":\"[^\"]*\"" || true; } | head -1 | cut -d'"' -f4; }
 
 # query <feed-platform> -> V_VERSION, V_URL
 query() {
   local j
   j="$(curl -fsSL -m 60 "$FEED/$1/sand/$BASE_VERSION/$MACHINE_ID/stable")"
   V_VERSION="$(jsonget "$j" version)"
+  [ -n "$V_VERSION" ] || V_VERSION="$(jsonget "$j" name)"   # feed uses "name" for the version
   V_URL="$(jsonget "$j" url)"
   # linux feed points at the .zsync sidecar; the AppImage is the same path without it
   case "$V_URL" in *.zsync) V_URL="${V_URL%.zsync}";; esac
@@ -65,7 +66,8 @@ verify() { # $1=asset $2=ext
   [ "$sz" -gt 50000000 ] || { echo "!! $a suspiciously small ($sz bytes)"; exit 1; }
   case "$e" in
     zip)
-      unzip -l "$a" | grep -q '\.app/' || { echo "!! $a has no .app bundle"; exit 1; }
+      # NB: grep -q exits on first match -> unzip SIGPIPE -> pipefail false-negative.
+      unzip -l "$a" | grep '\.app/' >/dev/null || { echo "!! $a has no .app bundle"; exit 1; }
       ;;
     AppImage)
       local magic; magic="$(head -c 4 "$a" | od -An -tx1 | tr -d ' \n')"
