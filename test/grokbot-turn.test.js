@@ -11,6 +11,7 @@ import {
   normalizeExecFrame,
   execShell,
   localExecFrame,
+  shellStreamOf,
   combinedAbortSignal,
   isSupersededError,
   LOCAL_TOOL_NAMES,
@@ -200,12 +201,13 @@ test('local-exec frame is agent.v1.ExecServerMessage, not a flat command', () =>
   const f = localExecFrame('ls -lha ~', '/home/u', 55);
   assert.equal(f.kind, 'exec');
   assert.ok(f.requestId && f.approvalId, 'daemon gates exec on an approvalId');
+  // buildLocalExecManager registers shellStreamArgs, NOT shellArgs.
   assert.deepEqual(f.serverMessage, {
-    shellArgs: { command: 'ls -lha ~', workingDirectory: '/home/u', timeout: 55 },
+    shellStreamArgs: { command: 'ls -lha ~', workingDirectory: '/home/u', timeout: 55 },
   });
-  // The flat shape is what produced "No handler found for server message of
-  // type undefined" — the oneof was never set.
+  assert.equal(f.authorizedByStanding, true);
   assert.equal(f.serverMessage.command, undefined);
+  assert.equal(f.serverMessage.shellArgs, undefined);
   assert.doesNotMatch(src, /serverMessage: \{ command:/);
 });
 
@@ -222,6 +224,18 @@ test('a daemon throw frame reads as an error, not raw JSON', () => {
   assert.match(src, /f\.kind === 'output' \|\| f\.kind === 'stdout'/);
   assert.match(src, /f\.kind === 'exit'/);
   assert.match(src, /localExecWaiterFor/);
+});
+
+test('shellStreamOf reads the ShellStream oneof and heartbeats are not results', () => {
+  const out = shellStreamOf({ kind: 'client', requestId: 'r', message: { id: 3, shellStream: { stdout: { data: 'total 0\n' } } } });
+  assert.equal(out.stdout.data, 'total 0\n');
+  const exit = shellStreamOf({ kind: 'client', message: { shellStream: { exit: { code: 0, cwd: '/home/u' } } } });
+  assert.equal(exit.exit.code, 0);
+  // A heartbeat is a control frame with no shellStream; it must not resolve.
+  assert.equal(shellStreamOf({ kind: 'control', message: { heartbeat: { id: 3 } } }), null);
+  assert.equal(shellStreamOf({ kind: 'control', message: { throw: { error: 'x' } } }), null);
+  assert.match(src, /f\.message\.heartbeat/);
+  assert.match(src, /if \(ss\.exit\)/);
 });
 
 test('exec picks a shell that exists on this platform', () => {
