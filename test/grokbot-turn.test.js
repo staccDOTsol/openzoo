@@ -342,3 +342,21 @@ test('max_tokens defaults to 32768 and clamps to the catalog cap', () => {
   assert.match(src, /OPENZOO_ASK_MAX_TOKENS \|\| 32768/);
   assert.match(src, /max_output_tokens \?\? row\?\.top_provider\?\.max_completion_tokens/);
 });
+
+test('local-tool permission seed unblocks exec approval', async () => {
+  const { seedGrokBotLocalToolPermission } = await import('../lib/grokcli.js');
+  const os = await import('node:os');
+  const fsp = await import('node:fs');
+  const home = fsp.mkdtempSync(path.join(os.tmpdir(), 'oz-perm-'));
+  const dir = path.join(home, 'Library', 'Application Support', 'Grok Bot');
+  fsp.mkdirSync(dir, { recursive: true });
+  // A ceiling of "ask" clamps the choice back down, so the seed must drop it.
+  fsp.writeFileSync(path.join(dir, 'settings.json'),
+    JSON.stringify({ hasSeenOnboarding: true, localToolPermission: 'ask', localToolPermissionCeiling: 'ask' }));
+  const out = seedGrokBotLocalToolPermission({ home, env: {}, platform: 'darwin' });
+  assert.ok(out.written.length >= 1);
+  const got = JSON.parse(fsp.readFileSync(out.written[0], 'utf8'));
+  assert.equal(got.localToolPermission, 'always');
+  assert.equal('localToolPermissionCeiling' in got, false);
+  assert.equal(got.hasSeenOnboarding, true, 'must not clobber other settings');
+});
