@@ -58,6 +58,7 @@ test('Grok Bot launch env points website login at the hijack', () => {
   const env = grokBotLaunchEnv('https://127.0.0.1:8443', { HOME: '/tmp' });
   assert.equal(env.SAND_CURSOR_WEBSITE_URL, 'https://127.0.0.1:8443');
   assert.equal(env.CURSOR_WEBSITE_URL, 'https://127.0.0.1:8443');
+  assert.equal(env.SAND_DEV_ALLOW_ACCOUNT_REBIND, '1');
 });
 
 test('packed sidecar overlay includes cursorbackend auth fake', () => {

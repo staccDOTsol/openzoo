@@ -1,5 +1,11 @@
 # Project Wiki
 
+## Machine-claim lock: SAND_DEV_ALLOW_ACCOUNT_REBIND (2026-09-03)
+Grok Bot asar i18n `DKMHuY` / cause `refused-credentials-retained`: "The first Cursor account that used this computer claimed it…". `SAND_HOST_GATEWAY_URL` (we set it for Helper) enables `userData/.env-descriptor-account-bindings.json`. Fake `openzoo-user` ≠ the bound Cursor account → `authorizeAccount` false → overlay/spend still work (hijack is up) but the shell stays logged-out. asar `createDesktopAccountAuthorizer` rebinds when `SAND_DEV_ALLOW_ACCOUNT_REBIND=1`. Set that in `grokBotLaunchEnv`.
+**Why:** "sign in the first cursor account that used this computer claimed it… but overlay / spend works"
+
+
+
 ## Packed sidecar must overlay grokbotAccount.js with cursorbackend.js (2026-09-03)
 Linux AppImage: `The requested module './grokbotAccount.js' does not provide an export named 'grokroomAgentId'`. afterPack overlaid repo `cursorbackend.js` (imports grokroomAgentId) onto npm `openzoo@latest`'s `grokbotAccount.js` which has no grokroom exports (0.50.97). macOS APFS hid the mismatch. afterPack now copies the whole repo `lib/` onto packed `node_modules/openzoo/lib` (skip `.bak`), and the overlay gate lists `lib/grokbotAccount.js`.
 **Why:** "grokbotaccount does not provide an export named grokroomagentid ?? on linux wtf?"
