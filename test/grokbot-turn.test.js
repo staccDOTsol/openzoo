@@ -10,6 +10,7 @@ import {
   toolResultText,
   normalizeExecFrame,
   execShell,
+  localExecFrame,
   combinedAbortSignal,
   isSupersededError,
   LOCAL_TOOL_NAMES,
@@ -193,6 +194,34 @@ test('normalizeExecFrame digs shell output out of nested helper frames', () => {
   const opaque = normalizeExecFrame({ kind: 'result', weird: { a: 1 } });
   assert.doesNotMatch(`${opaque.message}`, /\[object Object\]/);
   assert.match(opaque.message, /"weird"/);
+});
+
+test('local-exec frame is agent.v1.ExecServerMessage, not a flat command', () => {
+  const f = localExecFrame('ls -lha ~', '/home/u', 55);
+  assert.equal(f.kind, 'exec');
+  assert.ok(f.requestId && f.approvalId, 'daemon gates exec on an approvalId');
+  assert.deepEqual(f.serverMessage, {
+    shellArgs: { command: 'ls -lha ~', workingDirectory: '/home/u', timeout: 55 },
+  });
+  // The flat shape is what produced "No handler found for server message of
+  // type undefined" — the oneof was never set.
+  assert.equal(f.serverMessage.command, undefined);
+  assert.doesNotMatch(src, /serverMessage: \{ command:/);
+});
+
+test('a daemon throw frame reads as an error, not raw JSON', () => {
+  const n = normalizeExecFrame({
+    kind: 'control',
+    requestId: 'f6908d05',
+    message: { throw: { id: 1, error: 'No handler found for server message of type undefined' } },
+  });
+  assert.match(n.error, /^local-exec: No handler found/);
+  assert.doesNotMatch(n.error, /\{|"kind"/);
+  // The daemon streams the body before it closes; dropping those frames meant
+  // waiting out the 45s timeout on a command that had already answered.
+  assert.match(src, /f\.kind === 'output' \|\| f\.kind === 'stdout'/);
+  assert.match(src, /f\.kind === 'exit'/);
+  assert.match(src, /localExecWaiterFor/);
 });
 
 test('exec picks a shell that exists on this platform', () => {
