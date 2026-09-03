@@ -1,5 +1,9 @@
 # Project Wiki
 
+## Join a shared group in YOUR OpenZoo Bot (2026-09-03)
+Share URL is still `https://openzoo.fun/r/<addr>` (HUD "Share group"). The other person, in **their** OpenZoo Bot, types `/join https://openzoo.fun/r/<addr>` (or pastes the URL). That binds the existing pubkey onto a local sidebar group — they then add **their** bots via the normal group-members UI. Remote nicks from the web/paymaster paint as people; they are `roombot-*` authors only and are **not** added to `memberIds`, so the group queue does not zoo-complete as those people.
+**Why:** "spawning local bots that reply for remote people" + "share url and have other ppl join in THEIR openzoo bot uis"
+
 ## First-bot setup: resolveAgentCreation is `{kind:"box"}` (2026-09-03)
 Naming the first bot showed i18n `chgOnK` / `source/malformed-reply`. Onboarding `createAgent` without `creationRoute` calls `resolveAgentCreation`; renderer Tse requires `{kind:"box"}` or `{kind:"temporal", scope: nonempty}`. Hijack stub `{ok:true}` failed Tse. Try again worked because the mint still saved the agent so `countAgents>0` vetoed onboarding. Same family: `getForeverBoxStatus {enabled:false}` failed box-status (`agentId`+`state`) → "Reconnecting to your computer". Stubs now: route box, box-status `{agentId, state:"running"}`, host-status with `isBusy`, `isEgressTunnelAvailable` boolean. Windows `grokBotPids` uses `tasklist`, not `pgrep` (cmd.exe "Befehl pgrep nicht gefunden" made startup think Grok Bot was down).
 **Why:** screenshot after first bot name; Windows 10 log pgrep; reconnecting TestBot composer

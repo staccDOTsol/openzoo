@@ -7,8 +7,8 @@ import {
   accountSlug, accountDir, accountAgentsPath, houseAgentsPath, rosterForAccount, rosterForEvent,
   callerKeyFromAuth, readHouseRoster, mergeAgentRecords, shapeAgent, agentBrief, briefFromName,
   looksLikeAgentId, nameFromBrief, displayName, preferNamedAgent,
-  grokroomAgentId, grokroomMemberId, grokroomShareUrl, grokroomFromHandle, agentShareUrl, groupShareState,
-  mintOnchainRoom, ensureOnchainRoom, attachOnchainRoom,
+  grokroomAgentId, grokroomMemberId, grokroomShareUrl, grokroomFromHandle, grokroomAddrFromShare,
+  agentShareUrl, groupShareState, mintOnchainRoom, ensureOnchainRoom, attachOnchainRoom, bindOnchainRoom,
   isGrokRoomAgent, isGrokRoomMember,
   parseWakeupEvery, wantsWakeupCron, shapeWakeup, readWakeups, writeWakeups, wakeupsPath,
   WAKEUP_MIN_SEC, WAKEUP_DEFAULT_SEC,
@@ -329,6 +329,27 @@ test('mintOnchainRoom gives each groupchat an openzoo.fun/r/<addr>', () => {
     const attached = attachOnchainRoom({ id: 'g1', name: 'crew', isGroup: true }, tmp);
     assert.equal(attached.room.web, rec.web);
     assert.equal(agentShareUrl(attached), rec.web);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('grokroomAddrFromShare reads /r/<addr> and /join for the other person\'s OpenZoo Bot', () => {
+  const addr = 'E2KzPZH6ZWzftkEaT1qYvGG9ootnDasSkCiVqtCMxuhR';
+  assert.equal(grokroomAddrFromShare('https://openzoo.fun/r/' + addr), addr);
+  assert.equal(grokroomAddrFromShare('/join https://openzoo.fun/r/' + addr), addr);
+  assert.equal(grokroomAddrFromShare('/join ' + addr), addr);
+  assert.equal(grokroomAddrFromShare('not a room'), '');
+});
+
+test('bindOnchainRoom joins an existing addr without minting a new key', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oz-join-'));
+  try {
+    const rec = mintOnchainRoom({ agentId: 'alice', name: 'crew', home: tmp });
+    const joined = bindOnchainRoom({ id: 'bob-g', name: 'crew', isGroup: true }, rec.addr, tmp);
+    assert.equal(joined.room.addr, rec.addr);
+    assert.equal(joined.room.web, rec.web);
+    assert.equal(joined.isGroup, true);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

@@ -553,3 +553,9 @@ test('unopenrouter: a vendor-prefixed id becomes the bare door id when the catal
   assert.equal(unopenrouter('x-ai/grok-4.3', ids), null);
   delete process.env.OPENZOO_UNOPENROUTER;
 });
+
+test('unopenrouter maps z-ai/glm-5.2 onto the door spelling zai-org/GLM-5.2', () => {
+  const ids = ['zai-org/GLM-5.2', 'grok-4.6'];
+  assert.equal(unopenrouter('z-ai/glm-5.2', ids), 'zai-org/GLM-5.2');
+  assert.equal(resolveModel('z-ai/glm-5.2', ids), 'zai-org/GLM-5.2');
+});

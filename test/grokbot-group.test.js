@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import fs from 'node:fs';
 import { groupReplyIsPass, groupReplyIsRepeat } from '../lib/cursorbackend.js';
+
+test('shared rooms: remotes are not local speakers; /join binds the share URL', () => {
+  const src = fs.readFileSync(new URL('../lib/cursorbackend.js', import.meta.url), 'utf8');
+  assert.match(src, /speak = false/);
+  assert.match(src, /\/join\\b/);
+  assert.match(src, /joinSharedGroup/);
+  assert.match(src, /groupMemberRecords\(agentId\)/);
+  assert.doesNotMatch(src, /if \(live\?\.room\?\.addr && !\/\^room-\//);
+});
 
 test('groupReplyIsPass treats PASS and wrap-up lines as done', () => {
   assert.equal(groupReplyIsPass('PASS'), true);
