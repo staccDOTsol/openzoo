@@ -7,6 +7,7 @@ import {
   createZooTurnQueue,
   formatZooProgress,
   formatZooToolLine,
+  toolResultText,
   combinedAbortSignal,
   isSupersededError,
   LOCAL_TOOL_NAMES,
@@ -65,6 +66,15 @@ test('formatZooToolLine summarizes each call for the canvas', () => {
     result: JSON.stringify({ ok: true, path: '/tmp/oz.jpg', bytes: 182001 }),
   });
   assert.equal(shot, '→ screenshot\n/tmp/oz.jpg 182001b ok');
+  const listed = formatZooToolLine({
+    name: 'list_dir',
+    args: { path: '/Users/' },
+    result: { entries: ['Shared', 'stacc'] },
+  });
+  assert.doesNotMatch(listed, /\[object Object\]/);
+  assert.match(listed, /list_dir/);
+  assert.match(listed, /Shared/);
+  assert.equal(toolResultText({ entries: ['a'] }), '{"entries":["a"]}');
 });
 
 test('turn queue aborts the previous nonce for the same agent', () => {

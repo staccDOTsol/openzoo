@@ -1,5 +1,9 @@
 # Project Wiki
 
+## list_dir canvas was `[object Object]` (2026-09-03)
+`formatZooToolLine` / zoo tool `content` used `String(result)`. MCP or exec replies that are objects painted as `[object Object]` (screenshot: `→ list_dir "/Users/" [object Object]`). `toolResultText` JSON.stringifies objects. `list_dir` always returns a text listing or `list_dir failed …: <errno>`.
+**Why:** Windows/Linux overlay screenshots of New Bot listing ~
+
 ## Join a shared group in YOUR OpenZoo Bot (2026-09-03)
 Share URL is still `https://openzoo.fun/r/<addr>` (HUD "Share group"). The other person, in **their** OpenZoo Bot, types `/join https://openzoo.fun/r/<addr>` (or pastes the URL). That binds the existing pubkey onto a local sidebar group — they then add **their** bots via the normal group-members UI. Remote nicks from the web/paymaster paint as people; they are `roombot-*` authors only and are **not** added to `memberIds`, so the group queue does not zoo-complete as those people.
 **Why:** "spawning local bots that reply for remote people" + "share url and have other ppl join in THEIR openzoo bot uis"
