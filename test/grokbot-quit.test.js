@@ -146,7 +146,8 @@ test('grokBotLaunchEnv strips Electron-as-node so Grok Bot can open a window', (
   assert.equal(env.LD_LIBRARY_PATH, undefined);
   assert.equal(env.CURSOR_API_BASE_URL, 'https://127.0.0.1:8443');
   assert.equal(env.SAND_HOST_GATEWAY_URL, 'https://127.0.0.1:8443');
-  assert.equal(env.PATH, '/usr/bin');
+  assert.equal(env.OPENZOO_REAL_PATH, '/usr/bin');
+  assert.match(env.PATH, /\/usr\/bin/);
 });
 
 test('OpenZoo Bot wrapper launches the sidecar with --daemon', () => {

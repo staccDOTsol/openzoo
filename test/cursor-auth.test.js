@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
@@ -12,6 +13,7 @@ import {
   sandAccountKey,
   grokBotUserDataDirs,
   claimGrokBotMachine,
+  ensureGrokBotOpenShim,
 } from '../lib/grokcli.js';
 
 function jwtPayload(tok) {
@@ -48,7 +50,8 @@ test('oauth/token returns snake_case tokens (asar pue schema)', () => {
 test('loginDeepControl is a local logged-in page, not cursor.com', () => {
   const r = fakeCursorAuthReply('/loginDeepControl?challenge=x');
   assert.equal(r.kind, 'login-page');
-  assert.match(r.body, /logged in/i);
+  assert.match(r.body, /window\.close/);
+  assert.match(r.body, /about:blank/);
 });
 
 test('passthrough/sniff does not fake login', () => {
@@ -63,10 +66,37 @@ test('empty {} is NOT a valid poll body (that was the Linux login wall)', () => 
 });
 
 test('Grok Bot launch env points website login at the hijack', () => {
-  const env = grokBotLaunchEnv('https://127.0.0.1:8443', { HOME: '/tmp' });
-  assert.equal(env.SAND_CURSOR_WEBSITE_URL, 'https://127.0.0.1:8443');
-  assert.equal(env.CURSOR_WEBSITE_URL, 'https://127.0.0.1:8443');
-  assert.equal(env.SAND_DEV_ALLOW_ACCOUNT_REBIND, '1');
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'oz-env-'));
+  try {
+    const env = grokBotLaunchEnv('https://127.0.0.1:8443', { HOME: tmp, PATH: '/usr/bin' });
+    assert.equal(env.SAND_CURSOR_WEBSITE_URL, 'https://127.0.0.1:8443');
+    assert.equal(env.CURSOR_WEBSITE_URL, 'https://127.0.0.1:8443');
+    assert.equal(env.SAND_DEV_ALLOW_ACCOUNT_REBIND, '1');
+    assert.equal(env.OPENZOO_REAL_PATH, '/usr/bin');
+    assert.ok(env.PATH.startsWith(path.join(tmp, '.openzoo', 'bin')));
+    assert.ok(env.BROWSER);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('xdg-open shim swallows loginDeepControl and lets other URLs through', () => {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), 'oz-shim-'));
+  try {
+    const shim = ensureGrokBotOpenShim({ home: tmp, platform: 'linux' });
+    assert.deepEqual(shim.names, ['xdg-open', 'gio']);
+    const bin = path.join(shim.dir, 'xdg-open');
+    const swallow = spawnSync(bin, ['https://127.0.0.1:8443/loginDeepControl?uuid=x'], {
+      env: { OPENZOO_REAL_PATH: '/no-such-openzoo-path' },
+    });
+    assert.equal(swallow.status, 0);
+    const passthru = spawnSync(bin, ['https://example.com/'], {
+      env: { OPENZOO_REAL_PATH: '/no-such-openzoo-path' },
+    });
+    assert.equal(passthru.status, 0);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test('asar descriptorKey canonicalizes the hijack URL (trailing slash)', () => {
@@ -121,4 +151,6 @@ test('packed sidecar overlay includes cursorbackend auth fake', () => {
   const cli = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'lib/grokcli.js'), 'utf8');
   assert.match(cli, /claimGrokBotMachine/);
   assert.match(cli, /machine-claim openzoo-user/);
+  assert.match(cli, /ensureGrokBotOpenShim/);
+  assert.match(cli, /loginDeepControl/);
 });

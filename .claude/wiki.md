@@ -1,5 +1,9 @@
 # Project Wiki
 
+## GitHub releases: only 1.3.11 + vendor grokbot-v0.36.0 (2026-09-03)
+Yanked every GitHub release/tag that was cluttering the page (openzoo-bot-v1.3.10, all grokui-v1.6.*, grokbot-v1.6.21). Left `openzoo-bot-v1.3.11` (Latest) and `grokbot-v0.36.0` (vendor Grok Bot binaries — `grokbotFetch` looks up `grokbot-v*` on the releases API). npm tag `v0.49.9` is not a release.
+**Why:** "untag/yank EVERYTHING tho silly lol. before whichever one actually works... 1.3.11 maybe? leave that up FOR NOW" + screenshot of grokui pile
+
 ## Share a Grok Bot group on openzoo.fun via grokroom `/r/<addr>` (2026-09-03)
 Two different "groups": (1) Grok Bot **createGroup** is local to the house tray — cafe visitors on *this* hijack see it, it is not a public URL. (2) **grokroom** rows `# main` `# bots` `# random` `# lobby` (from `~/grokroom` :4799) are Solana testnet accounts; grokroom `/state` already emits `web: https://openzoo.fun/r/<room-pubkey>` (site route `r.$addr.tsx` + paymaster `/api/room/submit`). Overlay paints `Share: https://openzoo.fun/r/…` on room intro; createGroup injects a canvas hint with those public URLs (or "start ~/grokroom" if :4799 is down).
 **Why:** "if I were to make a groupchat, how to share that groupchat on openzoo.fun" + overlay/chat injection
@@ -20,7 +24,8 @@ Linux AppImage: `The requested module './grokbotAccount.js' does not provide an 
 
 ## Hijack fakes Cursor login — no "Log in with Cursor" (2026-09-03)
 Linux bot.log: `GET /auth/poll?uuid=…&verifier=… -> empty-ok`. Grok Bot's `SandBackendLoginManager.waitForResult` requires JSON `{accessToken, refreshToken}` (JWT with sub/email/exp). `{}` is a 200 without those keys → bad_200 → login UI. Hijack now answers poll + `/oauth/token` with a local JWT session (`user@openzoo.local`) and serves `/loginDeepControl` itself. Launch env sets `SAND_CURSOR_WEBSITE_URL` to the hijack so the login tab is not cursor.com. Sniff/`OPENZOO_PASSTHRU=1` still hits real api2. Overlay list includes `cursorbackend.js` / `cursorapi.js` or the AppImage keeps npm last week.
-**Why:** "the grok bot launched and it still gave me login with cursor bullshit. IT SHOULD THINK IT'S LOGGED"
+asar `waitForBrowserLogin` always `shell.openExternal(loginUrl)` THEN polls — fake poll success still popped `https://127.0.0.1:8443/loginDeepControl`. Linux Electron uses `xdg-open` from PATH: `grokBotLaunchEnv` prepends `~/.openzoo/bin/xdg-open` (and `gio`) that exit 0 on `loginDeepControl` and exec the real opener otherwise. The HTML still `window.close()` + `about:blank` for mac NSWorkspace which ignores PATH.
+**Why:** "the grok bot launched and it still gave me login with cursor bullshit. IT SHOULD THINK IT'S LOGGED" then "on successful login bypass it's still opening 127.0.0.1:8443/loginDeep"
 
 
 
