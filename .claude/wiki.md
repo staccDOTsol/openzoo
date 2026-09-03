@@ -1,5 +1,9 @@
 # Project Wiki
 
+## exec: helper frames nest stdout, and `/bin/zsh` is mac-only (2026-09-03)
+Two bugs, one screenshot. (1) `handleLocalExecFrames` read `f.stdout`/`f.message` flat; Helper builds send `message: {stdout, exitCode}` or `clientMessage.data.output`, so `${out}` painted `[object Object]`. `normalizeExecFrame` walks `message`/`clientMessage`/`serverMessage`/`result`/`data`/`payload`/`body` (depth 4) and always yields text. (2) `execLocal` spawned `/bin/zsh -lc` on every platform — ENOENT on most Linux, no POSIX shell at all on Windows, so **every** local exec failed there. `execShell(cmd, platform)`: win32 → ComSpec `/d /s /c`, darwin → zsh `-lc`, else first existing bash → `/bin/sh -c`. Nonzero exits now return `e.stdout`/`e.stderr` instead of throwing away the output as `ERROR …`.
+**Why:** `→ exec … [object Object]` on the Linux overlay. Related: [[list_dir canvas was `[object Object]`]].
+
 ## list_dir canvas was `[object Object]` (2026-09-03)
 `formatZooToolLine` / zoo tool `content` used `String(result)`. MCP or exec replies that are objects painted as `[object Object]` (screenshot: `→ list_dir "/Users/" [object Object]`). `toolResultText` JSON.stringifies objects. `list_dir` always returns a text listing or `list_dir failed …: <errno>`.
 **Why:** Windows/Linux overlay screenshots of New Bot listing ~

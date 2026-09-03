@@ -8,6 +8,8 @@ import {
   formatZooProgress,
   formatZooToolLine,
   toolResultText,
+  normalizeExecFrame,
+  execShell,
   combinedAbortSignal,
   isSupersededError,
   LOCAL_TOOL_NAMES,
@@ -171,6 +173,38 @@ test('click tools and the openzoo/auto default are wired', () => {
   assert.match(src, /Do not tell the user to click/);
   assert.match(src, /underfunded-nudge/);
   assert.match(src, /Do not say you have no money/);
+});
+
+test('normalizeExecFrame digs shell output out of nested helper frames', () => {
+  const nested = normalizeExecFrame({
+    kind: 'exec-result',
+    requestId: 'r1',
+    message: { stdout: 'total 0\ndrwx  Shared', stderr: '', exitCode: 0 },
+  });
+  assert.equal(nested.stdout, 'total 0\ndrwx  Shared');
+  assert.equal(nested.exitCode, 0);
+  const flat = normalizeExecFrame({ kind: 'result', stdout: 'hi', stderr: 'boom', exit_code: 2 });
+  assert.equal(flat.stdout, 'hi');
+  assert.equal(flat.stderr, 'boom');
+  assert.equal(flat.exitCode, 2);
+  const worst = normalizeExecFrame({ kind: 'client', clientMessage: { data: { output: 'ok' } } });
+  assert.equal(worst.stdout, 'ok');
+  // Nothing recognizable still has to be text, never [object Object].
+  const opaque = normalizeExecFrame({ kind: 'result', weird: { a: 1 } });
+  assert.doesNotMatch(`${opaque.message}`, /\[object Object\]/);
+  assert.match(opaque.message, /"weird"/);
+});
+
+test('exec picks a shell that exists on this platform', () => {
+  assert.deepEqual(execShell('ls', 'darwin'), { file: '/bin/zsh', args: ['-lc', 'ls'] });
+  const win = execShell('dir', 'win32');
+  assert.match(win.file, /cmd\.exe$|COMMAND\.COM$/i);
+  assert.deepEqual(win.args, ['/d', '/s', '/c', 'dir']);
+  const nix = execShell('ls', 'linux');
+  assert.notEqual(nix.file, '/bin/zsh');
+  assert.match(nix.file, /\/(bash|sh)$/);
+  assert.equal(nix.args[nix.args.length - 1], 'ls');
+  assert.doesNotMatch(src, /execFileAsync\('\/bin\/zsh'/);
 });
 
 test('formatZooToolLine summarizes click x,y', () => {
