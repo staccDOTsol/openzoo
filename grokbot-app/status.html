@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>OpenZoo Bot</title>
+  <style>
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: #000;
+      color: #c8c8c8;
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+    }
+    main { padding: 28px 24px 40px; max-width: 720px; }
+    h1 { font-size: 18px; font-weight: 600; color: #f2f2f2; margin: 0 0 8px; }
+    .muted { color: #8a8a8a; }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #111;
+      border: 1px solid #222;
+      padding: 12px 14px;
+      color: #e8e0c8;
+    }
+    button {
+      background: #1c1c1c;
+      color: #eee;
+      border: 1px solid #333;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+    button:hover { border-color: #666; }
+    .row { margin: 12px 0; }
+    .ok { color: #9dcc8a; }
+    .bad { color: #e8a0a0; }
+  </style>
+</head>
+<body>
+  <main data-component="openzoo-bot-status">
+    <h1 data-feature="title">OpenZoo Bot</h1>
+    <p class="muted" data-feature="lede">
+      This app is Node + the openzoo CLI (no npx). It starts the zoo sidecar and launches Grok Bot.
+    </p>
+    <div class="row" data-feature="state-line">
+      sidecar: <span id="proxy" data-testid="proxy-state">starting…</span>
+      · grok bot: <span id="bot" data-testid="bot-state">…</span>
+    </div>
+    <div class="row" data-feature="shim-line">
+      CLI shim: <code id="shim" data-testid="shim-path">—</code>
+    </div>
+    <pre id="log" data-testid="status-log">starting…</pre>
+    <div class="row" data-feature="actions">
+      <button type="button" id="copy-log" data-testid="copy-log">Copy log</button>
+    </div>
+  </main>
+  <script>
+    const proxyEl = document.getElementById('proxy');
+    const botEl = document.getElementById('bot');
+    const shimEl = document.getElementById('shim');
+    const logEl = document.getElementById('log');
+    function paint(s) {
+      if (!s) return;
+      proxyEl.textContent = s.proxy || '…';
+      proxyEl.className = s.proxyOk ? 'ok' : 'bad';
+      botEl.textContent = s.bot || '…';
+      botEl.className = s.botOk ? 'ok' : 'bad';
+      shimEl.textContent = s.shim || '—';
+      if (s.log) logEl.textContent = s.log;
+    }
+    if (window.electronAPI) {
+      window.electronAPI.onStatus(paint);
+      window.electronAPI.getStatus().then(paint);
+      document.getElementById('copy-log').onclick = () => {
+        window.electronAPI.copyText(logEl.textContent || '');
+      };
+    }
+  </script>
+</body>
+</html>

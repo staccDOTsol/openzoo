@@ -1,0 +1,94 @@
+{
+  "name": "openzoo-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Grok Bot on the zoo — Electron wrapper that bundles Node + the openzoo CLI sidecar (same trick as grokui-app) and launches the vendor Grok Bot.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "node ../scripts/assert-grokui-pin.mjs grokbot-app && electron-builder --mac --arm64 --x64",
+    "dist:linux": "node ../scripts/assert-grokui-pin.mjs grokbot-app && electron-builder --linux --arm64 --x64",
+    "dist:win": "node ../scripts/assert-grokui-pin.mjs grokbot-app && electron-builder --win --arm64 --x64",
+    "dist:all": "node ../scripts/assert-grokui-pin.mjs grokbot-app && electron-builder -mwl --arm64 --x64"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "fun.openzoo.bot",
+    "productName": "OpenZoo Bot",
+    "asar": false,
+    "files": [
+      "main.js",
+      "sidecar-version.js",
+      "preload.js",
+      "status.html",
+      "build/**/*"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "icon": "build/icon.icns"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "Network",
+      "icon": "build/icon.png"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "afterPack": "build/afterPack.js",
+    "artifactName": "${name}-${version}-${arch}.${ext}",
+    "npmRebuild": false,
+    "includeSubNodeModules": true
+  },
+  "dependencies": {
+    "@solana/codecs-core": "^2.0.0-rc.1",
+    "@solana/codecs-data-structures": "^2.0.0-rc.1",
+    "@solana/codecs-numbers": "^2.0.0-rc.1",
+    "@solana/codecs-strings": "^2.0.0-rc.1",
+    "@solana/errors": "^2.0.0-rc.1",
+    "@solana/spl-token-group": "^0.0.7",
+    "@solana/spl-token-metadata": "^0.1.6",
+    "dugite": "^3.2.3",
+    "openzoo": "latest",
+    "viem": "^2.55.17"
+  },
+  "overrides": {
+    "uuid": "^8.3.2"
+  }
+}

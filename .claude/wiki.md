@@ -1,5 +1,15 @@
 # Project Wiki
 
+## OpenZoo Bot is grokui-app, but for Grok Bot (2026-09-03)
+`grokbot-app/` is the grokui Electron wrapper with Grok Bot instead of grokui.mjs. Same sidecar pack: `afterPack` copies production `node_modules` (openzoo@latest + overlay of unpublished repo files) and the GUI uses `ELECTRON_RUN_AS_NODE` so a machine with no Node/npx can still run the CLI. Multiarch CI is one workflow per platform (`openzoo-bot-linux.yml` / macos / windows) on tags `openzoo-bot-v*`, same reason grokui split the matrix. Vendor Grok Bot binaries stay on `grokbot-v*` (already shipping darwin/linux/win × arm64/x64). First launch of `openzoo bot` (CLI or the new app) fetches the matching `Grok_Bot_<ver>_<plat>-<arch>` from that release if the app is missing. Fetch keys off **machine** arch (`sysctl hw.optional.arm64`), not `process.arch` — nvm's default node on this Mac is Rosetta x64 and would otherwise pull the Intel zip. Packaged app also writes `~/.local/bin/openzoo` (Electron-as-node shim). Do not nest the 300MB vendor .app inside the wrapper — wiki already says those binaries are not git material.
+**Why:** "do that AGAIN for multiarch for 1. the GROK BOT APP … then also ALL THE SHIT WE NEED TO RUN OPENZOO cli like node. LIKE WE DID W GROK UI ONLY WITH GROK BOT INSTEAD"
+
+
+
+## Overlay Grok Bot shows grokroom as sidebar groups (2026-09-03)
+`openzoo bot` (cursorbackend :8443) now syncs `127.0.0.1:4799` the same way grokui does: `# main` `# bots` `# random` `# lobby` are native `isGroup` agents in the Grok Bot sidebar. Senders become `roombot-*` hidden members (filtered from listAgents/SSE). sendPrompt on a room POSTs a signed envelope to `/submit` — no zoo turn, no Firstmate relay. Tombstones in `grokbot-deleted.json` do not apply to `room-*` / `roombot-*` (those ids were deleted when they used to be sidebar bots). Restart hijack `--no-quit`; ⌘R the app if the tray was already open. `OZ_GROKROOM=0` disables.
+**Why:** "SHOW THE STUPID MULTIUSER CHATS as SIDEBARS" — grokui had the bridge, the overlay roster was still just Firstmate.
+
 ## Always-on pill is #oz-spend-hud, injected live, published 0.50.96 (2026-09-03)
 npx `openzoo@latest` was 0.50.95 with IIFE v12: `if (!label || msgPills) el.remove()`, skip whole tick while composer focused, `subtree:false`. Chip inject logged "folded into 1 renderer" but the first run bailed on the focused composer so nothing was painted. HUD is now always created (fallback label `openzoo`), orange, bottom-right above the composer, IIFE v16. Live CDP inject + npm 0.50.96 so `@latest` actually has it.
 **Why:** "I don't see the PILL I WANT TO SEE MY ALWAYS ON SAVINGS PILL"

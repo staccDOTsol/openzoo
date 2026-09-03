@@ -96,7 +96,10 @@ usage:
                               After a reboot the login item comes back without
                               that env — bot bounces it so send works. Already-
                               hijacked sessions are left alone.
+                              Missing Grok Bot is fetched from the grokbot-v*
+                              multiarch GitHub release (vendor feed fallback).
                               --quit force bounce · --no-quit never bounce
+                              --no-fetch  do not download Grok Bot if missing
                               --verbose  print every request the app makes
                                          (default is quiet: milestones + problems)
                               --web serve the renderer in a browser instead of

@@ -98,6 +98,9 @@ const OPENZOO_SIDECAR_OVERLAY = [
   'lib/modelroute.js',
   'lib/models.js',
   'lib/proxy.js',
+  'lib/grokcli.js',
+  'lib/grokbotFetch.js',
+  'lib/openzooPathShim.js',
   'lib/modelroute/catalog.json',
   'lib/modelroute/router.json',
   'lib/modelroute/outcomes.json',
@@ -317,14 +320,11 @@ exports.assertCopiedOpenzoo = assertCopiedOpenzoo;
 exports.publishedOpenzooVersion = publishedOpenzooVersion;
 exports.packedAppDir = packedAppDir;
 exports.copyRepoLib = copyRepoLib;
+exports.copyNodeModules = copyNodeModules;
 exports.writeLibEsmPackage = writeLibEsmPackage;
 exports.assertPackedGrokuiLib = assertPackedGrokuiLib;
 
-exports.default = async function afterPack(context) {
-  const appDir = packedAppDir(context);
-  copyRepoLib(appDir, context.packager.projectDir);
-  assertPackedGrokuiLib(appDir);
-  copyNodeModules(context);
+function signAdHocIfNeeded(context) {
   if (context.electronPlatformName !== 'darwin') return;
   const app = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
 
@@ -349,4 +349,14 @@ exports.default = async function afterPack(context) {
   // Fail the BUILD rather than ship another "damaged" DMG.
   execFileSync('codesign', ['--verify', '--deep', '--strict', app], { stdio: 'inherit' });
   console.log(`[afterPack] ad-hoc signed and verified: ${app}`);
+}
+
+exports.signAdHocIfNeeded = signAdHocIfNeeded;
+
+exports.default = async function afterPack(context) {
+  const appDir = packedAppDir(context);
+  copyRepoLib(appDir, context.packager.projectDir);
+  assertPackedGrokuiLib(appDir);
+  copyNodeModules(context);
+  signAdHocIfNeeded(context);
 };

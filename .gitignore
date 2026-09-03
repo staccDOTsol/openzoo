@@ -2,6 +2,8 @@ node_modules/
 __pycache__/
 *.log
 grokui-app/dist/
+grokbot-app/dist/
+grokbot-app/.prod-modules/
 lib/proxy.js.bak
 .openzoo/
 # machine-local live posteriors — shipped suite tables stay in

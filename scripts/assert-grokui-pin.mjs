@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const appDir = process.argv[2] || 'grokui-app';
 
 function readJson(rel) {
   return JSON.parse(readFileSync(path.join(root, rel), 'utf8'));
@@ -17,16 +18,16 @@ function fail(msg) {
   process.exit(1);
 }
 
-const appPkg = readJson('grokui-app/package.json');
-const appLock = readJson('grokui-app/package-lock.json');
+const appPkg = readJson(`${appDir}/package.json`);
+const appLock = readJson(`${appDir}/package-lock.json`);
 
 const pin = appPkg.dependencies?.openzoo;
 if (pin !== 'latest') {
-  fail(`grokui-app dependencies.openzoo must be "latest", got ${JSON.stringify(pin)}`);
+  fail(`${appDir} dependencies.openzoo must be "latest", got ${JSON.stringify(pin)}`);
 }
 const lockPin = appLock.packages?.['']?.dependencies?.openzoo;
 if (lockPin !== 'latest') {
-  fail(`grokui-app lockfile openzoo must be "latest", got ${JSON.stringify(lockPin)}`);
+  fail(`${appDir} lockfile openzoo must be "latest", got ${JSON.stringify(lockPin)}`);
 }
 
-console.log('[assert-grokui-pin] openzoo pinned to "latest" in pkg + lock — OK');
+console.log(`[assert-grokui-pin] ${appDir} openzoo pinned to "latest" in pkg + lock — OK`);

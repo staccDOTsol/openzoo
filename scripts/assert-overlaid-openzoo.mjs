@@ -23,6 +23,9 @@ const REQUIRED = [
   'lib/racesettle.js',
   'lib/hrr.js',
   'lib/livestatus.js',
+  'lib/grokcli.js',
+  'lib/grokbotFetch.js',
+  'lib/openzooPathShim.js',
 ];
 
 function fail(msg) {
