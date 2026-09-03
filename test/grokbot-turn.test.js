@@ -198,13 +198,18 @@ test('normalizeExecFrame digs shell output out of nested helper frames', () => {
 });
 
 test('local-exec frame is agent.v1.ExecServerMessage, not a flat command', () => {
-  const f = localExecFrame('ls -lha ~', '/home/u', 55);
+  const f = localExecFrame('ls -lha ~', '/home/u', 55_000);
   assert.equal(f.kind, 'exec');
   assert.ok(f.requestId && f.approvalId, 'daemon gates exec on an approvalId');
   // buildLocalExecManager registers shellStreamArgs, NOT shellArgs.
+  // timeout is MILLISECONDS (daemon: resolveShellTimeoutMs). 55 would abort
+  // the shell after 55ms and return exit 0 with no output.
   assert.deepEqual(f.serverMessage, {
-    shellStreamArgs: { command: 'ls -lha ~', workingDirectory: '/home/u', timeout: 55 },
+    shellStreamArgs: { command: 'ls -lha ~', workingDirectory: '/home/u', timeout: 55_000 },
   });
+  assert.ok(localExecFrame('x', '/tmp').serverMessage.shellStreamArgs.timeout >= 10_000,
+    'default timeout must be a milliseconds-scale value');
+  assert.doesNotMatch(src, /timeout: 55(?!_)/);
   assert.equal(f.authorizedByStanding, true);
   assert.equal(f.serverMessage.command, undefined);
   assert.equal(f.serverMessage.shellArgs, undefined);

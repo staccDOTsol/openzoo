@@ -1,5 +1,9 @@
 # Project Wiki
 
+## ShellArgs.timeout is MILLISECONDS (2026-09-03)
+The daemon resolves it through a function literally named `resolveShellTimeoutMs` and uses the value verbatim, so `timeout: 120` (which reads like seconds, and is what `lib/podagent.mjs` shipped) aborts the shell after **120 ms**. Symptom is not an error: `echo hi; pwd` returns `exit 0` with EMPTY stdout, `list_dir` returns an empty exit frame, and a longer `ls -lha ~` dies mid-stream with `Cannot read properties of undefined (reading '3')`. `0` means "use the daemon default", not "no timeout". Pass ms at every call site.
+**Why:** cost a full debug cycle that looked like "we are not parsing stdout". Related: [[local-exec `exec` is `shellStreamArgs`]], [[exec approval: seed `localToolPermission:"always"`]].
+
 ## exec approval: seed `localToolPermission:"always"` (2026-09-03)
 After the frame shape was right the daemon answered *"That action was not approved on the user's computer, so nothing ran."* `localUseRefusal` (daemon main.cjs) only honours the frame's `authorizedByStanding`/`authorizedByApproval` when the daemon is **`serverAuthoritative`** — ours is not, so it falls through to the user's setting. Key: `localToolPermission` in `<userData>/settings.json` (default `"ask"`), and `localToolPermissionCeiling` **caps** it (`resolveSandLocalToolPermission` takes the lower of `{never:0,ask:1,always:2}`) — raising the choice while a ceiling of `ask` remains changes NOTHING, so the seed deletes the ceiling. `seedGrokBotLocalToolPermission()` runs next to `seedGrokBotFakeLogin()` before spawn. UI equivalent: Settings → Bot → Execution on Local Computer → Always allow.
 **Why:** screenshot `exec "solana balance …"` → throw `not approved`. Related: [[local-exec `exec` is `shellStreamArgs`]].
