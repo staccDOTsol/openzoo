@@ -61,3 +61,15 @@ test('no module ships a wrapper mint, an escrow, or a transfer tax', () => {
     }
   }
 });
+
+test('a stale positive balance cannot be served forever', () => {
+  const pay = readFileSync(path.join(root, 'lib', 'pay.js'), 'utf8');
+  // SWR returns the cached figure and only KICKS OFF a refresh, so without an
+  // age ceiling a wallet that another worker drained keeps signing transfers it
+  // cannot cover — measured as Tokenkeg "insufficient funds" (0x1) in a loop.
+  assert.match(pay, /OPENZOO_BALANCE_STALE_MAX_MS \|\| 60_000/);
+  assert.match(pay, /age < BALANCE_STALE_MAX_MS/);
+  // And a gateway refusal must invalidate the figure that mispriced it.
+  assert.match(pay, /export function forgetCachedBalance/);
+  assert.match(pay, /forgetCachedBalance\(this\.keypair\?\.publicKey, accept\?\.asset\)/);
+});

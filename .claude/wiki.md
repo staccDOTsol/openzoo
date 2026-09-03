@@ -1,5 +1,9 @@
 # Project Wiki
 
+## Settle "insufficient funds" was a stale balance cache (2026-09-03)
+`failed_settle` loop on deposit wallet `4QtgGwMt…`. Simulated the three live accepts rows directly: USDC → `Error: insufficient funds` (Tokenkeg 0x1, holds 0.003603 vs 0.009204 needed), LEOS → `InvalidAccountData` (source ATA does not exist), TOKEN → **succeeds** (47,411 held vs 19.28 needed). No `deposit_autopay` events, so the header is CLIENT-signed (lib/pay.js), not server autopay. Cause: `cachedTokenBalance`'s SWR branch had no age bound — it returned a cached positive figure and only *kicked off* a refresh, so a failing RPC or another worker spending the same wallet left an optimistic number in place forever. Fixed with `BALANCE_STALE_MAX_MS` (60s) + `forgetCachedBalance()` on a post-payment 402.
+**Why:** the facilitator TRUNCATES its own `errorReason`, so the program error never reaches our logs — `simulateTransaction` on a `/v1/pay/build` output is the only way to see it. Do that first next time.
+
 ## ShellArgs.timeout is MILLISECONDS (2026-09-03)
 The daemon resolves it through a function literally named `resolveShellTimeoutMs` and uses the value verbatim, so `timeout: 120` (which reads like seconds, and is what `lib/podagent.mjs` shipped) aborts the shell after **120 ms**. Symptom is not an error: `echo hi; pwd` returns `exit 0` with EMPTY stdout, `list_dir` returns an empty exit frame, and a longer `ls -lha ~` dies mid-stream with `Cannot read properties of undefined (reading '3')`. `0` means "use the daemon default", not "no timeout". Pass ms at every call site.
 **Why:** cost a full debug cycle that looked like "we are not parsing stdout". Related: [[local-exec `exec` is `shellStreamArgs`]], [[exec approval: seed `localToolPermission:"always"`]].
