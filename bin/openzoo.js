@@ -100,6 +100,12 @@ usage:
                               multiarch GitHub release (vendor feed fallback).
                               --quit force bounce · --no-quit never bounce
                               --no-fetch  do not download Grok Bot if missing
+                              --daemon / -d  fork the sidecar to background
+                                         (pid ~/.openzoo/bot.pid, log bot.log)
+                                         then launch Grok Bot. Needed from the
+                                         OpenZoo Bot AppImage so this process
+                                         is not the GUI.
+                              --stop  kill the --daemon sidecar
                               --verbose  print every request the app makes
                                          (default is quiet: milestones + problems)
                               --web serve the renderer in a browser instead of

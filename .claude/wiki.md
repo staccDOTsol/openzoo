@@ -1,5 +1,11 @@
 # Project Wiki
 
+## `openzoo bot --daemon` + strip ELECTRON_RUN_AS_NODE (2026-09-03)
+The Linux OpenZoo Bot AppImage ran `openzoo bot` in the foreground and inherited `ELECTRON_RUN_AS_NODE=1` into vendor Grok Bot, so the pay-banner QUIET line printed and no Grok Bot window opened. `--daemon` / `-d` re-execs the sidecar detached (`~/.openzoo/bot.pid`, log `bot.log`) and the wrapper uses that flag. `grokBotLaunchEnv` deletes ELECTRON_RUN_AS_NODE / APPIMAGE / APPDIR / LD_LIBRARY_PATH before spawn; Linux AppImages also get `APPIMAGE_EXTRACT_AND_RUN=1`. `--stop` kills the pidfile.
+**Why:** "on linux it did all the steps then is just logging add --verbose… I think we need a daemon launch flag"
+
+
+
 ## OpenZoo Bot is grokui-app, but for Grok Bot (2026-09-03)
 `grokbot-app/` is the grokui Electron wrapper with Grok Bot instead of grokui.mjs. Same sidecar pack: `afterPack` copies production `node_modules` (openzoo@latest + overlay of unpublished repo files) and the GUI uses `ELECTRON_RUN_AS_NODE` so a machine with no Node/npx can still run the CLI. Multiarch CI is one workflow per platform (`openzoo-bot-linux.yml` / macos / windows) on tags `openzoo-bot-v*`, same reason grokui split the matrix. Vendor Grok Bot binaries stay on `grokbot-v*` (already shipping darwin/linux/win × arm64/x64). First launch of `openzoo bot` (CLI or the new app) fetches the matching `Grok_Bot_<ver>_<plat>-<arch>` from that release if the app is missing. Fetch keys off **machine** arch (`sysctl hw.optional.arm64`), not `process.arch` — nvm's default node on this Mac is Rosetta x64 and would otherwise pull the Intel zip. Packaged app also writes `~/.local/bin/openzoo` (Electron-as-node shim). Do not nest the 300MB vendor .app inside the wrapper — wiki already says those binaries are not git material.
 **Why:** "do that AGAIN for multiarch for 1. the GROK BOT APP … then also ALL THE SHIT WE NEED TO RUN OPENZOO cli like node. LIKE WE DID W GROK UI ONLY WITH GROK BOT INSTEAD"

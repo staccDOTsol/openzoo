@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { grokBotQuitPlan, inspectGrokBotHijack } from '../lib/grokcli.js';
+import {
+  grokBotQuitPlan,
+  inspectGrokBotHijack,
+  grokBotLaunchEnv,
+  wantsBotDaemon,
+  isBotDaemonChild,
+} from '../lib/grokcli.js';
 import { looksStoppedReply } from '../lib/cursorbackend.js';
 import { killListen } from '../lib/proxy.js';
 import { readFileSync } from 'node:fs';
@@ -114,6 +120,39 @@ test('openzoo bot does not respawn Grok Bot on a timer', () => {
   assert.doesNotMatch(cli, /relaunching for the spend chip/);
   assert.match(cli, /launchGrokBot/);
   assert.match(cli, /delayMs: plan.spawn \? 8000 : 2000/);
+});
+
+test('wantsBotDaemon is opt-in and skipped in the child', () => {
+  assert.equal(wantsBotDaemon(['--daemon']), true);
+  assert.equal(wantsBotDaemon(['-d']), true);
+  assert.equal(wantsBotDaemon([]), false);
+  assert.equal(wantsBotDaemon(['--daemon', '--once']), false);
+  assert.equal(wantsBotDaemon(['--daemon'], { OPENZOO_BOT_DAEMON_CHILD: '1' }), false);
+  assert.equal(isBotDaemonChild({ OPENZOO_BOT_DAEMON_CHILD: '1' }), true);
+});
+
+test('grokBotLaunchEnv strips Electron-as-node so Grok Bot can open a window', () => {
+  const env = grokBotLaunchEnv('https://127.0.0.1:8443', {
+    ELECTRON_RUN_AS_NODE: '1',
+    APPIMAGE: '/tmp/OpenZoo-Bot.AppImage',
+    APPDIR: '/tmp/squashfs',
+    LD_LIBRARY_PATH: '/tmp/squashfs/usr/lib',
+    PATH: '/usr/bin',
+    HOME: '/home/u',
+  });
+  assert.equal(env.ELECTRON_RUN_AS_NODE, undefined);
+  assert.equal(env.APPIMAGE, undefined);
+  assert.equal(env.APPDIR, undefined);
+  assert.equal(env.LD_LIBRARY_PATH, undefined);
+  assert.equal(env.CURSOR_API_BASE_URL, 'https://127.0.0.1:8443');
+  assert.equal(env.SAND_HOST_GATEWAY_URL, 'https://127.0.0.1:8443');
+  assert.equal(env.PATH, '/usr/bin');
+});
+
+test('OpenZoo Bot wrapper launches the sidecar with --daemon', () => {
+  const main = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'grokbot-app/main.js'), 'utf8');
+  assert.match(main, /bot', '--daemon'/);
+  assert.match(main, /sidecar daemonized/);
 });
 
 test('inspect: remote-debugging-port on the pid counts as chipDebug', () => {

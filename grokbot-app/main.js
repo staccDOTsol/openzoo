@@ -106,7 +106,10 @@ function startBot() {
     broadcast();
     return;
   }
-  botProc = spawn(process.execPath, [bin, 'bot'], {
+  // --daemon: parent prints pid + exits 0; the sidecar holds :8402/:8443
+  // and launches vendor Grok Bot. Do not keep a foreground `openzoo bot`
+  // in this window — that is the Linux AppImage "stuck on the QUIET line".
+  botProc = spawn(process.execPath, [bin, 'bot', '--daemon'], {
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     windowsHide: true,
@@ -118,11 +121,14 @@ function startBot() {
     broadcast();
   });
   botProc.on('exit', (code, signal) => {
-    lastStatus.botOk = false;
-    lastStatus.bot = code == null ? `exited ${signal}` : `exited ${code}`;
+    const daemonOk = code === 0;
+    lastStatus.botOk = daemonOk;
+    lastStatus.bot = daemonOk
+      ? 'sidecar daemonized'
+      : (code == null ? `exited ${signal}` : `exited ${code}`);
     botProc = null;
     broadcast();
-    if (quitting) return;
+    if (quitting || daemonOk) return;
     setTimeout(() => { if (!quitting && !botProc) startBot(); }, 1500);
   });
 }
