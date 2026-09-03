@@ -215,8 +215,12 @@ test('proxy JSON path and overlay are wired to spendProof', () => {
   assert.match(proxy, /attachX402Proof/);
   assert.match(proxy, /receipt\.tx/);
   const overlay = readFileSync(path.join(root, 'lib', 'cursorbackend.js'), 'utf8');
+  assert.match(overlay, /spendChipLabel/);
   assert.match(overlay, /formatSpendFooter/);
   assert.match(overlay, /mergeTurnProof/);
+  assert.match(overlay, /writeSpendHud/);
+  assert.match(overlay, /name === 'ozSpend'/);
+  assert.doesNotMatch(overlay, /text \+= await zooSpendOverlay/);
   const pay = readFileSync(path.join(root, 'lib', 'pay.js'), 'utf8');
   assert.match(pay, /memo: payment\?\.memo \|\| accept\?\.extra\?\.memo/);
   assert.doesNotMatch(pay, /tx:\s*payment\.ownerSignature/);

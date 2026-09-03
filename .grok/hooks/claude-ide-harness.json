@@ -1,0 +1,88 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Grep|grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/Users/stacc/openzoo-shim/.claude-ide/bin/grok-hook-adapter.py' '/Users/stacc/openzoo-shim/.claude-ide/bin/grep-guard.py'",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Read|read_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/Users/stacc/openzoo-shim/.claude-ide/bin/grok-hook-adapter.py' '/Users/stacc/openzoo-shim/.claude-ide/bin/read-guard.py'",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|write|search_replace",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/Users/stacc/openzoo-shim/.claude-ide/bin/grok-hook-adapter.py' '/Users/stacc/openzoo-shim/.claude-ide/bin/write-guard.py'",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|run_terminal_command|run_terminal_cmd",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/Users/stacc/openzoo-shim/.claude-ide/bin/grok-hook-adapter.py' '/Users/stacc/openzoo-shim/.claude-ide/bin/bash-guard.py'",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|write|search_replace",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/Users/stacc/openzoo-shim/.claude-ide/bin/grok-hook-adapter.py' '/Users/stacc/openzoo-shim/.claude-ide/bin/html-data-attr-guard.py'",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|write|search_replace",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/Users/stacc/openzoo-shim/.claude-ide/bin/grok-hook-adapter.py' '/Users/stacc/openzoo-shim/.claude-ide/bin/syntax-guard.py'",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/Users/stacc/openzoo-shim/.claude-ide/bin/grok-hook-adapter.py' '/Users/stacc/openzoo-shim/.claude-ide/bin/wiki-recall.py'",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/Users/stacc/openzoo-shim/.claude-ide/bin/grok-hook-adapter.py' '/Users/stacc/openzoo-shim/.claude-ide/bin/file-recall.py'",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

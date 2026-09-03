@@ -1,0 +1,35 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/Users/stacc/openzoo-shim/.claude-ide/bin/adherence-audit.py'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/Users/stacc/openzoo-shim/.claude-ide/bin/file-recall.py'"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 '/Users/stacc/openzoo-shim/.claude-ide/bin/wiki-recall.py'"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,5 +1,17 @@
 # Project Wiki
 
+## Always-on pill is #oz-spend-hud, injected live, published 0.50.96 (2026-09-03)
+npx `openzoo@latest` was 0.50.95 with IIFE v12: `if (!label || msgPills) el.remove()`, skip whole tick while composer focused, `subtree:false`. Chip inject logged "folded into 1 renderer" but the first run bailed on the focused composer so nothing was painted. HUD is now always created (fallback label `openzoo`), orange, bottom-right above the composer, IIFE v16. Live CDP inject + npm 0.50.96 so `@latest` actually has it.
+**Why:** "I don't see the PILL I WANT TO SEE MY ALWAYS ON SAVINGS PILL"
+
+## Spend dump lives in the HUD, not the bubble (2026-09-03)
+`zooComplete` used to `text += await zooSpendOverlay()` so every assistant line grew `::oz-spend::` + this-call + spent + tx + memo + proves. The HUD is the spend surface: pill label always on, dump (`this call` / spent / tx / memo, no proves essay) open underneath via `GET /api/ozSpend` + `~/.openzoo/spend-hud.json`. Chat text stays the reply. IIFE v15. Old canvas footers still fold/hide.
+**Why:** "we no longer need this msg and msg and msg" then "we need dumples AND pricepill visible".
+
+## Savings pill is a HUD, not a fallback (2026-09-02)
+`ozEnsureFloatSpend` used to `el.remove()` whenever any per-message `.oz-spend` existed, and `ozWatchSpend` skipped the whole tick while the composer was focused with a `subtree:false` observer on `document.body`. New footers live deep in React, so the fold never ran while chatting and the float never came back — raw `::oz-spend::$1.29 · saved $2.23` in the bubble, nothing in the corner. HUD is now `#oz-spend-hud` (v12 still deletes `#oz-spend-float`), always on, live label from last chip / canvas scan / inject snapshot. Collapse still skips the composer; observer is `subtree:true` + 2s interval. IIFE v13 so CDP re-injects.
+**Why:** screenshot of Grok Bot with the footer as raw text and no pill.
+
 ## Grok Bot gets local MCPs including chrome-devtools (2026-09-01)
 Hijack zoo turns only had screenshot/click/osascript, so filling an OpenRouter form in Brave died on Quartz/AppleScript. `lib/mcpbridge.js` loads `~/.grok/config.toml`, `~/.claude/mcp.json`, Claude desktop, `~/.cursor/mcp.json`, skips openzoo (recursion), and always attaches `npx chrome-devtools-mcp@latest` if no chrome/devtools server is configured. Tools land as `chrome-devtools__navigate_page` etc. Prefer those for HTML forms; screenshot/click stay for native Mac UI.
 **Why:** "can u just give this thing my local mcps ? like chrome w claude"

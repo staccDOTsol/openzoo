@@ -220,3 +220,16 @@ test('read/write wakeups round-trip under a temp home', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test('parseWakeupEvery caps at 6h and floors 30s', () => {
+  assert.equal(parseWakeupEvery('90s'), 90);
+  assert.equal(parseWakeupEvery('2h'), 7200);
+  assert.equal(parseWakeupEvery('24h'), 6 * 3600);
+  assert.equal(parseWakeupEvery('0'), WAKEUP_DEFAULT_SEC);
+});
+
+test('wantsWakeupCron matches schedule-the-wakeups phrasing', () => {
+  assert.equal(wantsWakeupCron('please schedule the wakeups'), true);
+  assert.equal(wantsWakeupCron('wakeups should cron every 5m'), true);
+  assert.equal(wantsWakeupCron('just answer the question'), false);
+});

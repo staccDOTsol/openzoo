@@ -6,7 +6,7 @@
  * the local openzoo proxy on :8402 (x402 per-call payment, no Anthropic
  * subscription, no login):
  *
- *   - starts the proxy if it is not already listening
+ *   - starts the proxy if it is not already THIS version on :8402 (steals stale)
  *   - applies claudeZooEnv(): ANTHROPIC_BASE_URL=localhost:PORT/v1,
  *     AUTH_TOKEN=sk-openzoo, ANTHROPIC_API_KEY deleted, compaction disabled
  *     (the proxy binds the prefix), 1M-token ceiling restored
@@ -16,7 +16,8 @@
  * `claude-code-cli` (same directory, symlinked to occ).
  */
 import { spawn } from 'node:child_process';
-import { existsSync, readdirSync as fsReaddir } from 'node:fs';
+import { existsSync, readdirSync as fsReaddir, readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { homedir, platform } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,10 +51,34 @@ if (!occ) {
 const PROXY_PORT = Number(process.env.OPENZOO_PROXY_PORT || 8402);
 const PROXY_URL = `http://localhost:${PROXY_PORT}/v1`;
 
+function mineVersion() {
+  try {
+    return JSON.parse(readFileSync(join(shimRoot, 'package.json'), 'utf8')).version;
+  } catch { return ''; }
+}
+
+function stealPort(port) {
+  const n = Number(port);
+  for (const cmd of [
+    `lsof -t -iTCP:${n} -sTCP:LISTEN | xargs kill -9`,
+    `fuser -k ${n}/tcp`,
+  ]) {
+    try { execSync(cmd, { stdio: 'ignore', timeout: 2000, shell: true }); } catch { /* missing */ }
+  }
+}
+
 async function proxyUp() {
   try {
     const r = await fetch(`http://localhost:${PROXY_PORT}/v1/info`, { signal: AbortSignal.timeout(1500) });
-    return r.ok;
+    if (!r.ok) return false;
+    const j = await r.json().catch(() => ({}));
+    const mine = mineVersion();
+    if (mine && String(j.version || '') !== mine) {
+      console.error(`claude: stale proxy v${j.version || '?'} on :${PROXY_PORT} — stealing for v${mine}`);
+      stealPort(PROXY_PORT);
+      return false;
+    }
+    return true;
   } catch { return false; }
 }
 

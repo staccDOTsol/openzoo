@@ -25,12 +25,30 @@ test('startProxy bounces a listener instead of reusing it', () => {
   const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'lib/proxy.js'), 'utf8');
   assert.match(src, /killed proxy on/);
   assert.match(src, /killListen\(config\.port\)/);
+  assert.match(src, /export async function oursOn/);
+  assert.doesNotMatch(src, /config\.port \+= 1/);
+  assert.doesNotMatch(src, /trying :\${config\.port}/);
   assert.doesNotMatch(src, /reused: true/);
   const bot = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'lib/grokcli.js'), 'utf8');
   assert.match(bot, /starting proxy on/);
   assert.match(bot, /killListen\(port\)/);
   assert.doesNotMatch(bot, /8443 already bound — reusing it/);
   assert.doesNotMatch(bot, /if \(!up\) \{\s*console\.error\('openzoo: starting proxy/);
+});
+
+test('every subcommand steals stale :8402 instead of hopping', () => {
+  const read = (f) => readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', f), 'utf8');
+  const setup = read('lib/setup.js');
+  assert.match(setup, /oursOn\(config\.port\)/);
+  assert.match(setup, /stale proxy — stealing/);
+  const aoe = read('lib/aoe.js');
+  assert.match(aoe, /oursOn\(config\.port\)/);
+  assert.match(aoe, /stale proxy on/);
+  const launch = read('lib/launch.js');
+  assert.match(launch, /oursOn\(config\.port\)/);
+  assert.doesNotMatch(launch, /heal onto a different port/);
+  const zoo = read('bin/claude-zoo.js');
+  assert.match(zoo, /stealing for v/);
 });
 
 test('quit plan: reboot login-item without hijack env gets bounced', () => {

@@ -180,6 +180,11 @@ test('web server serves shim + injected renderer without the hijack', async () =
     const health = await fetch(`http://127.0.0.1:${port}/oz-health`).then((r) => r.json());
     assert.equal(health.ok, true);
     assert.equal(typeof health.agents, 'number');
+    const spend = await fetch(`http://127.0.0.1:${port}/oz-spend`).then((r) => r.json());
+    assert.equal(spend.ok, true);
+    assert.equal(typeof spend.label, 'string');
+    assert.equal(typeof spend.spent, 'number');
+    assert.equal(typeof spend.body, 'string');
     const shim = await fetch(`http://127.0.0.1:${port}/oz-shim.js`).then((r) => r.text());
     assert.match(shim, /window\.desktop/);
     assert.match(shim, /coordinatorPort/);

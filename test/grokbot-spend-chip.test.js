@@ -12,6 +12,8 @@ import {
   grokBotChromiumArgs,
   injectSpendChip,
   sessionSpendLabel,
+  sessionSpendState,
+  writeSpendHud,
 } from '../lib/ozSpendChip.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -62,14 +64,23 @@ test('spendChipSource is the cafe ⓘ details IIFE', () => {
   assert.match(src, /sand-message-card/);
   assert.match(src, /data-oz-spend-hide/);
   assert.match(src, /__OZ_SPEND_CHIP__/);
-  assert.match(src, /__OZ_SPEND_CHIP__ === 12/);
+  assert.match(src, /__OZ_SPEND_CHIP__ === 16/);
   assert.match(src, /isContentEditable/);
   assert.match(src, /oz-spend-float-pos/);
   assert.match(src, /pointerdown/);
   assert.match(src, /ozPlaceFloat/);
-  assert.match(src, /oz-spend-float/);
+  assert.match(src, /oz-spend-hud/);
+  assert.match(src, /ozFloatLabel/);
+  assert.match(src, /__OZ_SPEND_LAST__/);
   assert.match(src, /Start voice input/);
   assert.match(src, /MutationObserver/);
+  assert.match(src, /subtree: true/);
+  assert.match(src, /setInterval\(\(\) => \{ run\(\); ozPollSpend\(\); \}, 2000\)/);
+  assert.match(src, /ozPollSpend/);
+  assert.match(src, /\/api\/ozSpend/);
+  assert.match(src, /__OZ_SPEND_BODY__/);
+  assert.match(src, /el\.open = true/);
+  assert.doesNotMatch(src, /msgPills/);
 });
 
 test('grokBotChromiumArgs open a localhost CDP port without asar edits', () => {
@@ -93,6 +104,18 @@ test('sessionSpendLabel reads ~/.openzoo/session.json', () => {
     const lab = sessionSpendLabel(tmp);
     assert.match(lab, /\$10\.94/);
     assert.match(lab, /saved \$9\.38/);
+    const st = sessionSpendState(tmp);
+    assert.equal(st.spent, 10.94);
+    assert.equal(st.label, lab);
+    assert.match(st.body, /spent \$10\.9400/);
+    writeSpendHud({
+      spent: 10.94, would: 20.32, saved: 9.38, pct: 46,
+      label: lab,
+      body: 'this call $0.15 · OpenRouter $0.76\ntx https://solscan.io/tx/SIG',
+    }, tmp);
+    const hud = sessionSpendState(tmp);
+    assert.match(hud.body, /this call \$0\.15/);
+    assert.match(hud.body, /solscan/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -104,6 +127,19 @@ test('spend chip inject is one-shot so CDP does not freeze the composer', () => 
   assert.match(src, /One CDP attach, then drop the debugger/);
   assert.match(src, /waitForUi/);
   assert.match(src, /class\*=\"sand-\"/);
+});
+
+test('floating HUD stays up even when a message chip exists', () => {
+  const src = spendChipSource();
+  assert.match(src, /function ozEnsureFloatSpend/);
+  assert.doesNotMatch(src, /if \(!label \|\| msgPills\)/);
+  assert.match(src, /ozFloatLabel/);
+  assert.match(src, /if \(inComposer\(\)\)/);
+  assert.match(src, /ozEnsureFloatSpend\(\)/);
+  assert.match(src, /oz-spend-hud/);
+  assert.match(src, /getElementById\('oz-spend-float'\)/);
+  assert.match(src, / \|\| 'openzoo'/);
+  assert.match(src, /bottom = '88px'/);
 });
 
 test('injectSpendChip evaluates the IIFE on each page target', async () => {
