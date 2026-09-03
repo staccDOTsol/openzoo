@@ -64,7 +64,7 @@ test('spendChipSource is the cafe ⓘ details IIFE', () => {
   assert.match(src, /sand-message-card/);
   assert.match(src, /data-oz-spend-hide/);
   assert.match(src, /__OZ_SPEND_CHIP__/);
-  assert.match(src, /__OZ_SPEND_CHIP__ === 16/);
+  assert.match(src, /__OZ_SPEND_CHIP__ === 17/);
   assert.match(src, /isContentEditable/);
   assert.match(src, /oz-spend-float-pos/);
   assert.match(src, /pointerdown/);
@@ -75,9 +75,12 @@ test('spendChipSource is the cafe ⓘ details IIFE', () => {
   assert.match(src, /Start voice input/);
   assert.match(src, /MutationObserver/);
   assert.match(src, /subtree: true/);
-  assert.match(src, /setInterval\(\(\) => \{ run\(\); ozPollSpend\(\); \}, 2000\)/);
+  assert.match(src, /setInterval\(\(\) => \{ run\(\); ozPollSpend\(\); ozPollShare\(\); \}, 2000\)/);
   assert.match(src, /ozPollSpend/);
   assert.match(src, /\/api\/ozSpend/);
+  assert.match(src, /oz-share-hud/);
+  assert.match(src, /\/api\/ozShare/);
+  assert.match(src, /Share group/);
   assert.match(src, /__OZ_SPEND_BODY__/);
   assert.match(src, /el\.open = true/);
   assert.doesNotMatch(src, /msgPills/);

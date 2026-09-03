@@ -7,7 +7,9 @@ import {
   accountSlug, accountDir, accountAgentsPath, houseAgentsPath, rosterForAccount, rosterForEvent,
   callerKeyFromAuth, readHouseRoster, mergeAgentRecords, shapeAgent, agentBrief, briefFromName,
   looksLikeAgentId, nameFromBrief, displayName, preferNamedAgent,
-  grokroomAgentId, grokroomMemberId, grokroomShareUrl, isGrokRoomAgent, isGrokRoomMember,
+  grokroomAgentId, grokroomMemberId, grokroomShareUrl, agentShareUrl, groupShareState,
+  mintOnchainRoom, ensureOnchainRoom, attachOnchainRoom,
+  isGrokRoomAgent, isGrokRoomMember,
   parseWakeupEvery, wantsWakeupCron, shapeWakeup, readWakeups, writeWakeups, wakeupsPath,
   WAKEUP_MIN_SEC, WAKEUP_DEFAULT_SEC,
   addDeletedIds, filterDeleted, readDeletedIds,
@@ -263,6 +265,7 @@ test('shapeAgent keeps hidden + room so grokroom members stay off the tray', () 
   });
   assert.equal(room.isGroup, true);
   assert.equal(room.room.id, 'main');
+  assert.equal(room.room.web, 'https://openzoo.fun/r/E2KzPZH6ZWzftkEaT1qYvGG9ootnDasSkCiVqtCMxuhR');
   assert.equal(room.hidden, false);
   assert.equal(room.brief, '');
   assert.equal(briefFromName('# main'), '');
@@ -298,4 +301,28 @@ test('grokroomShareUrl is openzoo.fun/r/<pubkey>', () => {
   assert.equal(grokroomShareUrl(addr), 'https://openzoo.fun/r/' + addr);
   assert.equal(grokroomShareUrl('nope'), '');
   assert.equal(grokroomShareUrl(''), '');
+  assert.equal(agentShareUrl({ room: { id: 'main', addr } }), 'https://openzoo.fun/r/' + addr);
+  const st = groupShareState({
+    agent: { id: 'g1', isGroup: true },
+    rooms: [{ id: 'main', name: '# main', addr }],
+  });
+  assert.equal(st.url, '');
+  assert.equal(st.isGroup, true);
+  assert.equal(st.rooms[0].url, 'https://openzoo.fun/r/' + addr);
+});
+
+test('mintOnchainRoom gives each groupchat an openzoo.fun/r/<addr>', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oz-gc-'));
+  try {
+    const rec = mintOnchainRoom({ agentId: 'g1', name: 'crew', home: tmp });
+    assert.match(rec.addr, /^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
+    assert.equal(rec.web, 'https://openzoo.fun/r/' + rec.addr);
+    const again = ensureOnchainRoom({ id: 'g1', name: 'crew' }, tmp);
+    assert.equal(again.addr, rec.addr);
+    const attached = attachOnchainRoom({ id: 'g1', name: 'crew', isGroup: true }, tmp);
+    assert.equal(attached.room.web, rec.web);
+    assert.equal(agentShareUrl(attached), rec.web);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });

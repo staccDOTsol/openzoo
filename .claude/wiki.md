@@ -5,8 +5,8 @@ Yanked every GitHub release/tag that was cluttering the page (openzoo-bot-v1.3.1
 **Why:** "untag/yank EVERYTHING tho silly lol. before whichever one actually works... 1.3.11 maybe? leave that up FOR NOW" + screenshot of grokui pile
 
 ## Share a Grok Bot group on openzoo.fun via grokroom `/r/<addr>` (2026-09-03)
-Two different "groups": (1) Grok Bot **createGroup** is local to the house tray — cafe visitors on *this* hijack see it, it is not a public URL. (2) **grokroom** rows `# main` `# bots` `# random` `# lobby` (from `~/grokroom` :4799) are Solana testnet accounts; grokroom `/state` already emits `web: https://openzoo.fun/r/<room-pubkey>` (site route `r.$addr.tsx` + paymaster `/api/room/submit`). Overlay paints `Share: https://openzoo.fun/r/…` on room intro; createGroup injects a canvas hint with those public URLs (or "start ~/grokroom" if :4799 is down).
-**Why:** "if I were to make a groupchat, how to share that groupchat on openzoo.fun" + overlay/chat injection
+`createGroup` mints a Solana testnet pubkey for that group (`~/.openzoo/grokbot-onchain-rooms.json`) and attaches `room.web = https://openzoo.fun/r/<addr>`. Overlay HUD `#oz-share-hud` (blue "Share group" chip, above the spend pill) shows the URL; click copies + opens it. Canvas also paints `Share this room: …`. Sends POST the signed envelope to `openzoo.fun/api/room/submit` (paymaster). Built-in grokroom rows `# main` `# bots` `# random` `# lobby` keep their ~/grokroom :4799 addrs. shapeAgent keeps `room.web`. IIFE v17.
+**Why:** "if I were to make a groupchat, how to share that groupchat on openzoo.fun" then "brother if I init a groupchat.. where do I see it. the onchain / shareable one.. each gc every user has needs an onchain version"
 
 
 
