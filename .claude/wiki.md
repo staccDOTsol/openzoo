@@ -1,5 +1,11 @@
 # Project Wiki
 
+## Packed sidecar must overlay grokbotAccount.js with cursorbackend.js (2026-09-03)
+Linux AppImage: `The requested module './grokbotAccount.js' does not provide an export named 'grokroomAgentId'`. afterPack overlaid repo `cursorbackend.js` (imports grokroomAgentId) onto npm `openzoo@latest`'s `grokbotAccount.js` which has no grokroom exports (0.50.97). macOS APFS hid the mismatch. afterPack now copies the whole repo `lib/` onto packed `node_modules/openzoo/lib` (skip `.bak`), and the overlay gate lists `lib/grokbotAccount.js`.
+**Why:** "grokbotaccount does not provide an export named grokroomagentid ?? on linux wtf?"
+
+
+
 ## Hijack fakes Cursor login — no "Log in with Cursor" (2026-09-03)
 Linux bot.log: `GET /auth/poll?uuid=…&verifier=… -> empty-ok`. Grok Bot's `SandBackendLoginManager.waitForResult` requires JSON `{accessToken, refreshToken}` (JWT with sub/email/exp). `{}` is a 200 without those keys → bad_200 → login UI. Hijack now answers poll + `/oauth/token` with a local JWT session (`user@openzoo.local`) and serves `/loginDeepControl` itself. Launch env sets `SAND_CURSOR_WEBSITE_URL` to the hijack so the login tab is not cursor.com. Sniff/`OPENZOO_PASSTHRU=1` still hits real api2. Overlay list includes `cursorbackend.js` / `cursorapi.js` or the AppImage keeps npm last week.
 **Why:** "the grok bot launched and it still gave me login with cursor bullshit. IT SHOULD THINK IT'S LOGGED"

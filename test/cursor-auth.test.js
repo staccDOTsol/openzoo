@@ -64,6 +64,10 @@ test('packed sidecar overlay includes cursorbackend auth fake', () => {
   const after = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'grokui-app/build/afterPack.js'), 'utf8');
   assert.match(after, /lib\/cursorbackend\.js/);
   assert.match(after, /lib\/cursorapi\.js/);
+  assert.match(after, /lib\/grokbotAccount\.js/);
+  assert.match(after, /fs\.cpSync\(libSrc, libDest/);
   const be = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'lib/cursorbackend.js'), 'utf8');
   assert.match(be, /FAKE \$\{fakeAuth\.kind\} logged-in/);
+  const acct = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'lib/grokbotAccount.js'), 'utf8');
+  assert.match(acct, /export function grokroomAgentId/);
 });

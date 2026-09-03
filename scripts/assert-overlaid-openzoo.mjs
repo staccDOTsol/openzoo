@@ -28,6 +28,7 @@ const REQUIRED = [
   'lib/openzooPathShim.js',
   'lib/cursorbackend.js',
   'lib/cursorapi.js',
+  'lib/grokbotAccount.js',
 ];
 
 function fail(msg) {

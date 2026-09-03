@@ -103,6 +103,7 @@ const OPENZOO_SIDECAR_OVERLAY = [
   'lib/openzooPathShim.js',
   'lib/cursorbackend.js',
   'lib/cursorapi.js',
+  'lib/grokbotAccount.js',
   'lib/modelroute/catalog.json',
   'lib/modelroute/router.json',
   'lib/modelroute/outcomes.json',
@@ -118,6 +119,24 @@ function overlayRepoOpenzooSidecar(stagedNM, projectDir) {
   const repo = path.join(projectDir, '..');
   const dest = path.join(stagedNM, 'openzoo');
   if (!fs.existsSync(dest)) return;
+  // Copy the WHOLE repo lib tree. Overlaying cursorbackend.js alone onto
+  // npm's grokbotAccount.js (no grokroomAgentId) is the Linux ESM crash:
+  //   does not provide an export named 'grokroomAgentId'
+  // macOS is case-insensitive so a checkout hid it; AppImage/linux is not.
+  const libSrc = path.join(repo, 'lib');
+  const libDest = path.join(dest, 'lib');
+  if (!fs.existsSync(libSrc)) {
+    throw new Error(`[afterPack] repo lib missing: ${libSrc}`);
+  }
+  fs.cpSync(libSrc, libDest, {
+    recursive: true,
+    filter: (src) => {
+      const base = path.basename(src);
+      if (base.startsWith('.')) return false;
+      if (base.includes('.bak')) return false;
+      return true;
+    },
+  });
   for (const rel of OPENZOO_SIDECAR_OVERLAY) {
     const from = path.join(repo, rel);
     if (!fs.existsSync(from)) {
