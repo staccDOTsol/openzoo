@@ -37,8 +37,11 @@ query() {
   V_VERSION="$(jsonget "$j" version)"
   [ -n "$V_VERSION" ] || V_VERSION="$(jsonget "$j" name)"   # feed uses "name" for the version
   V_URL="$(jsonget "$j" url)"
-  # linux feed points at the .zsync sidecar; the AppImage is the same path without it
-  case "$V_URL" in *.zsync) V_URL="${V_URL%.zsync}";; esac
+  # linux feed points at a .zsync sidecar with a stale filename; the real AppImage
+  # lives in the same dir as Grok_Bot_<version>.AppImage
+  case "$V_URL" in
+    *linux/*) V_URL="${V_URL%/*}/Grok_Bot_${V_VERSION}.AppImage" ;;
+  esac
   if [ -z "$V_VERSION" ] || [ -z "$V_URL" ]; then
     echo "!! feed parse failed for $1:" >&2; printf '%s\n' "$j" >&2; exit 1
   fi
