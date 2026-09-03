@@ -5,7 +5,7 @@ before it runs and paid per request over [x402](https://x402.org).
 
 Two things surprise people, so they're answered first:
 
-1. **Receipts never touch the message.** They ride as a sibling JSON key, or an SSE comment.
+1. **Receipts never touch the message.** They ride as a sibling JSON key, or an SSE comment — and you can turn them off entirely with `disableStats`.
 2. **Ownership is proven by signature, not asserted by a header.** Your corpus is keyed to a wallet you control.
 
 ---
@@ -159,6 +159,53 @@ Lines beginning `:` are comments in the SSE spec. Every compliant parser drops t
 > ($0.00027) — short calls with nothing bound can run at a loss for us. The pricing
 > law is *cost plus a share of the saving*, so the multiple is real where savings
 > exist: long, context-heavy sessions, which is exactly where binding kicks in.
+
+### Turning receipts off — `disableStats`
+
+Don't want the extra payload at all? Send `disableStats: true` in the body, or the
+header `x-openzoo-disable-stats: 1`. The `x402` block is then omitted from the
+buffered body **and** the SSE comment is never written.
+
+```bash
+curl -s -X POST https://api.openzoo.fun/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"hi"}],"disableStats":true}'
+```
+
+```json
+{
+  "id": "…",
+  "object": "chat.completion",
+  "choices": [{ "index": 0, "message": { "role": "assistant", "content": "Hi" } }],
+  "usage": { "prompt_tokens": 220, "completion_tokens": 1 }
+}
+```
+
+```mermaid
+flowchart LR
+    Q["request"] --> F{"disableStats?"}
+    F -->|"absent / false<br/>(default)"| ON["choices + usage + <b>x402</b><br/>SSE: <code>: x402 {...}</code>"]
+    F -->|"true"| OFF["choices + usage<br/>no x402, no SSE comment"]
+
+    style ON fill:#132039,stroke:#388bfd,color:#e6edf3
+    style OFF fill:#132e21,stroke:#2ea043,color:#e6edf3
+```
+
+| you send | receipt in body | receipt on stream |
+|---|---|---|
+| nothing | yes | yes |
+| `disableStats: false` | yes | yes |
+| `disableStats: true` | **no** | **no** |
+| `x-openzoo-disable-stats: 1` | **no** | **no** |
+
+Both layers honour it: the hosted gateway drops its receipt, and the local
+`npx openzoo` proxy (>= 0.50.94) skips its own settle proof rather than
+re-attaching one. The field is stripped before anything is forwarded upstream,
+so it never reaches a model provider.
+
+**Default stays ON deliberately.** Every shipped client reads that block — the
+proxy's spend line, the bar widget's balance, Grok Bot's per-call cost. Flipping
+the default would silently zero all three, so the flag only ever *removes*.
 
 ---
 
@@ -384,7 +431,7 @@ flowchart TD
 - [ ] Sign the namespace headers on **every** request, or accept the shared tenant
 - [ ] Large context → bind once, pass `X-HRR-Context`, append deltas
 - [ ] Verify the bound size matches what you meant to send
-- [ ] Receipts → `res.x402` (buffered) or the `: x402` SSE comment (streaming)
+- [ ] Receipts → `res.x402` (buffered) or the `: x402` SSE comment (streaming); `disableStats: true` to drop them
 - [ ] Nothing to change in prompt handling, message parsing, or streaming logic
 
 ---
