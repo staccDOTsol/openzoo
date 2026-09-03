@@ -1,0 +1,44 @@
+{
+  "name": "openzoo",
+  "version": "0.50.97",
+  "description": "Local x402-paying proxy + MCP server for openzoo.fun — point any OpenAI-compatible harness (Cursor, Claude Code, aider, SDKs) at localhost and it pays per call from a local burner wallet. Solana and Base rails live; Robinhood experimental.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "openzoo": "bin/openzoo.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.4",
+    "dugite": "^3.2.3",
+    "selfsigned": "^5.5.0",
+    "viem": "^2.21.0",
+    "zod": "^3.24.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/staccDOTsol/openzoo.git"
+  },
+  "homepage": "https://openzoo.fun",
+  "keywords": [
+    "x402",
+    "openai",
+    "proxy",
+    "solana",
+    "llm",
+    "openzoo",
+    "payments"
+  ]
+}

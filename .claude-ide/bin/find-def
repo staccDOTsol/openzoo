@@ -1,0 +1,6 @@
+#!/bin/sh
+# Usage: find-def <symbol>
+# Prints "path:line" for every chunk that defines <symbol>.
+set -e
+[ -z "$1" ] && { echo "usage: find-def <symbol>" >&2; exit 1; }
+awk -F'\t' -v sym="$1" '$1==sym {print $2 ":" $3}' "$(dirname "$0")/../xref-defs.tsv"

@@ -1,0 +1,125 @@
+name: openzoo-bot macos
+
+# See grokui-macos.yml / openzoo-bot-linux.yml. macOS is the slow notarization
+# leg and publishes its own DMGs without blocking linux/windows.
+on:
+  push:
+    tags: ["openzoo-bot-v*"]
+  workflow_dispatch: {}
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Sync app version to tag
+        if: startsWith(github.ref, 'refs/tags/openzoo-bot-v')
+        shell: bash
+        run: |
+          V="${GITHUB_REF#refs/tags/openzoo-bot-v}"
+          node -e "const f='grokbot-app/package.json';const p=require('./'+f);p.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')" "$V"
+          echo "app version set to $V"
+
+      - name: Install deps
+        working-directory: grokbot-app
+        run: |
+          npm install
+          npm install openzoo@latest --no-save
+          node -e "const fs=require('fs'); for (const f of ['package.json','package-lock.json']) { const p=JSON.parse(fs.readFileSync(f,'utf8')); if (p.dependencies) p.dependencies.openzoo='latest'; if (p.packages&&p.packages['']&&p.packages[''].dependencies) p.packages[''].dependencies.openzoo='latest'; fs.writeFileSync(f, JSON.stringify(p,null,2)+'\n'); }"
+
+      - name: Patch electron-builder set-key-partition-list bug
+        working-directory: grokbot-app
+        run: node scripts/patch-maccodesign.mjs
+
+      - name: Enable notarization (only when credentials exist)
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$APPLE_API_KEY_P8" ]; then
+            mkdir -p ~/private_keys
+            echo "$APPLE_API_KEY_P8" | base64 --decode > ~/private_keys/AuthKey.p8
+            echo "APPLE_API_KEY=$HOME/private_keys/AuthKey.p8" >> "$GITHUB_ENV"
+            echo "notarize=api-key"
+          elif [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ]; then
+            echo "notarize=apple-id"
+          else
+            echo "notarize=off (no credentials); ad-hoc signature only"
+            exit 0
+          fi
+          node -e "
+            const fs=require('fs'), f='grokbot-app/package.json';
+            const p=JSON.parse(fs.readFileSync(f,'utf8'));
+            p.build.mac.notarize=true;
+            fs.writeFileSync(f, JSON.stringify(p,null,2)+'\n');
+            console.log('notarize enabled for team', process.env.APPLE_TEAM_ID);
+          "
+
+      - name: Build
+        working-directory: grokbot-app
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        shell: bash
+        run: |
+          ulimit -n 65535 2>/dev/null || ulimit -n unlimited 2>/dev/null || true
+          echo "open-file limit: $(ulimit -n)"
+          npm run dist:mac
+
+      - name: Packed sidecar is the overlaid tree
+        shell: bash
+        run: node scripts/assert-overlaid-openzoo.mjs grokbot-app/dist
+
+      - name: Verify signature
+        shell: bash
+        run: |
+          set -eu
+          ls -lh grokbot-app/dist/*.dmg
+          APP="$(find grokbot-app/dist -maxdepth 2 -name 'OpenZoo Bot.app' -o -name 'openzoo-bot.app' | head -1)"
+          if [ -n "$APP" ]; then
+            codesign --verify --deep --strict "$APP" || { echo 'FAIL: signature does not verify'; exit 1; }
+            codesign -dv --verbose=2 "$APP" 2>&1 | grep -E 'Authority|TeamIdentifier' || true
+            spctl -a -vvv -t install "$APP" 2>&1 || true
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openzoo-bot-mac-dmg
+          path: grokbot-app/dist/*.dmg
+          if-no-files-found: error
+
+      - name: Publish DMGs to the release
+        if: startsWith(github.ref, 'refs/tags/openzoo-bot-v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          TAG="${GITHUB_REF#refs/tags/}"
+          for i in 1 2 3 4 5 6; do
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "OpenZoo Bot ${TAG#openzoo-bot-}" --notes-file .github/openzoo-bot-release-notes.md --generate-notes 2>/dev/null && break
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            echo "release not ready (attempt $i) — retrying"; sleep $((i * 10))
+          done
+          for i in 1 2 3 4 5 6; do
+            if gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber grokbot-app/dist/*.dmg; then
+              echo "uploaded"; exit 0
+            fi
+            echo "upload failed (attempt $i) — retrying"; sleep $((i * 10))
+          done
+          echo "FAILED to upload after 6 attempts; artifacts are attached to this run"
+          exit 1

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Usage: who-calls <symbol>
+# Prints "path:line\tchunk_id" for every chunk that references <symbol>.
+set -e
+[ -z "$1" ] && { echo "usage: who-calls <symbol>" >&2; exit 1; }
+awk -F'\t' -v sym="$1" '$1==sym {print $2 ":" $3 "\t" $4}' "$(dirname "$0")/../xref-callers.tsv"

@@ -1,0 +1,1566 @@
+{
+"agentic|aion-labs/aion-2.0": [
+12,
+12
+],
+"agentic|aion-labs/aion-3.0-mini": [
+11,
+12
+],
+"agentic|amazon/nova-lite-v1": [
+12,
+12
+],
+"agentic|amazon/nova-micro-v1": [
+12,
+12
+],
+"agentic|anthracite-org/magnum-v4-72b": [
+5,
+5
+],
+"agentic|anthropic/claude-3-haiku": [
+12,
+12
+],
+"agentic|anthropic/claude-sonnet-5": [
+9,
+9
+],
+"agentic|arcee-ai/trinity-large-thinking": [
+7,
+7
+],
+"agentic|baidu/ernie-4.5-vl-424b-a47b": [
+8,
+12
+],
+"agentic|bytedance-seed/seed-1.6-flash": [
+10,
+10
+],
+"agentic|bytedance-seed/seed-2.0-mini": [
+5,
+5
+],
+"agentic|bytedance/ui-tars-1.5-7b": [
+7,
+9
+],
+"agentic|cognitivecomputations/dolphin-mistral-24b-venice-edition": [
+12,
+12
+],
+"agentic|cohere/command-r7b-12-2024": [
+12,
+12
+],
+"agentic|cohere/north-mini-code:free": [
+12,
+12
+],
+"agentic|deepcogito/cogito-v2.1-671b": [
+12,
+12
+],
+"agentic|deepseek/deepseek-v4-flash": [
+12,
+12
+],
+"agentic|deepseek/deepseek-v4-flash-0731": [
+11,
+11
+],
+"agentic|dots-studio/dots-3-note-preview:free": [
+9,
+9
+],
+"agentic|google/gemini-3.7-flash": [
+12,
+12
+],
+"agentic|google/gemma-4-26b-a4b-it:free": [
+10,
+10
+],
+"agentic|gryphe/mythomax-l2-13b": [
+11,
+12
+],
+"agentic|ibm-granite/granite-4.0-h-micro": [
+12,
+12
+],
+"agentic|ibm-granite/granite-4.1-8b": [
+12,
+12
+],
+"agentic|inception/mercury-2": [
+11,
+11
+],
+"agentic|inclusionai/ling-2.6-flash": [
+12,
+12
+],
+"agentic|inclusionai/ring-2.6-1t": [
+12,
+12
+],
+"agentic|kwaipilot/kat-coder-air-v2.5": [
+11,
+11
+],
+"agentic|kwaipilot/kat-coder-pro-v2": [
+12,
+12
+],
+"agentic|liquid/lfm-2.5-2.6b:free": [
+8,
+10
+],
+"agentic|meituan/longcat-2.0": [
+8,
+8
+],
+"agentic|meta-llama/llama-3.1-8b-instruct": [
+11,
+12
+],
+"agentic|meta-llama/llama-3.2-1b-instruct": [
+9,
+12
+],
+"agentic|meta/muse-glimmer-30b": [
+7,
+7
+],
+"agentic|microsoft/phi-4": [
+12,
+12
+],
+"agentic|microsoft/wizardlm-2-8x22b": [
+6,
+12
+],
+"agentic|minimax/minimax-m2.5": [
+12,
+12
+],
+"agentic|minimax/minimax-m3": [
+12,
+12
+],
+"agentic|mistralai/mistral-nemo": [
+9,
+12
+],
+"agentic|mistralai/mistral-small-24b-instruct-2501": [
+12,
+12
+],
+"agentic|moonshotai/kimi-k2.5": [
+10,
+10
+],
+"agentic|moonshotai/kimi-k3": [
+5,
+5
+],
+"agentic|nex-agi/nex-n2-mini": [
+12,
+12
+],
+"agentic|nex-agi/nex-n2-pro": [
+12,
+12
+],
+"agentic|nousresearch/hermes-3-llama-3.1-70b": [
+12,
+12
+],
+"agentic|nousresearch/hermes-4-70b": [
+11,
+12
+],
+"agentic|nvidia/nemotron-3-nano-30b-a3b:free": [
+12,
+12
+],
+"agentic|nvidia/nemotron-3-ultra-550b-a55b:free": [
+10,
+10
+],
+"agentic|openai/gpt-5.6-luna": [
+10,
+10
+],
+"agentic|openai/gpt-oss-20b:free": [
+8,
+8
+],
+"agentic|openrouter/free": [
+10,
+10
+],
+"agentic|perceptron/perceptron-mk1": [
+12,
+12
+],
+"agentic|perplexity/sonar": [
+12,
+12
+],
+"agentic|perplexity/sonar-pro-search": [
+3,
+3
+],
+"agentic|poolside/laguna-s-2.1": [
+12,
+12
+],
+"agentic|poolside/laguna-s-2.1:free": [
+12,
+12
+],
+"agentic|qwen/qwen3.7-flash": [
+12,
+12
+],
+"agentic|qwen/qwen3.7-plus": [
+12,
+12
+],
+"agentic|rekaai/reka-edge": [
+12,
+12
+],
+"agentic|relace/relace-search": [
+12,
+12
+],
+"agentic|sakana/fugu-ultra": [
+7,
+7
+],
+"agentic|sao10k/l3-lunaris-8b": [
+12,
+12
+],
+"agentic|sao10k/l3.1-euryale-70b": [
+12,
+12
+],
+"agentic|stepfun/step-3.5-flash": [
+5,
+5
+],
+"agentic|stepfun/step-3.7-flash": [
+6,
+6
+],
+"agentic|tencent/hunyuan-a13b-instruct": [
+12,
+12
+],
+"agentic|thedrummer/unslopnemo-12b": [
+10,
+12
+],
+"agentic|thinkingmachines/inkling": [
+6,
+6
+],
+"agentic|thinkingmachines/inkling-small": [
+9,
+9
+],
+"agentic|undi95/remm-slerp-l2-13b": [
+9,
+12
+],
+"agentic|upstage/solar-pro-3": [
+12,
+12
+],
+"agentic|upstage/solar-pro4": [
+12,
+12
+],
+"agentic|writer/palmyra-x5": [
+4,
+4
+],
+"agentic|x-ai/grok-4.6": [
+9,
+9
+],
+"agentic|x-ai/grok-build-0.1": [
+12,
+12
+],
+"agentic|xiaomi/mimo-v2.5": [
+7,
+7
+],
+"agentic|xiaomi/mimo-v2.5-pro": [
+8,
+9
+],
+"agentic|z-ai/glm-5.2": [
+7,
+7
+],
+"bulk|aion-labs/aion-2.0": [
+6,
+10
+],
+"bulk|aion-labs/aion-3.0-mini": [
+6,
+10
+],
+"bulk|amazon/nova-lite-v1": [
+2,
+10
+],
+"bulk|amazon/nova-micro-v1": [
+6,
+10
+],
+"bulk|anthracite-org/magnum-v4-72b": [
+5,
+10
+],
+"bulk|anthropic/claude-3-haiku": [
+5,
+10
+],
+"bulk|anthropic/claude-sonnet-5": [
+6,
+7
+],
+"bulk|arcee-ai/trinity-large-thinking": [
+8,
+10
+],
+"bulk|baidu/ernie-4.5-vl-424b-a47b": [
+6,
+10
+],
+"bulk|bytedance-seed/seed-1.6-flash": [
+2,
+9
+],
+"bulk|bytedance-seed/seed-2.0-mini": [
+6,
+10
+],
+"bulk|bytedance/ui-tars-1.5-7b": [
+4,
+10
+],
+"bulk|cognitivecomputations/dolphin-mistral-24b-venice-edition": [
+5,
+10
+],
+"bulk|cohere/command-r7b-12-2024": [
+5,
+10
+],
+"bulk|cohere/north-mini-code:free": [
+5,
+9
+],
+"bulk|deepcogito/cogito-v2.1-671b": [
+5,
+10
+],
+"bulk|deepseek/deepseek-v4-flash": [
+6,
+10
+],
+"bulk|deepseek/deepseek-v4-flash-0731": [
+6,
+10
+],
+"bulk|dots-studio/dots-3-note-preview:free": [
+6,
+10
+],
+"bulk|google/gemini-3.7-flash": [
+6,
+10
+],
+"bulk|google/gemma-4-26b-a4b-it:free": [
+7,
+10
+],
+"bulk|gryphe/mythomax-l2-13b": [
+5,
+10
+],
+"bulk|ibm-granite/granite-4.0-h-micro": [
+3,
+10
+],
+"bulk|ibm-granite/granite-4.1-8b": [
+2,
+10
+],
+"bulk|inception/mercury-2": [
+6,
+10
+],
+"bulk|inclusionai/ling-2.6-flash": [
+3,
+10
+],
+"bulk|inclusionai/ring-2.6-1t": [
+5,
+10
+],
+"bulk|kwaipilot/kat-coder-air-v2.5": [
+5,
+6
+],
+"bulk|kwaipilot/kat-coder-pro-v2": [
+9,
+10
+],
+"bulk|liquid/lfm-2.5-2.6b:free": [
+3,
+8
+],
+"bulk|meituan/longcat-2.0": [
+7,
+10
+],
+"bulk|meta-llama/llama-3.1-8b-instruct": [
+5,
+10
+],
+"bulk|meta-llama/llama-3.2-1b-instruct": [
+4,
+10
+],
+"bulk|meta/muse-glimmer-30b": [
+5,
+8
+],
+"bulk|microsoft/phi-4": [
+1,
+8
+],
+"bulk|microsoft/wizardlm-2-8x22b": [
+6,
+10
+],
+"bulk|minimax/minimax-m2.5": [
+7,
+10
+],
+"bulk|minimax/minimax-m3": [
+6,
+10
+],
+"bulk|mistralai/mistral-nemo": [
+4,
+9
+],
+"bulk|mistralai/mistral-small-24b-instruct-2501": [
+6,
+10
+],
+"bulk|moonshotai/kimi-k2.5": [
+7,
+10
+],
+"bulk|moonshotai/kimi-k3": [
+5,
+7
+],
+"bulk|nex-agi/nex-n2-mini": [
+5,
+10
+],
+"bulk|nex-agi/nex-n2-pro": [
+7,
+10
+],
+"bulk|nousresearch/hermes-3-llama-3.1-70b": [
+5,
+10
+],
+"bulk|nousresearch/hermes-4-70b": [
+2,
+10
+],
+"bulk|nvidia/nemotron-3-nano-30b-a3b:free": [
+4,
+8
+],
+"bulk|nvidia/nemotron-3-ultra-550b-a55b:free": [
+6,
+8
+],
+"bulk|openai/gpt-5.6-luna": [
+6,
+8
+],
+"bulk|openai/gpt-oss-20b:free": [
+5,
+8
+],
+"bulk|openrouter/free": [
+3,
+6
+],
+"bulk|perceptron/perceptron-mk1": [
+6,
+10
+],
+"bulk|perplexity/sonar": [
+4,
+10
+],
+"bulk|perplexity/sonar-pro-search": [
+6,
+8
+],
+"bulk|poolside/laguna-s-2.1": [
+6,
+10
+],
+"bulk|poolside/laguna-s-2.1:free": [
+7,
+10
+],
+"bulk|qwen/qwen3.7-flash": [
+6,
+10
+],
+"bulk|qwen/qwen3.7-plus": [
+6,
+10
+],
+"bulk|rekaai/reka-edge": [
+2,
+10
+],
+"bulk|relace/relace-search": [
+3,
+9
+],
+"bulk|sakana/fugu-ultra": [
+6,
+9
+],
+"bulk|sao10k/l3-lunaris-8b": [
+5,
+10
+],
+"bulk|sao10k/l3.1-euryale-70b": [
+6,
+10
+],
+"bulk|stepfun/step-3.5-flash": [
+5,
+7
+],
+"bulk|stepfun/step-3.7-flash": [
+5,
+9
+],
+"bulk|tencent/hunyuan-a13b-instruct": [
+5,
+10
+],
+"bulk|tencent/hy3": [
+3,
+4
+],
+"bulk|thedrummer/unslopnemo-12b": [
+5,
+10
+],
+"bulk|thinkingmachines/inkling": [
+3,
+4
+],
+"bulk|thinkingmachines/inkling-small": [
+5,
+10
+],
+"bulk|undi95/remm-slerp-l2-13b": [
+5,
+10
+],
+"bulk|upstage/solar-pro-3": [
+5,
+10
+],
+"bulk|upstage/solar-pro4": [
+5,
+10
+],
+"bulk|writer/palmyra-x5": [
+2,
+8
+],
+"bulk|x-ai/grok-4.6": [
+5,
+7
+],
+"bulk|x-ai/grok-build-0.1": [
+6,
+10
+],
+"bulk|xiaomi/mimo-v2.5": [
+7,
+9
+],
+"bulk|xiaomi/mimo-v2.5-pro": [
+7,
+10
+],
+"bulk|z-ai/glm-5.2": [
+4,
+8
+],
+"code|aion-labs/aion-2.0": [
+7,
+8
+],
+"code|aion-labs/aion-3.0-mini": [
+8,
+8
+],
+"code|amazon/nova-lite-v1": [
+6,
+8
+],
+"code|amazon/nova-micro-v1": [
+6,
+8
+],
+"code|anthracite-org/magnum-v4-72b": [
+2,
+3
+],
+"code|anthropic/claude-3-haiku": [
+5,
+8
+],
+"code|anthropic/claude-sonnet-5": [
+4,
+4
+],
+"code|arcee-ai/trinity-large-thinking": [
+6,
+7
+],
+"code|baidu/ernie-4.5-vl-424b-a47b": [
+5,
+8
+],
+"code|bytedance-seed/seed-1.6-flash": [
+6,
+6
+],
+"code|bytedance-seed/seed-2.0-mini": [
+6,
+6
+],
+"code|bytedance/ui-tars-1.5-7b": [
+5,
+8
+],
+"code|cognitivecomputations/dolphin-mistral-24b-venice-edition": [
+5,
+8
+],
+"code|cohere/command-r7b-12-2024": [
+4,
+8
+],
+"code|cohere/north-mini-code:free": [
+7,
+7
+],
+"code|deepcogito/cogito-v2.1-671b": [
+6,
+8
+],
+"code|deepseek/deepseek-v4-flash": [
+7,
+8
+],
+"code|deepseek/deepseek-v4-flash-0731": [
+7,
+7
+],
+"code|dots-studio/dots-3-note-preview:free": [
+8,
+8
+],
+"code|google/gemini-3.7-flash": [
+8,
+8
+],
+"code|google/gemma-4-26b-a4b-it:free": [
+5,
+6
+],
+"code|gryphe/mythomax-l2-13b": [
+2,
+8
+],
+"code|ibm-granite/granite-4.0-h-micro": [
+5,
+8
+],
+"code|ibm-granite/granite-4.1-8b": [
+6,
+8
+],
+"code|inception/mercury-2": [
+8,
+8
+],
+"code|inclusionai/ling-2.6-flash": [
+7,
+8
+],
+"code|inclusionai/ring-2.6-1t": [
+8,
+8
+],
+"code|kwaipilot/kat-coder-air-v2.5": [
+6,
+7
+],
+"code|kwaipilot/kat-coder-pro-v2": [
+8,
+8
+],
+"code|liquid/lfm-2.5-2.6b:free": [
+8,
+8
+],
+"code|meituan/longcat-2.0": [
+8,
+8
+],
+"code|meta-llama/llama-3.1-8b-instruct": [
+6,
+8
+],
+"code|meta-llama/llama-3.2-1b-instruct": [
+3,
+8
+],
+"code|meta/muse-glimmer-30b": [
+7,
+8
+],
+"code|microsoft/phi-4": [
+8,
+8
+],
+"code|microsoft/wizardlm-2-8x22b": [
+1,
+8
+],
+"code|minimax/minimax-m2.5": [
+7,
+8
+],
+"code|minimax/minimax-m3": [
+7,
+8
+],
+"code|mistralai/mistral-nemo": [
+6,
+8
+],
+"code|mistralai/mistral-small-24b-instruct-2501": [
+5,
+8
+],
+"code|moonshotai/kimi-k2.5": [
+8,
+8
+],
+"code|moonshotai/kimi-k3": [
+2,
+2
+],
+"code|nex-agi/nex-n2-mini": [
+7,
+8
+],
+"code|nex-agi/nex-n2-pro": [
+5,
+6
+],
+"code|nousresearch/hermes-3-llama-3.1-70b": [
+4,
+8
+],
+"code|nousresearch/hermes-4-70b": [
+7,
+8
+],
+"code|nvidia/nemotron-3-nano-30b-a3b:free": [
+7,
+8
+],
+"code|nvidia/nemotron-3-ultra-550b-a55b:free": [
+6,
+6
+],
+"code|openai/gpt-5.6-luna": [
+2,
+2
+],
+"code|openai/gpt-oss-20b:free": [
+7,
+8
+],
+"code|openrouter/free": [
+5,
+6
+],
+"code|perceptron/perceptron-mk1": [
+5,
+8
+],
+"code|perplexity/sonar": [
+7,
+8
+],
+"code|perplexity/sonar-pro-search": [
+2,
+2
+],
+"code|poolside/laguna-s-2.1": [
+7,
+8
+],
+"code|poolside/laguna-s-2.1:free": [
+7,
+8
+],
+"code|qwen/qwen3.7-flash": [
+8,
+8
+],
+"code|qwen/qwen3.7-plus": [
+8,
+8
+],
+"code|rekaai/reka-edge": [
+2,
+8
+],
+"code|relace/relace-search": [
+7,
+8
+],
+"code|sakana/fugu-ultra": [
+3,
+3
+],
+"code|sao10k/l3-lunaris-8b": [
+6,
+8
+],
+"code|sao10k/l3.1-euryale-70b": [
+6,
+8
+],
+"code|stepfun/step-3.5-flash": [
+5,
+5
+],
+"code|stepfun/step-3.7-flash": [
+6,
+6
+],
+"code|tencent/hunyuan-a13b-instruct": [
+7,
+8
+],
+"code|tencent/hy3": [
+4,
+4
+],
+"code|thedrummer/unslopnemo-12b": [
+6,
+8
+],
+"code|thinkingmachines/inkling": [
+3,
+3
+],
+"code|thinkingmachines/inkling-small": [
+7,
+7
+],
+"code|undi95/remm-slerp-l2-13b": [
+2,
+7
+],
+"code|upstage/solar-pro-3": [
+6,
+8
+],
+"code|upstage/solar-pro4": [
+7,
+8
+],
+"code|writer/palmyra-x5": [
+1,
+2
+],
+"code|x-ai/grok-4.6": [
+3,
+3
+],
+"code|x-ai/grok-build-0.1": [
+8,
+8
+],
+"code|xiaomi/mimo-v2.5": [
+4,
+4
+],
+"code|xiaomi/mimo-v2.5-pro": [
+7,
+7
+],
+"code|z-ai/glm-5.2": [
+5,
+5
+],
+"longctx|aion-labs/aion-2.0": [
+9,
+10
+],
+"longctx|aion-labs/aion-3.0-mini": [
+10,
+10
+],
+"longctx|amazon/nova-lite-v1": [
+10,
+10
+],
+"longctx|amazon/nova-micro-v1": [
+10,
+10
+],
+"longctx|anthracite-org/magnum-v4-72b": [
+8,
+8
+],
+"longctx|anthropic/claude-3-haiku": [
+10,
+10
+],
+"longctx|anthropic/claude-sonnet-5": [
+1,
+1
+],
+"longctx|arcee-ai/trinity-large-thinking": [
+7,
+7
+],
+"longctx|baidu/ernie-4.5-vl-424b-a47b": [
+0,
+10
+],
+"longctx|bytedance-seed/seed-1.6-flash": [
+10,
+10
+],
+"longctx|bytedance-seed/seed-2.0-mini": [
+10,
+10
+],
+"longctx|bytedance/ui-tars-1.5-7b": [
+6,
+10
+],
+"longctx|cognitivecomputations/dolphin-mistral-24b-venice-edition": [
+10,
+10
+],
+"longctx|cohere/command-r7b-12-2024": [
+7,
+10
+],
+"longctx|cohere/north-mini-code:free": [
+6,
+6
+],
+"longctx|deepcogito/cogito-v2.1-671b": [
+10,
+10
+],
+"longctx|deepseek/deepseek-v4-flash": [
+9,
+10
+],
+"longctx|deepseek/deepseek-v4-flash-0731": [
+6,
+7
+],
+"longctx|dots-studio/dots-3-note-preview:free": [
+9,
+9
+],
+"longctx|google/gemini-3.7-flash": [
+10,
+10
+],
+"longctx|google/gemma-4-26b-a4b-it:free": [
+9,
+9
+],
+"longctx|gryphe/mythomax-l2-13b": [
+9,
+10
+],
+"longctx|ibm-granite/granite-4.0-h-micro": [
+9,
+10
+],
+"longctx|ibm-granite/granite-4.1-8b": [
+10,
+10
+],
+"longctx|inception/mercury-2": [
+10,
+10
+],
+"longctx|inclusionai/ling-2.6-flash": [
+10,
+10
+],
+"longctx|inclusionai/ring-2.6-1t": [
+10,
+10
+],
+"longctx|kwaipilot/kat-coder-pro-v2": [
+10,
+10
+],
+"longctx|liquid/lfm-2.5-2.6b:free": [
+2,
+2
+],
+"longctx|meituan/longcat-2.0": [
+10,
+10
+],
+"longctx|meta-llama/llama-3.1-8b-instruct": [
+6,
+10
+],
+"longctx|meta-llama/llama-3.2-1b-instruct": [
+1,
+10
+],
+"longctx|microsoft/phi-4": [
+10,
+10
+],
+"longctx|microsoft/wizardlm-2-8x22b": [
+10,
+10
+],
+"longctx|minimax/minimax-m2.5": [
+10,
+10
+],
+"longctx|minimax/minimax-m3": [
+10,
+10
+],
+"longctx|mistralai/mistral-nemo": [
+8,
+10
+],
+"longctx|mistralai/mistral-small-24b-instruct-2501": [
+10,
+10
+],
+"longctx|moonshotai/kimi-k2.5": [
+10,
+10
+],
+"longctx|moonshotai/kimi-k3": [
+9,
+9
+],
+"longctx|nex-agi/nex-n2-mini": [
+10,
+10
+],
+"longctx|nex-agi/nex-n2-pro": [
+10,
+10
+],
+"longctx|nousresearch/hermes-3-llama-3.1-70b": [
+10,
+10
+],
+"longctx|nousresearch/hermes-4-70b": [
+10,
+10
+],
+"longctx|nvidia/nemotron-3-nano-30b-a3b:free": [
+10,
+10
+],
+"longctx|nvidia/nemotron-3-ultra-550b-a55b:free": [
+10,
+10
+],
+"longctx|openai/gpt-oss-20b:free": [
+8,
+8
+],
+"longctx|openrouter/free": [
+7,
+8
+],
+"longctx|perceptron/perceptron-mk1": [
+10,
+10
+],
+"longctx|perplexity/sonar": [
+10,
+10
+],
+"longctx|perplexity/sonar-pro-search": [
+3,
+3
+],
+"longctx|poolside/laguna-s-2.1": [
+8,
+10
+],
+"longctx|poolside/laguna-s-2.1:free": [
+10,
+10
+],
+"longctx|qwen/qwen3.7-flash": [
+10,
+10
+],
+"longctx|qwen/qwen3.7-plus": [
+10,
+10
+],
+"longctx|relace/relace-search": [
+10,
+10
+],
+"longctx|sakana/fugu-ultra": [
+2,
+2
+],
+"longctx|sao10k/l3-lunaris-8b": [
+10,
+10
+],
+"longctx|sao10k/l3.1-euryale-70b": [
+10,
+10
+],
+"longctx|stepfun/step-3.5-flash": [
+10,
+10
+],
+"longctx|stepfun/step-3.7-flash": [
+10,
+10
+],
+"longctx|tencent/hunyuan-a13b-instruct": [
+9,
+10
+],
+"longctx|tencent/hy3": [
+1,
+1
+],
+"longctx|thedrummer/unslopnemo-12b": [
+8,
+10
+],
+"longctx|thinkingmachines/inkling": [
+8,
+8
+],
+"longctx|thinkingmachines/inkling-small": [
+10,
+10
+],
+"longctx|undi95/remm-slerp-l2-13b": [
+10,
+10
+],
+"longctx|upstage/solar-pro-3": [
+2,
+10
+],
+"longctx|upstage/solar-pro4": [
+9,
+10
+],
+"longctx|writer/palmyra-x5": [
+8,
+8
+],
+"longctx|x-ai/grok-4.6": [
+1,
+1
+],
+"longctx|x-ai/grok-build-0.1": [
+10,
+10
+],
+"longctx|xiaomi/mimo-v2.5": [
+10,
+10
+],
+"longctx|xiaomi/mimo-v2.5-pro": [
+9,
+9
+],
+"longctx|z-ai/glm-5.2": [
+10,
+10
+],
+"reasoning|aion-labs/aion-2.0": [
+22,
+24
+],
+"reasoning|aion-labs/aion-3.0-mini": [
+24,
+24
+],
+"reasoning|amazon/nova-lite-v1": [
+14,
+22
+],
+"reasoning|amazon/nova-micro-v1": [
+5,
+24
+],
+"reasoning|anthracite-org/magnum-v4-72b": [
+4,
+14
+],
+"reasoning|anthropic/claude-3-haiku": [
+11,
+24
+],
+"reasoning|anthropic/claude-sonnet-5": [
+22,
+23
+],
+"reasoning|arcee-ai/trinity-large-thinking": [
+14,
+14
+],
+"reasoning|baidu/ernie-4.5-vl-424b-a47b": [
+11,
+24
+],
+"reasoning|bytedance-seed/seed-1.6-flash": [
+11,
+11
+],
+"reasoning|bytedance-seed/seed-2.0-mini": [
+14,
+14
+],
+"reasoning|bytedance/ui-tars-1.5-7b": [
+10,
+19
+],
+"reasoning|cognitivecomputations/dolphin-mistral-24b-venice-edition": [
+5,
+23
+],
+"reasoning|cohere/command-r7b-12-2024": [
+5,
+24
+],
+"reasoning|cohere/north-mini-code:free": [
+17,
+17
+],
+"reasoning|deepcogito/cogito-v2.1-671b": [
+20,
+24
+],
+"reasoning|deepseek/deepseek-v4-flash": [
+20,
+24
+],
+"reasoning|deepseek/deepseek-v4-flash-0731": [
+24,
+24
+],
+"reasoning|dots-studio/dots-3-note-preview:free": [
+19,
+19
+],
+"reasoning|google/gemini-3.7-flash": [
+23,
+23
+],
+"reasoning|google/gemma-4-26b-a4b-it:free": [
+7,
+18
+],
+"reasoning|gryphe/mythomax-l2-13b": [
+4,
+24
+],
+"reasoning|ibm-granite/granite-4.0-h-micro": [
+8,
+23
+],
+"reasoning|ibm-granite/granite-4.1-8b": [
+21,
+23
+],
+"reasoning|inception/mercury-2": [
+21,
+21
+],
+"reasoning|inclusionai/ling-2.6-flash": [
+11,
+24
+],
+"reasoning|inclusionai/ring-2.6-1t": [
+24,
+24
+],
+"reasoning|kwaipilot/kat-coder-air-v2.5": [
+22,
+22
+],
+"reasoning|kwaipilot/kat-coder-pro-v2": [
+9,
+24
+],
+"reasoning|liquid/lfm-2.5-2.6b:free": [
+8,
+12
+],
+"reasoning|meituan/longcat-2.0": [
+16,
+16
+],
+"reasoning|meta-llama/llama-3.1-8b-instruct": [
+4,
+24
+],
+"reasoning|meta-llama/llama-3.2-1b-instruct": [
+5,
+24
+],
+"reasoning|meta/muse-glimmer-30b": [
+6,
+6
+],
+"reasoning|microsoft/phi-4": [
+17,
+21
+],
+"reasoning|microsoft/wizardlm-2-8x22b": [
+5,
+23
+],
+"reasoning|minimax/minimax-m2.5": [
+11,
+11
+],
+"reasoning|minimax/minimax-m3": [
+24,
+24
+],
+"reasoning|mistralai/mistral-nemo": [
+7,
+20
+],
+"reasoning|mistralai/mistral-small-24b-instruct-2501": [
+18,
+21
+],
+"reasoning|moonshotai/kimi-k2.5": [
+23,
+23
+],
+"reasoning|moonshotai/kimi-k3": [
+15,
+15
+],
+"reasoning|nex-agi/nex-n2-mini": [
+23,
+23
+],
+"reasoning|nex-agi/nex-n2-pro": [
+24,
+24
+],
+"reasoning|nousresearch/hermes-3-llama-3.1-70b": [
+9,
+24
+],
+"reasoning|nousresearch/hermes-4-70b": [
+10,
+23
+],
+"reasoning|nvidia/nemotron-3-nano-30b-a3b:free": [
+22,
+22
+],
+"reasoning|nvidia/nemotron-3-ultra-550b-a55b:free": [
+16,
+16
+],
+"reasoning|openai/gpt-5.6-luna": [
+10,
+10
+],
+"reasoning|openai/gpt-oss-20b:free": [
+19,
+19
+],
+"reasoning|openrouter/free": [
+11,
+17
+],
+"reasoning|perceptron/perceptron-mk1": [
+11,
+23
+],
+"reasoning|perplexity/sonar": [
+9,
+24
+],
+"reasoning|perplexity/sonar-pro-search": [
+5,
+15
+],
+"reasoning|poolside/laguna-s-2.1": [
+10,
+23
+],
+"reasoning|poolside/laguna-s-2.1:free": [
+12,
+24
+],
+"reasoning|qwen/qwen3.7-flash": [
+24,
+24
+],
+"reasoning|qwen/qwen3.7-plus": [
+24,
+24
+],
+"reasoning|rekaai/reka-edge": [
+2,
+24
+],
+"reasoning|relace/relace-search": [
+11,
+24
+],
+"reasoning|sakana/fugu-ultra": [
+19,
+19
+],
+"reasoning|sao10k/l3-lunaris-8b": [
+4,
+24
+],
+"reasoning|sao10k/l3.1-euryale-70b": [
+8,
+24
+],
+"reasoning|stepfun/step-3.5-flash": [
+10,
+10
+],
+"reasoning|stepfun/step-3.7-flash": [
+18,
+18
+],
+"reasoning|tencent/hunyuan-a13b-instruct": [
+22,
+23
+],
+"reasoning|tencent/hy3": [
+7,
+7
+],
+"reasoning|thedrummer/unslopnemo-12b": [
+6,
+21
+],
+"reasoning|thinkingmachines/inkling": [
+13,
+13
+],
+"reasoning|thinkingmachines/inkling-small": [
+16,
+16
+],
+"reasoning|undi95/remm-slerp-l2-13b": [
+5,
+24
+],
+"reasoning|upstage/solar-pro-3": [
+7,
+24
+],
+"reasoning|upstage/solar-pro4": [
+8,
+24
+],
+"reasoning|writer/palmyra-x5": [
+11,
+11
+],
+"reasoning|x-ai/grok-4.6": [
+22,
+22
+],
+"reasoning|x-ai/grok-build-0.1": [
+24,
+24
+],
+"reasoning|xiaomi/mimo-v2.5": [
+14,
+15
+],
+"reasoning|xiaomi/mimo-v2.5-pro": [
+17,
+18
+],
+"reasoning|z-ai/glm-5.2": [
+20,
+20
+],
+"reasoning|z-ai/glm-5.2:free": [
+2,
+2
+]
+}

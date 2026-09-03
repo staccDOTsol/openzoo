@@ -1,0 +1,549 @@
+pnpm-lock.yaml
+box.Dockerfile
+box-boot.sh
+.DS_Store
+INTEGRATION.md
+LICENSE
+Dockerfile
+SITE_EDITS.md
+VERIFY.md
+openzoobot-posted.json
+GROKBOT_TLDR.md
+README.md
+.claudeignore
+pools_with_fees.csv
+_race.mjs
+.dockerignore
+.gitignore
+package-lock.json
+package.json
+.env
+fly.toml
+wzma_configs.csv
+grokbot-replied.json
+_tun.mjs
+CLAUDE.md
+pnpm-workspace.yaml
+HANDOFF_SITE.md
+extension/manifest.json
+extension/content.js
+test/onramp.test.js
+test/grokbot-fetch.test.js
+test/mcpbridge.test.js
+test/spend-proof.test.js
+test/think.test.js
+test/actual-billed.test.js
+test/atomic-fallback.test.mjs
+test/grokbot-uploads.test.js
+test/grokbot-account.test.js
+test/session.test.js
+test/livestatus.test.js
+test/fetch.test.js
+test/config.test.js
+test/grokbot-openzoobot-receipt.test.js
+test/grokbot-web.test.js
+test/models.test.js
+test/aoe.test.js
+test/ship.test.js
+test/grokbot-group.test.js
+test/grokbot-turn.test.js
+test/x402.test.js
+test/info-money.test.js
+test/claudecode.test.js
+test/grokbot-quit.test.js
+test/botlog.test.js
+test/grokbot-desktop.test.js
+test/pay.test.js
+test/grokbot-spend-chip.test.js
+test/openclaw.test.js
+test/xclaims.test.js
+test/moonpay.test.js
+test/fixtures/modelroute.json
+test/fixtures/live-402.json
+bin/claude-zoo.js
+bin/openzoo.js
+bin/cursor-backend.js
+grokbot-app/sidecar-version.js
+grokbot-app/preload.js
+grokbot-app/status.html
+grokbot-app/main.js
+grokbot-app/package-lock.json
+grokbot-app/package.json
+grokbot-app/scripts/patch-maccodesign.mjs
+grokui-app/sidecar-version.js
+grokui-app/preload.js
+grokui-app/.DS_Store
+grokui-app/main.js
+grokui-app/.gitignore
+grokui-app/package-lock.json
+grokui-app/package.json
+grokui-app/scripts/patch-maccodesign.mjs
+grokui-app/scripts/bundle-grokui.js
+grokui-app/lib/spendProof.js
+grokui-app/lib/proxy.js
+grokui-app/lib/xburner.js
+grokui-app/lib/livestatus.js
+grokui-app/lib/ozSpendChip.js
+grokui-app/lib/tunnel.js
+grokui-app/lib/claudecode.js
+grokui-app/lib/x402.js
+grokui-app/lib/moonpayOnramp.js
+grokui-app/lib/racesettle.js
+grokui-app/lib/hosts.js
+grokui-app/lib/worktree.mjs
+grokui-app/lib/session.js
+grokui-app/lib/think.js
+grokui-app/lib/sonar.js
+grokui-app/lib/spill.js
+grokui-app/lib/fetch.js
+grokui-app/lib/voiceserve.js
+grokui-app/lib/xbot.js
+grokui-app/lib/subscription.js
+grokui-app/lib/models.js
+grokui-app/lib/config.js
+grokui-app/lib/botlog.js
+grokui-app/lib/grokui.mjs
+grokui-app/lib/receipts.js
+grokui-app/lib/cursorapi.js
+grokui-app/lib/evm.js
+grokui-app/lib/spinner.js
+grokui-app/lib/info.js
+grokui-app/lib/namespace.js
+grokui-app/lib/demo.js
+grokui-app/lib/grokbotUploads.js
+grokui-app/lib/modelroute.js
+grokui-app/lib/hrr.js
+grokui-app/lib/grokbotweb.js
+grokui-app/lib/contexts.js
+grokui-app/lib/aoe.js
+grokui-app/lib/ship.js
+grokui-app/lib/package.json
+grokui-app/lib/autobind.js
+grokui-app/lib/wallet.js
+grokui-app/lib/ctxalias.js
+grokui-app/lib/openclaw.js
+grokui-app/lib/stripeOnramp.js
+grokui-app/lib/grokbotDesktop.js
+grokui-app/lib/grokbotAccount.js
+grokui-app/lib/mcphttp.js
+grokui-app/lib/websearch.js
+grokui-app/lib/mcp.js
+grokui-app/lib/launch.js
+grokui-app/lib/runguard.js
+grokui-app/lib/bindpath.js
+grokui-app/lib/setup.js
+grokui-app/lib/dotenv.js
+grokui-app/lib/grokui.mjs.bak-grokroom-bridge
+grokui-app/lib/voice.js
+grokui-app/lib/grokbotweb-shim.js
+grokui-app/lib/cursorbackend.js
+grokui-app/lib/openzoobotReceipt.js
+grokui-app/lib/mcpbridge.js
+grokui-app/lib/gui.html
+grokui-app/lib/cursorcfg.js
+grokui-app/lib/xclaims.js
+grokui-app/lib/grokbotDesktop.jxa
+grokui-app/lib/voicewatch.js
+grokui-app/lib/pay.js
+grokui-app/lib/podagent.mjs
+grokui-app/lib/grokcli.js
+grokui-app/lib/modelroute/outcomes.json
+grokui-app/lib/modelroute/README.md
+grokui-app/lib/modelroute/router.json
+grokui-app/lib/modelroute/catalog.json
+.claude/MAP.md
+.claude/settings.json
+.claude/wiki.md
+.claude/settings.local.json
+claude-app-patch/build.sh
+claude-app-patch/app/package.json
+claude-app-patch/app/resources/github-mcp/github-mcp-server
+claude-app-patch/app/resources/bundled-skills/pdf.skill
+claude-app-patch/app/resources/bundled-skills/xlsx.skill
+claude-app-patch/app/resources/bundled-skills/pptx.skill
+claude-app-patch/app/resources/bundled-skills/pdf-reading.skill
+claude-app-patch/app/resources/bundled-skills/docx.skill
+claude-app-patch/app/resources/bundled-skills/manifest.json
+claude-app-patch/app/resources/bundled-skills/frontend-design.skill
+claude-app-patch/app/resources/office365-mcp/pdfExtractorProcess.mjs
+claude-app-patch/app/resources/office365-mcp/msal-node-runtime.node
+claude-app-patch/app/resources/office365-mcp/libmsalruntime_arm64.dylib
+claude-app-patch/app/resources/office365-mcp/pdf.worker.mjs
+claude-app-patch/app/resources/office365-mcp/office365-mcp.mjs
+claude-app-patch/app/compile-cache/index.js.x64.jsc
+claude-app-patch/app/compile-cache/index.chunk-mYRu1HvQ.js.x64.jsc
+claude-app-patch/app/compile-cache/index.js.arm64.jsc
+claude-app-patch/app/compile-cache/index.chunk-BYoXY4iO.js.x64.jsc
+claude-app-patch/app/compile-cache/index.chunk-mYRu1HvQ.js.arm64.jsc
+claude-app-patch/app/compile-cache/index.chunk-BYoXY4iO.js.arm64.jsc
+grokbot-posted/2094912394719891461.txt
+scripts/fly-boot.sh
+scripts/release-mac.sh
+scripts/paylatency.mjs
+scripts/assert-packed-grokui-esm.mjs
+scripts/release-grokbot.sh
+scripts/assert-overlaid-openzoo.mjs
+scripts/assert-esm-relatives.mjs
+scripts/fire-base.mjs
+scripts/assert-packed-grokui-lib.mjs
+scripts/release-openzoo-bot-mac.sh
+scripts/assert-grokui-pin.mjs
+scripts/revive-bots.sh
+scripts/assert-app-html-script.mjs
+lib/spendProof.js
+lib/proxy.js
+lib/xburner.js
+lib/livestatus.js
+lib/ozSpendChip.js
+lib/tunnel.js
+lib/claudecode.js
+lib/x402.js
+lib/moonpayOnramp.js
+lib/racesettle.js
+lib/hosts.js
+lib/worktree.mjs
+lib/openzooPathShim.js
+lib/session.js
+lib/think.js
+lib/sonar.js
+lib/grokbotAccount.js.bak-hiddenbots
+lib/spill.js
+lib/fetch.js
+lib/voiceserve.js
+lib/xbot.js
+lib/subscription.js
+lib/models.js
+lib/grokbotFetch.js
+lib/config.js
+lib/botlog.js
+lib/grokui.mjs
+lib/receipts.js
+lib/cursorapi.js
+lib/evm.js
+lib/spinner.js
+lib/info.js
+lib/cursorbackend.js.bak-hiddenbots
+lib/namespace.js
+lib/demo.js
+lib/grokbotUploads.js
+lib/modelroute.js
+lib/hrr.js
+lib/grokbotweb.js
+lib/contexts.js
+lib/aoe.js
+lib/ship.js
+lib/package.json
+lib/autobind.js
+lib/wallet.js
+lib/ctxalias.js
+lib/openclaw.js
+lib/stripeOnramp.js
+lib/grokbotDesktop.js
+lib/grokbotAccount.js
+lib/mcphttp.js
+lib/websearch.js
+lib/mcp.js
+lib/launch.js
+lib/runguard.js
+lib/bindpath.js
+lib/setup.js
+lib/dotenv.js
+lib/voice.js
+lib/grokbotweb-shim.js
+lib/cursorbackend.js
+lib/openzoobotReceipt.js
+lib/mcpbridge.js
+lib/gui.html
+lib/cursorcfg.js
+lib/xclaims.js
+lib/grokbotDesktop.jxa
+lib/voicewatch.js
+lib/pay.js
+lib/podagent.mjs
+lib/grokcli.js
+lib/modelroute/outcomes.json
+lib/modelroute/README.md
+lib/modelroute/router.json
+lib/modelroute/catalog.json
+Grok Bot.app/Contents/CodeResources
+Grok Bot.app/Contents/Info.plist
+Grok Bot.app/Contents/PkgInfo
+Grok Bot.app/Contents/_CodeSignature/CodeResources
+Grok Bot.app/Contents/MacOS/Grok Bot
+Grok Bot.app/Contents/Resources/icon.icns
+Grok Bot.app/Contents/Resources/app.asar
+Grok Bot.app/Contents/Resources/Assets.car
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper (Plugin).app/Contents/Info.plist
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper (Plugin).app/Contents/PkgInfo
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper (Plugin).app/Contents/_CodeSignature/CodeResources
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper (Plugin).app/Contents/MacOS/Grok Bot Helper (Plugin)
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Electron Framework
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/_CodeSignature/CodeResources
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/chrome_200_percent.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/chrome_100_percent.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/icudtl.dat
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/MainMenu.nib
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/v8_context_snapshot.arm64.bin
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/resources.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/Info.plist
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/id_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/de.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sw_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sw_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ur.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/he.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/he_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ru_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sk_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ar.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/el.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ja.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/th_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/uk_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fa.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hi_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/mr.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/am_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/te_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/gu_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ja_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ja_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/mr_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nb_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/et_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sl_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/he_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/uk.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/tr_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es_419.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/gu.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ko_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_CN.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fi_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/kn.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sv_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bn_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nb.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fil_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ml_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lv_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ms_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/th_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nl_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/id_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/am.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ro_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ur_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/cs_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sw.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/et_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sl.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_BR.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_PT_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/da.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_CN_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/af_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/kn_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fil_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_TW_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/et.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ms_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/it.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bg.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sk.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lv_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/it_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ta_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_PT.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ta_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sk_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ko_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/cs_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ur_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/uk_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/af_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ar_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ml_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hi_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/te_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lt_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sr.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ms.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ca_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ta.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/he_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es_419_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_TW_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ml.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sv.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/da_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/kn_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sv_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nl_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/te.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/mr_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/cs.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en_GB_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_PT_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fi_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ko.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sl_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lv_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fil.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/da_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_BR_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/th_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fa_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nb_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/af_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ru_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bg_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/vi_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ca_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hu.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ko_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hr_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hu_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_TW_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_PT_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ro_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sr_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ta_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/tr.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_BR_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pl.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bg_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_TW.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ml_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ca_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fr_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pl_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ar_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en_GB.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es_419_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en_GB_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/mr_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/de_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/vi.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/tr_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/cs_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fil_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hi_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es_419_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/it_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lt_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lv.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/kn_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lt.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ru.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/am_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/da_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pl_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fa_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/el_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_CN_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/lt_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fr_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/af.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pt_BR_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/id_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ar_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bg_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en_GB_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bn_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ur_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ja_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fr.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/it_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fi.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/id.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/gu_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nl.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/th.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fi_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sv_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ms_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/en_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nb_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/am_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bn.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/te_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sl_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/vi_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sk_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/tr_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hr_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hr_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hu_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sr_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ru_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/es_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ro.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/et_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/de_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/uk_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fa_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/el_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/de_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/pl_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/gu_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/bn_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hu_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/vi_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/el_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sr_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/sw_FEMININE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hr.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/hi.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ro_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/ca.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/fr_NEUTER.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/nl_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/zh_CN_MASCULINE.lproj/locale.pak
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libEGL.dylib
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/vk_swiftshader_icd.json
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libvk_swiftshader.dylib
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libGLESv2.dylib
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Libraries/libffmpeg.dylib
+Grok Bot.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Helpers/chrome_crashpad_handler
+Grok Bot.app/Contents/Frameworks/ReactiveObjC.framework/ReactiveObjC
+Grok Bot.app/Contents/Frameworks/ReactiveObjC.framework/Versions/A/ReactiveObjC
+Grok Bot.app/Contents/Frameworks/ReactiveObjC.framework/Versions/A/_CodeSignature/CodeResources
+Grok Bot.app/Contents/Frameworks/ReactiveObjC.framework/Versions/A/Resources/Info.plist
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper (GPU).app/Contents/Info.plist
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper (GPU).app/Contents/PkgInfo
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper (GPU).app/Contents/_CodeSignature/CodeResources
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper (GPU).app/Contents/MacOS/Grok Bot Helper (GPU)
+Grok Bot.app/Contents/Frameworks/Squirrel.framework/Squirrel
+Grok Bot.app/Contents/Frameworks/Squirrel.framework/Versions/A/Squirrel
+Grok Bot.app/Contents/Frameworks/Squirrel.framework/Versions/A/_CodeSignature/CodeResources
+Grok Bot.app/Contents/Frameworks/Squirrel.framework/Versions/A/Resources/ShipIt
+Grok Bot.app/Contents/Frameworks/Squirrel.framework/Versions/A/Resources/Info.plist
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper (Renderer).app/Contents/Info.plist
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper (Renderer).app/Contents/PkgInfo
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper (Renderer).app/Contents/_CodeSignature/CodeResources
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper (Renderer).app/Contents/MacOS/Grok Bot Helper (Renderer)
+Grok Bot.app/Contents/Frameworks/Mantle.framework/Mantle
+Grok Bot.app/Contents/Frameworks/Mantle.framework/Versions/A/Mantle
+Grok Bot.app/Contents/Frameworks/Mantle.framework/Versions/A/_CodeSignature/CodeResources
+Grok Bot.app/Contents/Frameworks/Mantle.framework/Versions/A/Resources/Info.plist
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper.app/Contents/Info.plist
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper.app/Contents/PkgInfo
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper.app/Contents/_CodeSignature/CodeResources
+Grok Bot.app/Contents/Frameworks/Grok Bot Helper.app/Contents/MacOS/Grok Bot Helper
+Grok Bot.app/Contents/Helpers/Grok Bot Helper.app/Contents/Info.plist
+Grok Bot.app/Contents/Helpers/Grok Bot Helper.app/Contents/_CodeSignature/CodeResources
+Grok Bot.app/Contents/Helpers/Grok Bot Helper.app/Contents/MacOS/grok-bot-helper
+Grok Bot.app/Contents/Helpers/Grok Bot Helper.app/Contents/Resources/grok-bot-helper.icns
+paperclip-adapter/index.js
+paperclip-adapter/ui-parser.cjs
+paperclip-adapter/README.md
+paperclip-adapter/package-lock.json
+paperclip-adapter/package.json

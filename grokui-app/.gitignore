@@ -1,0 +1,5 @@
+.prod-modules
+# Generated from ../../lib at start/pack time — never a second source of truth.
+# Ignore the whole directory, not a filename whitelist (that is how 1.5.86
+# packed five files and omitted info.js).
+lib/

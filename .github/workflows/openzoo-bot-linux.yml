@@ -1,0 +1,78 @@
+name: openzoo-bot linux
+
+# Same shape as grokui-linux.yml: one workflow per platform so a mac
+# notarization failure cannot block the Linux AppImages. Bundles Node
+# (Electron-as-node) + the openzoo sidecar, then publishes arm64+x64
+# AppImages. Grok Bot itself is fetched at first launch from grokbot-v*.
+on:
+  push:
+    tags: ["openzoo-bot-v*"]
+  workflow_dispatch: {}
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Sync app version to tag
+        if: startsWith(github.ref, 'refs/tags/openzoo-bot-v')
+        shell: bash
+        run: |
+          V="${GITHUB_REF#refs/tags/openzoo-bot-v}"
+          node -e "const f='grokbot-app/package.json';const p=require('./'+f);p.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')" "$V"
+          echo "app version set to $V"
+
+      - name: Install deps
+        working-directory: grokbot-app
+        run: |
+          npm install
+          npm install openzoo@latest --no-save
+          node -e "const fs=require('fs'); for (const f of ['package.json','package-lock.json']) { const p=JSON.parse(fs.readFileSync(f,'utf8')); if (p.dependencies) p.dependencies.openzoo='latest'; if (p.packages&&p.packages['']&&p.packages[''].dependencies) p.packages[''].dependencies.openzoo='latest'; fs.writeFileSync(f, JSON.stringify(p,null,2)+'\n'); }"
+
+      - name: Build
+        working-directory: grokbot-app
+        run: npm run dist:linux
+
+      - name: Packed sidecar is the overlaid tree
+        run: node scripts/assert-overlaid-openzoo.mjs grokbot-app/dist
+
+      - name: Verify output
+        run: |
+          set -eu
+          ls -lh grokbot-app/dist/*.AppImage
+          [ "$(find grokbot-app/dist -name '*.AppImage' | wc -l)" -gt 0 ] \
+            || { echo 'FAIL: no AppImage produced'; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openzoo-bot-linux-appimage
+          path: grokbot-app/dist/*.AppImage
+          if-no-files-found: error
+
+      - name: Publish AppImages to the release
+        if: startsWith(github.ref, 'refs/tags/openzoo-bot-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          TAG="${GITHUB_REF#refs/tags/}"
+          for i in 1 2 3 4 5 6; do
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "OpenZoo Bot ${TAG#openzoo-bot-}" --notes-file .github/openzoo-bot-release-notes.md --generate-notes 2>/dev/null && break
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            echo "release not ready (attempt $i) — retrying"; sleep $((i * 10))
+          done
+          for i in 1 2 3 4 5 6; do
+            if gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber grokbot-app/dist/*.AppImage; then
+              echo "uploaded"; exit 0
+            fi
+            echo "upload failed (attempt $i) — retrying"; sleep $((i * 10))
+          done
+          echo "FAILED to upload after 6 attempts; artifacts are attached to this run"
+          exit 1

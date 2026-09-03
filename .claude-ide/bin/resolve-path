@@ -1,0 +1,6 @@
+#!/bin/sh
+# Usage: resolve-path <partial>
+# Prints any indexed path that ends in <partial> or matches its basename.
+set -e
+[ -z "$1" ] && { echo "usage: resolve-path <partial>" >&2; exit 1; }
+awk -F'\t' -v p="$1" 'NR>0 && ($1 ~ ("(^|/)" p "$") || index($1, p)) {print $1}' "$(dirname "$0")/../paths.txt" | sort -u

@@ -1,0 +1,21 @@
+node_modules
+grokui-app
+claude-app-patch
+paperclip-adapter
+**/.DS_Store
+**/*.log
+Grok Bot.app/Contents/Frameworks
+Grok Bot.app/Contents/MacOS
+Grok Bot.app/Contents/Helpers
+Grok Bot.app/Contents/_CodeSignature
+Grok Bot.app/Contents/Resources/*.lproj
+Grok Bot.app/Contents/Resources/app.asar.unpacked
+Grok Bot.app/Contents/Resources/Assets.car
+Grok Bot.app/Contents/Resources/icon.icns
+test
+pools_with_fees.csv
+wzma_configs.csv
+.git
+.claude
+*.dmg
+*.blockmap

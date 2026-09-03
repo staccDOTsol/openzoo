@@ -1,0 +1,97 @@
+name: grokui windows
+
+# See grokui-linux.yml for why this is one workflow per platform rather than a
+# matrix: a macOS failure used to block the entire release, and no single
+# platform could be re-run on its own.
+on:
+  push:
+    tags: ["grokui-v*"]
+  workflow_dispatch: {}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # THE TAG IS THE VERSION. Without this the app's package.json drifts from
+      # the tag and the release ships binaries named after an older build:
+      # grokui-v1.5.48 published openzoo-1.5.45.dmg / openzoo.Setup.1.5.45.exe,
+      # so anyone installing "1.5.48" got something reporting 1.5.45. Derive it
+      # instead of remembering to bump it.
+      - name: Sync app version to tag
+        if: startsWith(github.ref, 'refs/tags/grokui-v')
+        # bash explicitly: the Windows runner defaults to PowerShell, where
+        # ${VAR#prefix} is not parameter expansion and the step dies on syntax.
+        shell: bash
+        run: |
+          V="${GITHUB_REF#refs/tags/grokui-v}"
+          node -e "const f='grokui-app/package.json';const p=require('./'+f);p.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')" "$V"
+          echo "app version set to $V"
+      - name: Served APP_HTML script must parse
+        shell: bash
+        run: node scripts/assert-app-html-script.mjs
+      - name: Install deps
+        working-directory: grokui-app
+        run: |
+          npm install
+          npm install openzoo@latest --no-save
+          # npm install otherwise rewrites "latest" to ^0.49.x and assert-grokui-pin dies
+          node -e "const fs=require('fs'); for (const f of ['package.json','package-lock.json']) { const p=JSON.parse(fs.readFileSync(f,'utf8')); if (p.dependencies) p.dependencies.openzoo='latest'; if (p.packages&&p.packages['']&&p.packages[''].dependencies) p.packages[''].dependencies.openzoo='latest'; fs.writeFileSync(f, JSON.stringify(p,null,2)+'\n'); }"
+
+      # bash, not PowerShell: afterPack.js shells out, and on Windows `npm` is
+      # npm.cmd — execFileSync will not resolve it without a shell, which killed
+      # this job once with `spawnSync npm ENOENT`.
+      - name: Build
+        working-directory: grokui-app
+        shell: bash
+        run: npm run dist:win
+
+      - name: Packed grokui.mjs relatives
+        shell: bash
+        run: node scripts/assert-packed-grokui-lib.mjs grokui-app/dist
+      - name: Packed sidecar is the overlaid tree
+        shell: bash
+        run: node scripts/assert-overlaid-openzoo.mjs grokui-app/dist
+
+      - name: Verify output
+        shell: bash
+        run: |
+          set -eu
+          ls -lh grokui-app/dist/*.exe
+          [ "$(find grokui-app/dist -name '*.exe' | wc -l)" -gt 0 ] \
+            || { echo 'FAIL: no installer produced'; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openzoo-grokui-win-installer
+          path: grokui-app/dist/*.exe
+          if-no-files-found: error
+
+      - name: Publish installer to the release
+        if: startsWith(github.ref, 'refs/tags/grokui-v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          TAG="${GITHUB_REF#refs/tags/}"
+          for i in 1 2 3 4 5 6; do
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "openzoo grokui ${TAG#grokui-}" --notes-file .github/grokui-release-notes.md --generate-notes 2>/dev/null && break
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            echo "release not ready (attempt $i) — retrying"; sleep $((i * 10))
+          done
+          for i in 1 2 3 4 5 6; do
+            if gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber grokui-app/dist/*.exe; then
+              echo "uploaded"; exit 0
+            fi
+            echo "upload failed (attempt $i) — retrying"; sleep $((i * 10))
+          done
+          echo "FAILED to upload after 6 attempts; artifacts are attached to this run"
+          exit 1

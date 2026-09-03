@@ -1,0 +1,277 @@
+# openzoo
+
+Local x402-paying proxy + MCP server for [openzoo.fun](https://openzoo.fun) — point **any** OpenAI-compatible harness (Cursor, Claude Code, aider, raw SDKs) at `localhost` and it pays the zoo per call from a local burner wallet. No account, no API key, no crypto knowledge required by your tools.
+
+```
+npx openzoo
+```
+
+That's it. First run generates a burner wallet at `~/.openzoo/wallet.json` (chmod 600), prints the funding address, and starts the proxy:
+
+```
+base_url = http://localhost:8402/v1
+api_key  = sk-openzoo        # any value works; the zoo takes payment, not keys
+```
+
+Every request forwards to the zoo. When the zoo answers `402 Payment Required`, the proxy reads the quote, signs a token transfer from your local wallet, retries with the `X-PAYMENT` header, and streams the response back — SSE included, unbuffered. Each payment prints a one-line receipt:
+
+```
+paid $0.002137 (9.5× cheaper than direct) · rail solana · tx 5Kd…
+```
+
+## 60-second quickstarts
+
+**Cursor** (Settings → Models → OpenAI API): set *Override OpenAI Base URL* to `http://localhost:8402/v1`, API key `sk-openzoo`. (Cursor Hobby can't BYOK; Pro can.)
+
+**Claude Code / grokui Auto** — `openzoo claude` sets the Anthropic API key + base URL to the local OpenZoo proxy (x402 pay-per-call). You do **not** need to authenticate Claude first. grokui orange Auto is this harness, not a `RUN:` text parser. PATH `~/.local/bin` is required on Mac so `claude` is found.
+
+**Agent of Empires** (tmux session manager for coding agents, [agent-of-empires](https://github.com/agent-of-empires/agent-of-empires)) — `openzoo aoe` registers an `openzoo` agent in aoe's `config.toml` (`[session.custom_agents] openzoo = "openzoo claude"`, detected as `claude` so status hooks, resume and fork all work), starts a background proxy if none is listening (no public tunnel unless `--tunnel`), then runs `aoe`. `openzoo aoe add . -l` creates and launches one session in the current directory; in the TUI pick **openzoo** from the agent picker. `Alt+z` opens a tool session with the wallet balance and the live receipts log. Terminal view only: aoe's structured view runs `claude-agent-acp` itself, which bills Anthropic, not the zoo. `--override-claude` additionally makes aoe's built-in `claude` agent launch through openzoo; `--no-launch` writes config only.
+
+**Orca** ([stablyai/orca](https://github.com/stablyai/orca), the desktop orchestrator for parallel agents) — Orca launches any CLI agent in a worktree terminal, so type `openzoo claude` as the agent command (or pick **openzoo** from the agent picker once the upstream catalog entry lands). Orca treats it as Claude Code: same process, same hooks and status dots, same `--dangerously-skip-permissions` default. No account switching applies, because nothing is logged in; every turn pays x402.
+
+`GET /v1/models` is the live OpenRouter catalog **after** dropping `:batch`, `$0` / missing prices, and `openzoo-*` twins. Claude Code's `/model` picker (Anthropic-shaped GET) is a short list: current Opus/Sonnet/Haiku-class + a few real gateway models + `openzoo/auto`.
+
+Mac:
+
+```
+curl -fsSL https://claude.ai/install.sh | bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.7/install.sh | bash
+. "$HOME/.nvm/nvm.sh"
+nvm install 24
+npm i -g openzoo
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+openzoo claude
+```
+
+Windows — official Claude install, then nvm-windows (https://github.com/coreybutler/nvm-windows — `nvm-setup.exe`). Do not use the unix nvm curl on Windows. Do not source `~/.zshrc`.
+
+PowerShell:
+
+```
+irm https://claude.ai/install.ps1 | iex
+```
+
+CMD:
+
+```
+curl -fsSL https://downloads.claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd
+```
+
+Then nvm-windows:
+
+```
+nvm install 24
+nvm use 24
+npm i -g openzoo
+openzoo claude
+```
+
+Leave a healthy `:8402` sidecar alone. Manual equivalent / check that the list is quoteable:
+
+```bash
+unset ANTHROPIC_API_KEY
+export ANTHROPIC_BASE_URL=http://localhost:8402/v1
+export ANTHROPIC_AUTH_TOKEN=sk-openzoo
+export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
+curl -s "$ANTHROPIC_BASE_URL/models" | jq '[.data[].id] | map(select(test(":batch") or startswith("openzoo-")))'
+# -> []   (no :batch, no openzoo-* clones)
+curl -s -H 'anthropic-version: 2023-06-01' "$ANTHROPIC_BASE_URL/models" | jq '[.data[].id]'
+# -> short picker (opus/sonnet/haiku + a few gateway ids + openzoo/auto)
+```
+
+**Any OpenAI-env tool:**
+```bash
+export OPENAI_BASE_URL=http://localhost:8402/v1
+export OPENAI_API_KEY=sk-openzoo
+```
+
+**aider:**
+```bash
+aider --openai-api-base http://localhost:8402/v1 --openai-api-key sk-openzoo --model openai/nvidia/nemotron-3.5-lightning
+```
+
+**curl:**
+```bash
+curl http://localhost:8402/v1/chat/completions -H 'Content-Type: application/json' \
+  -d '{"model":"nvidia/nemotron-3.5-lightning","messages":[{"role":"user","content":"hi"}]}'
+```
+
+**OpenAI SDK (Python):**
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:8402/v1", api_key="sk-openzoo")
+r = client.chat.completions.create(model="nvidia/nemotron-3.5-lightning",
+                                   messages=[{"role": "user", "content": "hi"}])
+```
+
+**OpenAI SDK (JS/TS):**
+```js
+import OpenAI from "openai";
+const client = new OpenAI({ baseURL: "http://localhost:8402/v1", apiKey: "sk-openzoo" });
+const r = await client.chat.completions.create({
+  model: "nvidia/nemotron-3.5-lightning",
+  messages: [{ role: "user", content: "hi" }],
+});
+```
+
+Model ids come from `GET http://localhost:8402/v1/models` (free, no payment). Requires Node ≥ 18 (for `npx openzoo` itself; your harness can be anything).
+
+## Use as MCP
+
+The same package is an MCP server sharing the same wallet and payment core:
+
+```bash
+claude mcp add openzoo -- npx -y openzoo mcp
+```
+
+**Claude Desktop** — add to `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`, Windows: `%APPDATA%\Claude\claude_desktop_config.json`), then restart the app:
+
+```json
+{ "mcpServers": { "openzoo": { "command": "npx", "args": ["-y", "openzoo", "mcp"] } } }
+```
+
+**Cursor** — Settings → MCP → *Add new global MCP server*, or drop the same JSON into `~/.cursor/mcp.json` (per-project: `.cursor/mcp.json`).
+
+**Windsurf / Cline / any MCP host** — same shape: command `npx`, args `["-y", "openzoo", "mcp"]`, stdio transport.
+
+Tools:
+- **`zoo_ask`** — `{prompt, corpus?, model?, max_tokens?}`. The flagship: hand it a *huge* `corpus` (hundreds of thousands to ~1M tokens — a body the model itself would refuse) and a question; the zoo's leCore memory spills the corpus so the model reads only a few thousand tokens. Returns the answer plus the receipt (`billedUsd`, `directUsd`, `savedUsd`, tokens actually read). An MCP-capable agent can delegate a giant-context question without touching its own model config.
+- **`zoo_models`** — list the zoo's models and pricing (free).
+- **`zoo_wallet`** — funding address, balances, and this session's receipts.
+
+## The demo
+
+```bash
+npx openzoo demo
+```
+
+Builds a ~965k-token document with one planted fact, shows that buying direct refuses it (*"The input token count exceeds the maximum number of tokens allowed."* — recorded, see [benches.openzoo.fun](https://benches.openzoo.fun)), binds the body ONCE to the zoo's holographic memory, then pays for a question that ships alone:
+
+```
+bound once in 14.8s: 3.7MB → context ctx_01KZZY8YQE…
+quote for the ask: $0.000480 · pricing=markup · at OpenRouter price (the 3.7MB corpus is not re-priced)
+```
+
+If the wallet is funded with USDC or TOKEN it pays (capped at `OPENZOO_DEMO_MAX_USD`, default $0.01) and prints the answer, the tokens the model actually read, and the receipt. If not, it prints exactly what to fund. Long waits (the one-time upload, pricing, payment, the answer) show a live progress line with stage + elapsed seconds.
+
+**Run it twice.** The second run finds the corpus in the local manifest and never uploads it:
+
+```
+★ corpus already bound (context ctx_01KZZY8YQE…) — skipped the 3.7MB upload entirely.
+...
+★ corpus already bound — skipped 3.7MB upload; whole run took 4.3s and cost $0.000480
+```
+
+## Repeat calls are near-free (0.3.0: the body never ships twice)
+
+The zoo keeps your corpus in leCore holographic memory; the shim keeps a manifest at `~/.openzoo/contexts.json` (chmod 600) mapping `sha256(corpus)` → the zoo's `context_id`, scoped per API base. When a request carries a corpus the manifest already knows:
+
+- **nothing big is uploaded** — the ask ships alone with an `X-HRR-Context` header,
+- **the 402 prices the tiny ask** at OpenRouter rates (read `extra.billedUsd`), typically a few hundredths of a cent instead of re-pricing megabytes,
+- **the answer still comes from your corpus** — the zoo recalls the relevant slices server-side.
+
+This works in all three fronts: the **proxy** (a big pasted body in the last message is split at its last blank line, bound once, and reused on every later call — even with a different question), the **MCP** `zoo_ask` `corpus` parameter, and the **demo**. If the zoo ever forgets a context (sidecar wipe), the gateway answers 404 *before* any payment and the shim transparently re-binds once and retries — a stale manifest never fails a call.
+
+Manage it:
+
+```bash
+npx openzoo contexts                  # list bound corpora (hash, context id, age, api base)
+npx openzoo contexts --forget 60464d  # drop one by hash prefix
+npx openzoo contexts --forget all     # drop everything
+```
+
+Opt out with `OPENZOO_NO_CONTEXT_CACHE=1` (always ship the full body); tune the threshold with `OPENZOO_CONTEXT_MIN_CHARS` (default 16384 chars).
+
+## Using openzoo from a cloud IDE (Cursor, Windsurf, hosted agents)
+
+Some IDEs run their model calls **from their own servers**, not your machine. Point one of those at `http://localhost:8402` and you get, verbatim:
+
+```
+Provider returned error: Access to private networks is forbidden
+```
+
+That is reachability, not payment — their cloud cannot dial your laptop. Give it a public URL instead:
+
+```bash
+npx openzoo tunnel
+```
+
+It installs `cloudflared` itself (one-time, cached in `~/.openzoo/bin`; a Cloudflare account is not needed), opens a quick tunnel to your local proxy, and prints:
+
+```
+base_url = https://<random>.trycloudflare.com/v1
+api_key  = oz_<random>          # in tunnel mode the key is REAL auth
+```
+
+**Tunnel mode is the one mode where the api key matters.** A public URL in front of a wallet is a public URL in front of your money, so:
+
+- every request without `Authorization: Bearer <that key>` is refused **401** before anything is forwarded, quoted or paid;
+- the per-call cap (`OPENZOO_MAX_USD_PER_CALL`, default $0.50) still applies;
+- a session ceiling stops all spending at `OPENZOO_TUNNEL_MAX_USD` (default **$1.00**);
+- every served request prints its receipt and the running session total;
+- the URL dies when you Ctrl-C, and the session's total spend is printed on exit.
+
+Pin the key with `OPENZOO_TUNNEL_TOKEN` if your IDE stores it. Keys never leave your machine either way — the tunnel forwards to the same local proxy, which signs with the same local wallet.
+
+**MCP clients don't need any of this.** If your tool speaks MCP, use the hosted server at `https://mcp.openzoo.fun/mcp` — cloud-reachable, no local process, mint a wallet with `zoo_wallet`.
+
+## The wallet model
+
+- **Burner, local, yours.** A keypair in `~/.openzoo/wallet.json`, created on first run, chmod 600. Keys never leave your machine — the zoo only ever sees signed transfers.
+- **Fund it with USDC or TOKEN.** Send a few cents of either to the address `npx openzoo address` prints:
+  - **USDC** — `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`
+  - **TOKEN** — `EVULoNF4DeMBN4dGiZiDfpiiTfNZgoCvXWWgaV3epump`
+
+  Both are first-class, and both are the **exact mints the 402 quotes**. That is the whole funding story: fund one, spend it. Nothing is wrapped, converted, or deposited into a vault on the way — the shim signs one transfer of the mint the row names.
+- **SOL is optional.** The gateway sponsors payment-transaction fees, so a wallet already holding the quoted mint needs no SOL. Keep a pinch (~0.003) only for the rent if the token account does not exist yet.
+- **The same wallet file also holds an EVM key.** `npx openzoo address` prints both addresses: the Solana one, and the EVM one used by the Base and Robinhood Chain rails. Fund Base with **USDC on Base** and Robinhood Chain with **USDG** — canonical Paxos USDG, which implements EIP-3009 directly. Same rule as Solana: nothing is converted.
+- **Spend caps.** The proxy refuses any single quote above `OPENZOO_MAX_USD_PER_CALL` (default $0.50).
+- `npx openzoo balance` — funds on every rail, grouped per chain: Solana (USDC + TOKEN + LEOS + SOL), Base (USDC + ETH), Robinhood Chain (USDG + ETH). USD value where a price is known; `$?` where not. `npx openzoo address` — both funding addresses.
+
+## Honest pricing note
+
+Two bases, reported per call in the 402 (`extra.pricing`):
+- **Wallet path charges OpenRouter prices.** There is no 3× markup. If the caller saves vs sending the same body direct, zoo takes 33% of the savings. Short prompts have nothing to spill, so you pay the OpenRouter figure, reconciled against the provider's own metered cost after it completes.
+- **Big bodies price at a counterfactual discount** (~10× cheaper than buying the same call direct) — the zoo's leCore memory means it never forwards your whole body upstream, and passes most of the savings on. Measured numbers at [benches.openzoo.fun](https://benches.openzoo.fun).
+- **Asks against a bound corpus price on the small forwarded body.** That is not a discount trick: a few hundred tokens at OpenRouter rates is far below the counterfactual price of shipping the corpus, which is the whole point of binding once.
+
+The receipt names which base you got; `extra.billedUsd` / `extra.directUsd` / `extra.savedUsd` let you check the math. Pay-per-request is the only lane — there is no subscription or API key.
+
+## Payment rails
+
+All three rails have settled real payments (2026-08-14):
+
+| rail | network | status |
+|---|---|---|
+| **Solana** (default) | `solana:5eykt…` | **live** — `TransferChecked` of the raw native mint, partial-signed, gateway pays fees. The message is a fixed four-instruction layout the facilitator checks by position: compute-unit limit, compute-unit price, `TransferChecked` third, memo fourth. You hold and send exactly what the 402 quotes. |
+| Base | `eip155:8453` | **live** — standard x402 EIP-3009 `transferWithAuthorization` against native USDC, batched settle through the facilitator. Fund the wallet's EVM address with USDC on Base; nothing is converted. |
+| Robinhood Chain | `eip155:4663` | **live** — EIP-3009, batched settle through the facilitator, against canonical Paxos USDG. Fund the wallet's EVM address with USDG; nothing is converted, and no gas token is needed to pay. Default rail selection skips this chain unless `OPENZOO_ENABLE_RH=1`; `OPENZOO_RAIL=robinhood` forces it outright. |
+
+`npx openzoo` prints the rails off a live 402 at startup, and the funding line is derived from those rails — so a new chain shows up without this package shipping again.
+
+The rail is chosen from the 402's `accepts[]` itself (Solana first). **Steer it with `OPENZOO_RAIL=solana|base|robinhood`** — the picker then uses only that rail, and errors clearly if the live 402 does not offer it. Amounts are always taken as raw units from the 402, and Solana decimals are read from the mint **on-chain** — never hardcoded. (The zoo's own pasted prompt used to hardcode `decimals = 6`; this package deliberately does not copy the bug.)
+
+## Configuration
+
+| env | default | |
+|---|---|---|
+| `OPENZOO_PORT` | `8402` | proxy port |
+| `OPENZOO_API_BASE` | `https://x402-tokens.fly.dev` | the zoo's door |
+| `OPENZOO_RPC` | mainnet-beta public RPC | Solana RPC |
+| `OPENZOO_TOKEN` | (internal) | preferred 402 rail — leave unset |
+| `OPENZOO_RAIL` | (unset) | force a rail: `solana` \| `base` \| `robinhood`. Errors if the live 402 doesn't offer it |
+| `OPENZOO_BASE_RPC` | `https://mainnet.base.org` | Base RPC (balances / preflight) |
+| `OPENZOO_RH_RPC` | `https://rpc.mainnet.chain.robinhood.com` | Robinhood Chain RPC (balances / preflight) |
+| `OPENZOO_WALLET` | `~/.openzoo/wallet.json` | wallet path |
+| `OPENZOO_MAX_USD_PER_CALL` | `0.5` | refuse quotes above this |
+| `OPENZOO_DEMO_MAX_USD` | `0.01` | demo spend cap |
+| `OPENZOO_CONTEXT_MIN_CHARS` | `16384` | bodies bigger than this bind once + reuse |
+| `OPENZOO_NO_CONTEXT_CACHE` | `0` | set `1` to always ship the full body |
+| `OPENZOO_ENABLE_RH` | `0` | let default selection fall through to the Robinhood rail (`OPENZOO_RAIL=robinhood` forces it without this) |
+
+## What's tested
+
+- Unit tests run against a **captured production 402 body** (`test/fixtures/live-402.json`): parsing, rail selection, and byte-level verification of the signed Solana transaction and the EVM typed-data payload.
+- Live-verified: `/v1/models` through the proxy (200), 402 parse + quote against mainnet, on-chain mint/decimals read, the internal USDC conversion (funded from plain USDC, settled on mainnet), and **a real settled paid call** — the full demo ran end-to-end against the production gateway: quote, automatic top-up from USDC, payment accepted by the facilitator, answer + receipt returned.
+
+MIT

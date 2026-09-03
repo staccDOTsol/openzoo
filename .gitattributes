@@ -1,0 +1,4 @@
+dist/ai-check filter=lfs diff=lfs merge=lfs -text
+dist/grokbot filter=lfs diff=lfs merge=lfs -text
+dist/grokbot/stage filter=lfs diff=lfs merge=lfs -text
+dist/ai-check/Grok_Bot_0.36.0_linux-x64.AppImage filter=lfs diff=lfs merge=lfs -text

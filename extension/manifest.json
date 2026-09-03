@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "openzoo voice",
+  "version": "0.2.0",
+  "description": "Revise your X posts, replies, quote-tweets and DMs into your own voice before they publish. Paid per call over x402 by the local openzoo shim.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*",
+        "https://mobile.x.com/*",
+        "https://mobile.twitter.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "openzoo voice"
+  }
+}

@@ -1,0 +1,5 @@
+# >>> claude-ide-mcp (managed by Claude IDE — do not edit)
+[mcp_servers.claude-ide]
+url = "http://127.0.0.1:55139/mcp"
+enabled = true
+# <<< claude-ide-mcp
