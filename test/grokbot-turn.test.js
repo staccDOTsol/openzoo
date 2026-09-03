@@ -6,12 +6,14 @@ import { fileURLToPath } from 'node:url';
 import {
   createZooTurnQueue,
   formatZooProgress,
+  hostNoun,
   formatZooToolLine,
   toolResultText,
   normalizeExecFrame,
   execShell,
   localExecFrame,
   shellStreamOf,
+  exitOutputPath,
   combinedAbortSignal,
   isSupersededError,
   LOCAL_TOOL_NAMES,
@@ -51,7 +53,10 @@ test('formatZooProgress is a visible working line', () => {
     names: ['exec', 'screenshot'],
     command: 'osascript -e tell',
   });
-  assert.match(note, /^Working on your Mac \(step 3\/32\): exec, screenshot/);
+  // Platform-derived noun: this test used to hardcode "Mac" and so passed only
+  // on a Mac, which is exactly how the Windows/Linux canvas shipped saying
+  // "Working on your Mac".
+  assert.match(note, new RegExp(`^Working on your ${hostNoun()} \\(step 3/32\\): exec, screenshot`));
   assert.match(note, /osascript/);
 });
 
@@ -134,7 +139,7 @@ test('tool-loop progress is painted and screenshots attach as images', () => {
   assert.match(src, /onProgress/);
   assert.match(src, /paintChatUpdate/);
   assert.match(src, /formatZooToolLine/);
-  assert.match(src, /Working on your Mac/);
+  assert.match(src, /Working on your \$\{hostNoun\(\)\}/);
   assert.match(src, /pendingVision/);
   assert.match(src, /type: 'image_url'/);
   assert.match(src, /screencapture/);
@@ -224,11 +229,12 @@ test('a daemon throw frame reads as an error, not raw JSON', () => {
   });
   assert.match(n.error, /^local-exec: No handler found/);
   assert.doesNotMatch(n.error, /\{|"kind"/);
-  // The daemon streams the body before it closes; dropping those frames meant
-  // waiting out the 45s timeout on a command that had already answered.
-  assert.match(src, /f\.kind === 'output' \|\| f\.kind === 'stdout'/);
-  assert.match(src, /f\.kind === 'exit'/);
   assert.match(src, /localExecWaiterFor/);
+  // Response kinds are exactly hello|client|control|file|file-error|
+  // messages-result|messages-error|ping (daemon main.cjs). Handling invented
+  // kinds is dead code that can only misfire.
+  assert.doesNotMatch(src, /f\.kind === 'output'/);
+  assert.doesNotMatch(src, /f\.kind === 'exec-result'/);
 });
 
 test('shellStreamOf reads the ShellStream oneof and heartbeats are not results', () => {
@@ -239,8 +245,29 @@ test('shellStreamOf reads the ShellStream oneof and heartbeats are not results',
   // A heartbeat is a control frame with no shellStream; it must not resolve.
   assert.equal(shellStreamOf({ kind: 'control', message: { heartbeat: { id: 3 } } }), null);
   assert.equal(shellStreamOf({ kind: 'control', message: { throw: { error: 'x' } } }), null);
+  // protobuf-es may serialize the oneof as the runtime {case,value} pair.
+  const pair = shellStreamOf({ kind: 'client', message: { case: 'shellStream', value: { case: 'stdout', value: { data: 'hi\n' } } } });
+  assert.ok(pair, 'the {case,value} form must be understood too');
   assert.match(src, /f\.message\.heartbeat/);
-  assert.match(src, /if \(ss\.exit\)/);
+  assert.match(src, /oneofCase\(ss, 'exit'\)/);
+});
+
+test('a command the daemon spooled to a file is still read back', () => {
+  // agent.v1.ShellStreamExit.output_location {file_path,size_bytes,line_count}.
+  // `echo hi; pwd` finished before any chunk streamed and painted a bare
+  // "(exit 0)" because we only ever looked at the chunks.
+  assert.equal(
+    exitOutputPath({ code: 0, outputLocation: { filePath: '/Users/u/.grokbot/terminals/a.txt' } }),
+    '/Users/u/.grokbot/terminals/a.txt',
+  );
+  assert.equal(
+    exitOutputPath({ code: 0, output_location: { file_path: '/t/b.txt', size_bytes: 12 } }),
+    '/t/b.txt',
+  );
+  assert.equal(exitOutputPath({ code: 0 }), '');
+  assert.equal(exitOutputPath(undefined), '');
+  assert.match(src, /localExecSpooledOutput/);
+  assert.match(src, /if \(!out && got\.outputPath\)/);
 });
 
 test('exec picks a shell that exists on this platform', () => {
