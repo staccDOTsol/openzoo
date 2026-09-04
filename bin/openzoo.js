@@ -169,6 +169,16 @@ usage:
   npx openzoo contexts --forget <hash|all>   drop manifest entries
   npx openzoo balance    wallet balance on every rail — Solana (USDC/TOKEN/SOL),
                          Base (USDC/ETH), Robinhood Chain (USDG/memecoins/ETH)
+  npx openzoo build [dir]     transmute a Vercel-shaped app (Next.js pages/api,
+                              app/**/route, Vite + api/*) into a Pinocchio Rust
+                              program + asset plan (--out .zoo-out --arch v0|v3)
+  npx openzoo deploy [dir]    deploy the program and the static frontend to
+                              Solana accounts (--cluster mainnet|devnet|localnet,
+                              --yes to accept the rent estimate; burner wallet)
+  npx openzoo serve <program> local gateway/explorer for a deployed site
+                              (--cluster, --port 4402); /api/* reads are free
+                              simulations, writes are signed by the burner
+  npx openzoo inspect [dir]   print the app in Vercel terms + eligibility report
   npx openzoo address    print both funding addresses (Solana + EVM)
   npx openzoo help       this text
 
@@ -401,6 +411,33 @@ async function main() {
       const bal = await (await import('../lib/info.js')).creditBalance();
       console.log(`prepaid credit: $${bal.toFixed(6)}`);
       if (bal <= 0) console.log('buy some with:  npx openzoo topup 10');
+      break;
+    }
+    case 'build':
+    case 'deploy':
+    case 'serve':
+    case 'inspect':
+    case 'transmute': {
+      // VERCEL-SHAPED APP -> SOLANA MAINNET. `openzoo build|deploy|serve` hand
+      // the argv to openzoo-transmute (a sibling npm package): it reads the
+      // app the way `vercel build` would (pages/api, app/**/route, api/*,
+      // .vercel/output), transmutes each Lambda into a Pinocchio Rust program
+      // route, stores the static build in asset accounts, deploys with the
+      // burner wallet at ~/.openzoo/wallet.json, and `serve` runs the local
+      // gateway/explorer that maps http://localhost:4402/... onto the program.
+      // Dynamic import so a machine without the package still runs every other
+      // command; the fallback shells out to npx so the very first `openzoo
+      // deploy` works before the dependency is pinned in package.json.
+      const argv = process.argv.slice(2).map((a, i) => (i === 0 && a === 'transmute' ? 'help' : a));
+      let cli = null;
+      try { cli = await import('openzoo-transmute/lib/cli.js'); } catch { /* not installed alongside */ }
+      if (cli) {
+        await cli.run(argv);
+      } else {
+        const { spawnSync } = await import('child_process');
+        const r = spawnSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['--yes', 'openzoo-transmute@latest', ...argv], { stdio: 'inherit' });
+        process.exit(r.status === null ? 1 : r.status);
+      }
       break;
     }
     case 'address':
