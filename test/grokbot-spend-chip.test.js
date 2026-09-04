@@ -64,7 +64,7 @@ test('spendChipSource is the cafe ⓘ details IIFE', () => {
   assert.match(src, /sand-message-card/);
   assert.match(src, /data-oz-spend-hide/);
   assert.match(src, /__OZ_SPEND_CHIP__/);
-  assert.match(src, /__OZ_SPEND_CHIP__ === 17/);
+  assert.match(src, /__OZ_SPEND_CHIP__ === 18/);
   assert.match(src, /isContentEditable/);
   assert.match(src, /oz-spend-float-pos/);
   assert.match(src, /pointerdown/);

@@ -374,9 +374,17 @@ test('claudeZooEnv is the openzoo claude writer: gateway token, no Anthropic API
   assert.equal(env.ANTHROPIC_API_KEY, undefined);
   assert.equal(env.ANTHROPIC_BASE_URL, 'http://localhost:8402/v1');
   assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'sk-openzoo');
-  assert.equal(env.DISABLE_COMPACT, '1');
-  assert.equal(env.DISABLE_AUTO_COMPACT, '1');
-  assert.equal(env.CLAUDE_CODE_MAX_CONTEXT_TOKENS, '1000000');
+  // Compaction stays ON by default — launch.js measured a 20-call, $13.86
+  // session at 1.0159x direct with it off. Only OPENZOO_UNBOUNDED_CONTEXT=1
+  // restores the old unbounded settings.
+  assert.equal(env.DISABLE_COMPACT, undefined);
+  assert.equal(env.DISABLE_AUTO_COMPACT, undefined);
+  const unbounded = claudeZooEnv({ PATH: '/usr/bin', HOME: '/tmp', OPENZOO_UNBOUNDED_CONTEXT: '1' }, { port: 8402 });
+  assert.equal(unbounded.DISABLE_COMPACT, '1');
+  assert.equal(unbounded.DISABLE_AUTO_COMPACT, '1');
+  // Same gate: the raised ceiling only goes with the unbounded opt-in.
+  assert.equal(env.CLAUDE_CODE_MAX_CONTEXT_TOKENS, undefined);
+  assert.equal(unbounded.CLAUDE_CODE_MAX_CONTEXT_TOKENS, '1000000');
   assert.match(env.PATH, /\/usr\/bin/);
   const dirs = claudeCodeBinDirs('/Users/x');
   assert.ok(dirs.some((d) => d.endsWith('/.local/bin')));
