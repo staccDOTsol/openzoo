@@ -1,5 +1,9 @@
 # Project Wiki
 
+## Bare `fable` = newest fable; tests gate on OPENZOO_UNBOUNDED_CONTEXT (2026-09-04)
+`MODEL_ALIASES.fable` → `anthropic/claude-fable-5.1` (catalog serves `claude-fable-5`, `claude-fable-5.1`, `claude-fable-5-1`; vendor prefix strips to the bare door). Add every new Anthropic id in BOTH spellings (`x.y` and `x-y`) to `models.js` CLAUDE_CODE aliases + allowlist, or Claude Code's pick falls through as unknown. `claudeZooEnv` leaves DISABLE_COMPACT / MAX_CONTEXT unset by default — that is deliberate (launch.js: $13.86 session at 1.0159× direct with compaction off); tests must assert the gate, not the flag.
+**Why:** `/model fable` silently picked 5 for days after 5.1 shipped; two tests were red all session against correct code.
+
 ## Settle "insufficient funds" was a stale balance cache (2026-09-03)
 `failed_settle` loop on deposit wallet `4QtgGwMt…`. Simulated the three live accepts rows directly: USDC → `Error: insufficient funds` (Tokenkeg 0x1, holds 0.003603 vs 0.009204 needed), LEOS → `InvalidAccountData` (source ATA does not exist), TOKEN → **succeeds** (47,411 held vs 19.28 needed). No `deposit_autopay` events, so the header is CLIENT-signed (lib/pay.js), not server autopay. Cause: `cachedTokenBalance`'s SWR branch had no age bound — it returned a cached positive figure and only *kicked off* a refresh, so a failing RPC or another worker spending the same wallet left an optimistic number in place forever. Fixed with `BALANCE_STALE_MAX_MS` (60s) + `forgetCachedBalance()` on a post-payment 402.
 **Why:** the facilitator TRUNCATES its own `errorReason`, so the program error never reaches our logs — `simulateTransaction` on a `/v1/pay/build` output is the only way to see it. Do that first next time.
