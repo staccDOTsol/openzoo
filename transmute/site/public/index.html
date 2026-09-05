@@ -43,6 +43,40 @@ input{padding:.4rem .6rem;font:inherit;border:1px solid #8884;border-radius:.4re
 <div class="demo"><b>/api/time</b> — <code>Date.now()</code> is the cluster clock<br><button id="time">GET /api/time</button><pre id="o-time"></pre></div>
 <div class="demo"><b>/api/echo</b> — app-router <code>POST(request)</code> with <code>await request.json()</code>, answers 201<br><button id="echo">POST /api/echo</button><pre id="o-echo"></pre></div>
 
+<h2>Capabilities, side by side</h2>
+<p class="muted">Vercel the platform vs openzoo-transmute today. Honest, not flattering.</p>
+<table>
+<tr><th>Capability</th><th>Vercel</th><th>openzoo-transmute (Solana)</th></tr>
+<tr><td>Static hosting</td><td>CDN, any size</td><td>yes: files in accounts, read by any gateway; rent ~7 SOL per MB, so KBs not MBs</td></tr>
+<tr><td>Serverless functions</td><td>Node, Edge, Python, Go, Ruby…</td><td>JS/TS handlers only, compiled to a Rust subset</td></tr>
+<tr><td>Framework support</td><td>Next.js (full: SSR, RSC, ISR), 40+ frameworks</td><td>Next.js <code>pages/api</code> + app-router <code>route.ts</code>, Vite/static + <code>api/</code>; no SSR, no React Server Components, no ISR</td></tr>
+<tr><td>Language coverage</td><td>everything</td><td>expressions, control flow, strings/arrays/objects, JSON, <code>@vercel/kv</code>, <code>Date.now</code>, <code>process.env</code>; no npm packages, regex, classes, generators, closures over mutable state</td></tr>
+<tr><td>Outbound network</td><td><code>fetch</code> anything</td><td>none. A program cannot make HTTP calls</td></tr>
+<tr><td>Databases</td><td>Postgres, KV, Blob, any external DB</td><td>KV on program-derived accounts (10 KB values, public); cross-program reads possible in principle, not exposed</td></tr>
+<tr><td>Secrets</td><td>encrypted env vars</td><td>none. Env is baked into public bytecode</td></tr>
+<tr><td>Auth</td><td>anything (cookies, JWT, OAuth)</td><td>wallet signatures are the identity; no server secret, so no sessions/JWT</td></tr>
+<tr><td>Streaming / SSE / WebSockets</td><td>yes</td><td>no. One request = one transaction, ~8 KB response</td></tr>
+<tr><td>Request size</td><td>4.5 MB</td><td>~900 bytes body</td></tr>
+<tr><td>Execution limits</td><td>10–800 s, up to 4 GB</td><td>200k–1.4M compute units (~1–5 ms of CPU), 256 KB heap</td></tr>
+<tr><td>Randomness / time</td><td>yes</td><td>no <code>Math.random</code> (deterministic); time = slot clock</td></tr>
+<tr><td>Background work (<code>waitUntil</code>, queues, cron)</td><td>yes</td><td>no</td></tr>
+<tr><td>Middleware / edge</td><td>yes</td><td>no (gateway does routing/rewrites/redirects from <code>vercel.json</code>)</td></tr>
+<tr><td>Image optimization</td><td>yes</td><td>no</td></tr>
+<tr><td>Domains / TLS</td><td>built in</td><td>via a gateway host (this one or your own); the chain has no HTTP</td></tr>
+<tr><td>Previews / rollbacks / git integration</td><td>yes</td><td>no. Each deploy is a program (new rent) or an upgrade in place</td></tr>
+<tr><td>Observability</td><td>logs, analytics, tracing</td><td>transaction logs, compute-unit counts, block explorers</td></tr>
+<tr><td>Latency</td><td>~50–300 ms</td><td>reads 300–800 ms, writes 1–3 s</td></tr>
+<tr><td>Read cost</td><td>metered</td><td>free, unlimited, no account needed</td></tr>
+<tr><td>Write cost</td><td>free</td><td>~0.000005 SOL per transaction + rent for new state; a signer is required (your wallet, a bounded hub signer, or x402 pay-per-write once built)</td></tr>
+<tr><td>Deploy cost</td><td>free tier</td><td>rent up front (~1 SOL for a small app today; ~0.05 SOL once the shared runtime lands)</td></tr>
+<tr><td>Toolchain</td><td>node</td><td>node + Rust + <code>cargo-build-sbf</code> (goes away with the shared runtime)</td></tr>
+<tr><td>Who can take it down</td><td>Vercel, DNS, a card on file</td><td>nobody, if the upgrade authority is burned; any RPC + any gateway serves it</td></tr>
+<tr><td>Verifiability</td><td>trust the platform</td><td>the code and every state change are public and replayable</td></tr>
+<tr><td>Composability</td><td>HTTP APIs</td><td>other programs and wallets can call your routes as instructions</td></tr>
+<tr><td>Permanence</td><td>until the bill stops</td><td>until the rent is withdrawn; rent-exempt accounts persist indefinitely</td></tr>
+</table>
+<p>Summary: it is a permanent, permissionless, verifiable host for small stateful APIs and static frontends, not a general web platform. If your app needs the network, secrets, streaming, or heavy compute, it stays on Vercel; if what it needs is to exist forever and be readable by anyone for free, it belongs here.</p>
+
 <h2>Put your own app here</h2>
 <pre>npx openzoo inspect .                       # your app, in Vercel terms + what is eligible
 npx openzoo build .                         # Rust program + asset plan (needs cargo-build-sbf)
