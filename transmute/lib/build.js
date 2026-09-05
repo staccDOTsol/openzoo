@@ -251,8 +251,10 @@ export async function build(root = '.', opts = {}) {
   log(`reading ${root} → ${deployment.source}${deployment.framework ? ` (${deployment.framework})` : ''}: ${deployment.functions.length} function(s), ${deployment.staticFiles.length} static file(s)`);
   for (const n of deployment.notes) { log(`note: ${n}`); notes.push(n); }
 
+  const target = opts.target === 'shared' ? 'shared' : 'program';
   const transmute = opts.transmute || await loadTransmute();
-  const result = await transmute(deployment, { name, runtimePath, arch: opts.arch, root, outDir });
+  const result = await transmute(deployment, { name, runtimePath, arch: opts.arch, root, outDir, target });
+  if (target === 'shared') return buildShared({ root, outDir, zooDir, deployment, name, result, notes, log, opts });
   if (!result || !result.crate || !result.crate['Cargo.toml'] || !result.crate['src/lib.rs']) throw new Error('transmute() returned no crate (expected {crate:{"Cargo.toml","src/lib.rs"}, manifest, report})');
   const manifest = { name, ...(result.manifest || {}) };
   if (!manifest.version) manifest.version = 1;
@@ -295,7 +297,7 @@ export async function build(root = '.', opts = {}) {
   const soSize = soPath ? fs.statSync(soPath).size : null;
   writeJson(path.join(zooDir, 'build.json'), {
     name, crateName, root, outDir, arch, soPath, soSize, soName: soNameFor(crateName), builtAt: new Date().toISOString(),
-    runtimePath, cargo: cargo ? { ok: cargo.ok, missing: !!cargo.missing } : { skipped: true },
+    runtimePath, cargo: cargo ? { ok: cargo.ok, missing: !!cargo.missing } : { skipped: true }, target: 'program',
   });
 
   // Cost sheet.
@@ -308,4 +310,72 @@ export async function build(root = '.', opts = {}) {
   if (soPath) log(`.so: ${soPath} (${soSize.toLocaleString()} B, ${arch})`);
   log(`next: openzoo-transmute deploy ${path.relative(process.cwd(), outDir) || outDir} --cluster <localnet|devnet|mainnet>`);
   return { outDir, zooDir, crateDir, manifest, report, soPath, arch, costEstimate, deployment, notes, staticPlan };
+}
+
+// ---------------------------------------------------------------- shared runtime
+
+/** Bytes of the site account the shared runtime creates per site. */
+export const SITE_ACCOUNT_BYTES = 66;
+
+/** Rent for a shared-runtime site: site account + code asset + assets + manifest (no program). */
+export async function estimateSharedCost({ staticFiles = [], codeSize = 0, manifestBytes = 0, connection = null }) {
+  const est = await estimateCost({ staticFiles, soSize: null, manifestBytes, connection });
+  est.items = est.items.filter((i) => i.kind !== 'program');
+  const rent = async (n) => { if (connection) { try { return await connection.getMinimumBalanceForRentExemption(n); } catch {} } return (ACCOUNT_OVERHEAD_BYTES + n) * LAMPORTS_PER_BYTE; };
+  const codeBytes = accountBytesFor('asset', codeSize, 'application/x-zoo-bytecode');
+  const extra = [
+    { label: 'site account (shared runtime)', kind: 'site', bytes: SITE_ACCOUNT_BYTES, lamports: await rent(SITE_ACCOUNT_BYTES) },
+    { label: `/.zoo/code.bin (bytecode = ${codeSize.toLocaleString()} B)`, kind: 'asset', bytes: codeBytes, lamports: await rent(codeBytes) },
+  ];
+  for (const it of extra) it.sol = it.lamports / LAMPORTS_PER_SOL;
+  est.items = [...extra, ...est.items];
+  est.lamports += extra.reduce((n, i) => n + i.lamports, 0);
+  est.sol = est.lamports / LAMPORTS_PER_SOL;
+  est.feeLamports = 5000 * (2 + Math.ceil(codeSize / 900) + staticFiles.reduce((n, f) => n + 1 + Math.ceil(f.size / 900), 0) + 2);
+  est.feeSol = est.feeLamports / LAMPORTS_PER_SOL;
+  est.totalLamports = est.lamports + est.transientLamports + est.feeLamports;
+  est.totalSol = est.totalLamports / LAMPORTS_PER_SOL;
+  est.unknownProgram = false;
+  est.shared = true;
+  return est;
+}
+
+/** `build --target shared`: bytecode module instead of a crate; nothing to compile. */
+async function buildShared({ root, outDir, zooDir, deployment, name, result, notes, log, opts }) {
+  if (!result || !result.code || !result.code.length) throw new Error('transmute() returned no bytecode module for --target shared');
+  const manifest = { name, ...(result.manifest || {}), target: 'shared' };
+  if (!manifest.version) manifest.version = 1;
+  if (!manifest.framework) manifest.framework = deployment.framework;
+  if (!Array.isArray(manifest.routes)) manifest.routes = [];
+  if (!Array.isArray(manifest.static)) manifest.static = deployment.staticFiles.map((f) => ({ path: f.path, contentType: f.contentType, size: f.size }));
+  if (!manifest.config) manifest.config = deployment.config;
+  const runtime = opts.runtime || process.env.OPENZOO_VM_PROGRAM || null;
+  if (runtime) manifest.runtime = runtime;
+  const report = { eligible: [], ineligible: [], warnings: [], ...(result.report || {}) };
+
+  fs.rmSync(path.join(zooDir, 'crate'), { recursive: true, force: true });
+  fs.mkdirSync(zooDir, { recursive: true });
+  const codePath = path.join(zooDir, 'code.bin');
+  fs.writeFileSync(codePath, result.code);
+  const byPath = new Map(deployment.staticFiles.map((f) => [f.path, f]));
+  const staticPlan = manifest.static.map((s) => ({ ...s, file: byPath.get(s.path)?.file || s.file || null }));
+  writeJson(path.join(zooDir, 'manifest.json'), manifest);
+  writeJson(path.join(zooDir, 'report.json'), report);
+  writeJson(path.join(zooDir, 'static-plan.json'), staticPlan);
+  const codeSize = result.code.length;
+  writeJson(path.join(zooDir, 'build.json'), { name, root, outDir, target: 'shared', codePath, codeSize, runtime, builtAt: new Date().toISOString(), cargo: { skipped: true } });
+  log(`wrote ${path.relative(process.cwd(), zooDir) || zooDir}/{code.bin (${codeSize.toLocaleString()} B bytecode), manifest.json, report.json, static-plan.json}`);
+  log(`functions: ${report.eligible.length} eligible, ${report.ineligible.length} ineligible${report.warnings.length ? `, ${report.warnings.length} warning(s)` : ''}`);
+  for (const i of report.ineligible) log(`  ✗ ${i.name}: ${i.reason}${i.file ? ` (${path.relative(root, i.file)}${i.line ? ':' + i.line : ''})` : ''}`);
+  for (const w of report.warnings) log(`  ! ${typeof w === 'string' ? w : w.message || JSON.stringify(w)}`);
+  if (!runtime) { const n = 'no --runtime given: pass --runtime <zoo-vm program id> (or OPENZOO_VM_PROGRAM) at deploy time'; notes.push(n); log(`note: ${n}`); }
+
+  const connection = opts.connection !== undefined ? opts.connection : await probeConnection(opts.cluster || 'localnet');
+  const manifestBytes = Buffer.byteLength(JSON.stringify({ ...manifest, runtime: 'x'.repeat(44), site: 'x'.repeat(44), deployedAt: new Date().toISOString() }));
+  const costEstimate = await estimateSharedCost({ staticFiles: staticPlan, codeSize, manifestBytes, connection });
+  log('');
+  log(formatCostTable(costEstimate));
+  log('');
+  log(`next: openzoo-transmute deploy ${path.relative(process.cwd(), outDir) || outDir} --cluster mainnet${runtime ? '' : ' --runtime <id>'}`);
+  return { outDir, zooDir, crateDir: null, manifest, report, soPath: null, codePath, codeSize, arch: null, target: 'shared', costEstimate, deployment, notes, staticPlan };
 }

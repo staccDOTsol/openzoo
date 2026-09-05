@@ -9,8 +9,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Keypair, PublicKey } from '@solana/web3.js';
-import { MANIFEST_PATH } from './wire.js';
+import { MANIFEST_PATH, CODE_PATH } from './wire.js';
 import { connect, deployProgram, upgradeProgram, getProgramInfo, putAsset, detectSbpfArch, pool, assetRent } from './solana.js';
+import { initSite, getSiteInfo } from './solana.js';
 import { loadWallet, rpcUrl } from './wallet.js';
 import { runCargoBuildSbf, estimateCost, formatCostTable, LAMPORTS_PER_SOL, INSTALL_HINT } from './build.js';
 import { DEFAULT_PORT } from './gateway.js';
@@ -83,6 +84,7 @@ export async function deploy(o = {}) {
   const buildInfo = readJson(path.join(zooDir, 'build.json'), {});
   const staticPlan = readJson(path.join(zooDir, 'static-plan.json'), []);
   const crateDir = path.join(zooDir, 'crate');
+  if ((buildInfo.target || manifest.target) === 'shared') return deployShared(o, { log, outDir, zooDir, manifest, buildInfo, staticPlan });
 
   const rpc = o.connection?.rpcEndpoint || rpcUrl(o.cluster);
   const cluster = clusterLabel(o.cluster);
@@ -206,4 +208,150 @@ export async function deploy(o = {}) {
 /** Rent one asset of `size` bytes would lock on this cluster, in SOL. */
 export async function assetRentSol(connection, size, contentType = '') {
   return (await assetRent(connection, size, contentType)) / LAMPORTS_PER_SOL;
+}
+
+// ---------------------------------------------------------------- shared runtime
+
+/** Load or create the site keypair: its public key is the site id (looks like a program id, costs nothing). */
+export function siteKeypairFor(zooDir, { create = true } = {}) {
+  const p = path.join(zooDir, 'site-keypair.json');
+  if (fs.existsSync(p)) return { keypair: Keypair.fromSecretKey(Uint8Array.from(readJson(p))), path: p, created: false };
+  if (!create) return null;
+  const kp = Keypair.generate();
+  fs.writeFileSync(p, JSON.stringify([...kp.secretKey]), { mode: 0o600 });
+  return { keypair: kp, path: p, created: true };
+}
+
+/**
+ * Deploy to the shared runtime: no program, only accounts — the site account,
+ * the bytecode module at /.zoo/code.bin, the static assets and the manifest,
+ * all PDAs of the runtime program namespaced by the site id.
+ */
+async function deployShared(o, { log, outDir, zooDir, manifest, buildInfo, staticPlan }) {
+  const runtime = o.runtime || process.env.OPENZOO_VM_PROGRAM || manifest.runtime || buildInfo.runtime;
+  if (!runtime) throw new Error('shared target needs the runtime program id: --runtime <id> (or OPENZOO_VM_PROGRAM)');
+  const rpc = o.connection?.rpcEndpoint || rpcUrl(o.cluster);
+  const cluster = clusterLabel(o.cluster);
+  const connection = o.connection || connect(rpc);
+  let mainnet = isMainnet(o.cluster, rpc);
+  const genesis = await genesisCluster(connection);
+  if (genesis === 'mainnet' && !mainnet) { mainnet = true; log(`note: ${rpc.replace(/\?.*$/, '')} serves mainnet (genesis hash); treating it as mainnet`); }
+  const wallet = o.wallet || loadWallet({ keypair: o.keypair });
+  const payer = wallet.keypair;
+  const codePath = buildInfo.codePath && fs.existsSync(buildInfo.codePath) ? buildInfo.codePath : path.join(zooDir, 'code.bin');
+  if (!fs.existsSync(codePath)) throw new Error(`no bytecode module at ${codePath}; run build --target shared first`);
+  const code = fs.readFileSync(codePath);
+  const siteKp = o.site ? null : siteKeypairFor(zooDir);
+  const site = o.site ? new PublicKey(o.site) : siteKp.keypair.publicKey;
+  const runtimeInfo = await getProgramInfo(connection, runtime);
+  if (!runtimeInfo.exists) throw new Error(`runtime program ${runtime} is not deployed on ${cluster}`);
+  log(`cluster ${cluster} (${rpc.replace(/\?.*$/, '')}) · payer ${payer.publicKey.toBase58()} · runtime ${new PublicKey(runtime).toBase58()} · site ${site.toBase58()}${siteKp?.created ? ' (new)' : ''}`);
+
+  // Cost: site account + code + assets + manifest, all rent-exempt accounts.
+  const manifestOut = { ...manifest, target: 'shared', runtime: new PublicKey(runtime).toBase58(), site: site.toBase58(), cluster, rpc: rpc.replace(/\?.*$/, ''), deployedAt: new Date().toISOString() };
+  const manifestBytes = Buffer.byteLength(JSON.stringify(manifestOut));
+  const items = [{ label: 'site account', bytes: 66 }, { label: `code module (${code.length.toLocaleString()} B)`, bytes: code.length + 20 }];
+  for (const f of staticPlan) items.push({ label: f.path, bytes: (f.size ?? 0) + 7 + (f.contentType || '').length });
+  items.push({ label: '/.zoo/manifest.json', bytes: manifestBytes + 40 });
+  let total = 0;
+  for (const it of items) { it.lamports = await connection.getMinimumBalanceForRentExemption(it.bytes); total += it.lamports; }
+  const fees = 5000 * (3 + staticPlan.length * 3 + Math.ceil(code.length / 900) + 4);
+  log('  item                                bytes       SOL');
+  for (const it of items) log(`  ${it.label.padEnd(34)}${String(it.bytes).padStart(8)}  ${(it.lamports / LAMPORTS_PER_SOL).toFixed(4).padStart(8)}`);
+  log(`  ${'rent total'.padEnd(34)}${''.padStart(8)}  ${(total / LAMPORTS_PER_SOL).toFixed(4).padStart(8)}`);
+  log(`  ${'+ tx fees (approx.)'.padEnd(34)}${''.padStart(8)}  ${(fees / LAMPORTS_PER_SOL).toFixed(4).padStart(8)}`);
+  log(`  ${'TOTAL'.padEnd(34)}${''.padStart(8)}  ${((total + fees) / LAMPORTS_PER_SOL).toFixed(4).padStart(8)}`);
+  if (mainnet && !o.yes) throw new Error('this is mainnet: pass --yes to spend the amount above');
+  const balance = await connection.getBalance(payer.publicKey);
+  if (balance < total + fees) throw new Error(`payer has ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL, needs ~${((total + fees) / LAMPORTS_PER_SOL).toFixed(4)}`);
+
+  const t0 = Date.now();
+  const si = await initSite(connection, { authority: payer, runtime, site });
+  log(`${si.created ? 'created' : 'reusing'} site account ${si.pda.toBase58()}`);
+  const cr = await putAsset(connection, { authority: payer, programId: runtime, site, path: CODE_PATH, contentType: 'application/x-zoo-bytecode', data: code, force: o.force });
+  log(`code → ${CODE_PATH} (${cr.pda.toBase58()}, ${code.length.toLocaleString()} B${cr.skipped ? ', unchanged' : ''})`);
+  let uploaded = 0, skipped = 0, failed = 0;
+  const failures = [];
+  if (!o.skipAssets) {
+    const files = staticPlan.filter((f) => f.file || f.path);
+    let done = 0;
+    await pool(files, async (f) => {
+      try {
+        const data = fs.readFileSync(f.file);
+        const r = await putAsset(connection, { authority: payer, programId: runtime, site, path: f.path, contentType: f.contentType || 'application/octet-stream', data, force: o.force });
+        if (r.skipped) skipped++; else uploaded++;
+        log(`[${++done}/${files.length}] ${f.path} ${r.skipped ? 'unchanged' : `${data.length.toLocaleString()} B in ${r.txs} tx`}`);
+      } catch (e) { failed++; failures.push({ path: f.path, error: String(e?.message || e) }); log(`[${++done}/${files.length}] ${f.path} FAILED: ${e?.message || e}`); }
+    }, { concurrency: o.concurrency ? Number(o.concurrency) : 4 });
+    log(`assets: ${uploaded} uploaded, ${skipped} unchanged, ${failed} failed`);
+  }
+  const mr = await putAsset(connection, { authority: payer, programId: runtime, site, path: MANIFEST_PATH, contentType: MANIFEST_CONTENT_TYPE, data: Buffer.from(JSON.stringify(manifestOut)), force: true });
+  log(`manifest → ${MANIFEST_PATH} (${mr.pda.toBase58()}, ${manifestBytes.toLocaleString()} B) in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  const out = { target: 'shared', site: site.toBase58(), programId: site.toBase58(), runtime: new PublicKey(runtime).toBase58(), sitePda: si.pda.toBase58(), manifestPda: mr.pda.toBase58(), assets: { uploaded, skipped, failed }, cluster, rpc, deployedAt: manifestOut.deployedAt, failures, url: `${process.env.OPENZOO_HUB_URL || 'https://sites.openzoo.fun'}/s/${site.toBase58()}` };
+  writeJson(path.join(zooDir, 'deploy.json'), out);
+  log(`\nserve it:  openzoo-transmute serve ${site.toBase58()} --runtime ${new PublicKey(runtime).toBase58()} --cluster ${cluster}`);
+  log(`or open    ${out.url}`);
+  return out;
+}
+
+// ---------------------------------------------------------------- runtime program
+
+const HERE_DEPLOY = path.dirname(new URL(import.meta.url).pathname);
+export const PREBUILT_DIR = path.resolve(HERE_DEPLOY, '..', 'prebuilt');
+export const RUNTIME_CRATE = path.resolve(HERE_DEPLOY, '..', 'runtime', 'zoo-vm');
+
+/** The zoo-vm .so for an SBPF arch: prebuilt (v0 = mainnet) or built from runtime/zoo-vm. */
+export async function runtimeSoFor(arch, { log = console.log, so } = {}) {
+  if (so) return { soPath: path.resolve(so), source: 'given' };
+  const pre = path.join(PREBUILT_DIR, `zoo_vm.${arch}.so`);
+  if (fs.existsSync(pre)) return { soPath: pre, source: 'prebuilt' };
+  if (!fs.existsSync(path.join(RUNTIME_CRATE, 'Cargo.toml'))) throw new Error(`no prebuilt zoo-vm for ${arch} (${pre}) and no runtime/zoo-vm crate to build it from`);
+  const r = await runCargoBuildSbf(RUNTIME_CRATE, { arch, outDir: path.join(RUNTIME_CRATE, 'target', 'deploy-' + arch), log });
+  if (!r.ok) throw new Error(r.missing ? `no prebuilt zoo-vm for ${arch}; install the toolchain to build it: ${INSTALL_HINT}` : `zoo-vm build failed: ${r.error}`);
+  return { soPath: r.soPath, source: 'built' };
+}
+
+/**
+ * Deploy (or upgrade) the shared runtime program once per cluster. Sites then
+ * cost only their accounts. Keypair kept at `programKeypair` (default
+ * ./zoo-vm-keypair.json) so a redeploy upgrades in place.
+ */
+export async function deployRuntime(o = {}) {
+  const log = o.log ?? console.log;
+  const rpc = rpcUrl(o.cluster);
+  const cluster = clusterLabel(o.cluster);
+  const connection = o.connection || connect(rpc);
+  let mainnet = isMainnet(o.cluster, rpc);
+  if ((await genesisCluster(connection)) === 'mainnet') mainnet = true;
+  const wallet = o.wallet || loadWallet({ keypair: o.keypair });
+  const payer = wallet.keypair;
+  const arch = await detectSbpfArch(connection);
+  const { soPath, source } = await runtimeSoFor(arch, { log, so: o.so });
+  const so = fs.readFileSync(soPath);
+  const kpPath = path.resolve(o.programKeypair || 'zoo-vm-keypair.json');
+  let programKeypair;
+  if (fs.existsSync(kpPath)) programKeypair = Keypair.fromSecretKey(Uint8Array.from(readJson(kpPath)));
+  else { programKeypair = Keypair.generate(); fs.writeFileSync(kpPath, JSON.stringify([...programKeypair.secretKey]), { mode: 0o600 }); log(`new runtime keypair → ${kpPath} (keep it: redeploys upgrade in place)`); }
+  const programId = programKeypair.publicKey;
+  const info = await getProgramInfo(connection, programId);
+  const upgrade = info.exists;
+  const est = await estimateCost({ staticFiles: [], soSize: so.length, manifestBytes: 0, connection, upgrade });
+  est.items = est.items.filter((i) => i.kind !== 'asset');
+  est.lamports = est.items.filter((i) => !i.transient).reduce((n, i) => n + i.lamports, 0); est.sol = est.lamports / LAMPORTS_PER_SOL;
+  est.totalLamports = est.lamports + est.transientLamports + est.feeLamports; est.totalSol = est.totalLamports / LAMPORTS_PER_SOL;
+  log(`cluster ${cluster} (${rpc.replace(/\?.*$/, '')}) · payer ${payer.publicKey.toBase58()} · runtime ${programId.toBase58()} (${upgrade ? 'upgrade' : 'new'}) · ${path.basename(soPath)} ${so.length.toLocaleString()} B ${arch} (${source})`);
+  log(formatCostTable(est));
+  const bal = await connection.getBalance(payer.publicKey);
+  if (bal < est.totalLamports) throw new Error(`payer has ${(bal / LAMPORTS_PER_SOL).toFixed(4)} SOL, needs ≈ ${est.totalSol.toFixed(4)} SOL`);
+  if (mainnet && !o.yes) throw new Error(`refusing to spend ≈ ${est.totalSol.toFixed(4)} SOL on mainnet without --yes`);
+  let done = 0; const total = Math.ceil(so.length / 900);
+  const onProgress = (n) => { done += 1; if (done % 25 === 0 || done === total) log(`  wrote ${Math.min(done, total)}/${total} chunks`); };
+  const t0 = Date.now();
+  const r = upgrade
+    ? await upgradeProgram(connection, { payer, programId, so, onProgress })
+    : await deployProgram(connection, { payer, programKeypair, so, onProgress, headroom: o.headroom ? Number(o.headroom) : 1 });
+  log(`${upgrade ? 'upgraded' : 'deployed'} runtime ${programId.toBase58()} in ${((Date.now() - t0) / 1000).toFixed(1)}s (${r.signature})`);
+  log(`\nsites now deploy against it:  openzoo-transmute build <dir> --target shared && openzoo-transmute deploy <dir> --runtime ${programId.toBase58()} --cluster ${cluster}`);
+  log(`hub: OPENZOO_VM_PROGRAM=${programId.toBase58()}`);
+  return { programId: programId.toBase58(), signature: r.signature, upgrade, arch, soPath, cluster, rpc, keypairPath: kpPath };
 }

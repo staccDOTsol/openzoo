@@ -1,0 +1,6 @@
+{
+  "name": "openzoo-transmute-site",
+  "private": true,
+  "description": "The explainer for openzoo-transmute, itself a transmuted Vercel-shaped app: static frontend in asset accounts, /api/* as a Pinocchio program.",
+  "version": "1.0.0"
+}

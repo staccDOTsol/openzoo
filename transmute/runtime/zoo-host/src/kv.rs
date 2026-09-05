@@ -36,8 +36,17 @@ pub fn key_hash(key: &str) -> [u8; 32] {
 }
 
 pub fn pda_for(program_id: &Address, key: &str) -> (Address, u8, [u8; 32]) {
+    pda_for_ns(program_id, None, key)
+}
+
+/// KV PDA: `["kv", hash]` for a compiled site, `["kv", site_id, hash]` under
+/// the shared runtime.
+pub fn pda_for_ns(program_id: &Address, ns: Option<&[u8; 32]>, key: &str) -> (Address, u8, [u8; 32]) {
     let h = key_hash(key);
-    let (a, bump) = Address::find_program_address(&[b"kv", &h], program_id);
+    let (a, bump) = match ns {
+        Some(n) => Address::find_program_address(&[b"kv", n, &h], program_id),
+        None => Address::find_program_address(&[b"kv", &h], program_id),
+    };
     (a, bump, h)
 }
 
@@ -50,7 +59,7 @@ struct Slot {
 impl<'a> Ctx<'a> {
     fn kv_slot(&mut self, key: &Val) -> Result<Slot, Val> {
         let k = key.to_js_string();
-        let (addr, bump, hash) = pda_for(self.program_id, &k);
+        let (addr, bump, hash) = pda_for_ns(self.program_id, self.ns.as_ref(), &k);
         match self.accounts.iter().position(|a| *a.address() == addr) {
             Some(idx) => Ok(Slot { idx, bump, hash }),
             None => {
@@ -147,12 +156,24 @@ impl<'a> Ctx<'a> {
             if !payer.is_signer() {
                 return Err(Val::str("kv.set: payer must sign"));
             }
-            let seeds = [Seed::from(b"kv".as_ref()), Seed::from(s.hash.as_ref()), Seed::from(bump.as_ref())];
-            let signer = Signer::from(&seeds);
-            CreateAccount::with_minimum_balance(payer, acc, need as u64, program_id, None)
-                .map_err(|e| Val::Str(err_str("kv create", e)))?
-                .invoke_signed(&[signer])
-                .map_err(|e| Val::Str(err_str("kv create", e)))?;
+            let ns = self.ns;
+            let r = match ns.as_ref() {
+                Some(n) => {
+                    let seeds = [Seed::from(b"kv".as_ref()), Seed::from(n.as_ref()), Seed::from(s.hash.as_ref()), Seed::from(bump.as_ref())];
+                    let signer = Signer::from(&seeds);
+                    CreateAccount::with_minimum_balance(payer, acc, need as u64, program_id, None)
+                        .map_err(|e| Val::Str(err_str("kv create", e)))?
+                        .invoke_signed(&[signer])
+                }
+                None => {
+                    let seeds = [Seed::from(b"kv".as_ref()), Seed::from(s.hash.as_ref()), Seed::from(bump.as_ref())];
+                    let signer = Signer::from(&seeds);
+                    CreateAccount::with_minimum_balance(payer, acc, need as u64, program_id, None)
+                        .map_err(|e| Val::Str(err_str("kv create", e)))?
+                        .invoke_signed(&[signer])
+                }
+            };
+            r.map_err(|e| Val::Str(err_str("kv create", e)))?;
         } else if need > acc.data_len() {
             let rent = Rent::get().map_err(|e| Val::Str(err_str("rent", e)))?;
             let min = rent.try_minimum_balance(need).map_err(|e| Val::Str(err_str("rent", e)))?;

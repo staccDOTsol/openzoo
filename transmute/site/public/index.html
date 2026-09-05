@@ -63,13 +63,13 @@ input{padding:.4rem .6rem;font:inherit;border:1px solid #8884;border-radius:.4re
 <tr><td>Middleware / edge</td><td>yes</td><td>no (gateway does routing/rewrites/redirects from <code>vercel.json</code>)</td></tr>
 <tr><td>Image optimization</td><td>yes</td><td>no</td></tr>
 <tr><td>Domains / TLS</td><td>built in</td><td>via a gateway host (this one or your own); the chain has no HTTP</td></tr>
-<tr><td>Previews / rollbacks / git integration</td><td>yes</td><td>no. Each deploy is a program (new rent) or an upgrade in place</td></tr>
+<tr><td>Previews / rollbacks / git integration</td><td>yes</td><td>no. Each deploy updates the site's accounts in place (or, with a dedicated program, upgrades it)</td></tr>
 <tr><td>Observability</td><td>logs, analytics, tracing</td><td>transaction logs, compute-unit counts, block explorers</td></tr>
 <tr><td>Latency</td><td>~50–300 ms</td><td>reads 300–800 ms, writes 1–3 s</td></tr>
 <tr><td>Read cost</td><td>metered</td><td>free, unlimited, no account needed</td></tr>
 <tr><td>Write cost</td><td>free</td><td>~0.000005 SOL per transaction + rent for new state; a signer is required (your wallet, a bounded hub signer, or x402 pay-per-write once built)</td></tr>
-<tr><td>Deploy cost</td><td>free tier</td><td>rent up front (~1 SOL for a small app today; ~0.05 SOL once the shared runtime lands)</td></tr>
-<tr><td>Toolchain</td><td>node</td><td>node + Rust + <code>cargo-build-sbf</code> (goes away with the shared runtime)</td></tr>
+<tr><td>Deploy cost</td><td>free tier</td><td>rent up front: ~0.03–0.1 SOL for a small app on the shared <code>zoo-vm</code> runtime (this site: 0.095 SOL); ~1 SOL+ with a dedicated program per site</td></tr>
+<tr><td>Toolchain</td><td>node</td><td>node only on the shared runtime (bytecode, no cargo); node + Rust + <code>cargo-build-sbf</code> for a dedicated program</td></tr>
 <tr><td>Who can take it down</td><td>Vercel, DNS, a card on file</td><td>nobody, if the upgrade authority is burned; any RPC + any gateway serves it</td></tr>
 <tr><td>Verifiability</td><td>trust the platform</td><td>the code and every state change are public and replayable</td></tr>
 <tr><td>Composability</td><td>HTTP APIs</td><td>other programs and wallets can call your routes as instructions</td></tr>
@@ -80,7 +80,7 @@ input{padding:.4rem .6rem;font:inherit;border:1px solid #8884;border-radius:.4re
 <h2>Put your own app here</h2>
 <pre>npx openzoo inspect .                       # your app, in Vercel terms + what is eligible
 npx openzoo build .                         # Rust program + asset plan (needs cargo-build-sbf)
-npx openzoo deploy . --cluster mainnet --yes   # rent quoted first; paid by ~/.openzoo/wallet.json
+npx openzoo deploy . --cluster mainnet --runtime &lt;zoo-vm id&gt; --yes   # rent quoted first; paid by ~/.openzoo/wallet.json
 # → https://sites.openzoo.fun/s/&lt;programId&gt;
 npx openzoo serve &lt;programId&gt;                # local gateway that signs writes with your wallet</pre>
 <p class="muted">Eligible today: handlers using query/body/headers, JSON, string and array methods, <code>@vercel/kv</code>, <code>Date.now()</code>, <code>process.env</code>. Not eligible: network calls, the filesystem, <code>Math.random</code>, streaming, <code>waitUntil</code>, ISR, middleware. Bodies must fit in one transaction (~900 bytes), responses in the log buffer (~8 KB). Reads are free; writes cost a transaction fee plus rent for new KV accounts.</p>

@@ -63,15 +63,46 @@ Requirements: Node ≥ 18, and for `build`/`deploy` the Solana toolchain
 (`cargo build-sbf`): `sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"`.
 `build --skip-cargo` works without it (you get the crate and the cost sheet, no `.so`).
 
-## Quickstart
+## Quickstart (shared runtime — the default)
+
+A site does not need its own program. The `zoo-vm` runtime
+(`runtime/zoo-vm`, prebuilt at `prebuilt/zoo_vm.v0.so`) is deployed once per
+cluster; every site is then just data accounts under it — a 66-byte site
+account, its bytecode module (`/.zoo/code.bin`, ~1–2 KB for a handful of
+routes), its static files and its manifest. Rent for a small site is
+**≈0.03–0.1 SOL** instead of ≈1 SOL+ for a dedicated program.
 
 ```sh
 cd my-next-app                      # or a Vite repo with api/*.js, or a .vercel/output
 npx openzoo-transmute inspect       # the app in Vercel terms + eligibility report
-npx openzoo-transmute build         # → .zoo-out/.zoo/{crate,manifest.json,deploy/*.so}
-npx openzoo-transmute deploy --cluster devnet
-npx openzoo-transmute serve <programId> --cluster devnet
+npx openzoo-transmute build         # → .zoo-out/.zoo/{code.bin,manifest.json,…}; no cargo needed
+npx openzoo-transmute deploy --cluster mainnet --runtime <zoo-vm id> --yes
+npx openzoo-transmute serve         # site id + runtime read from .zoo/deploy.json
 open http://127.0.0.1:4402/         # explorer at /.zoo/, manifest at /.zoo/manifest.json
+```
+
+The site id is the public key of `.zoo/site-keypair.json` (looks like a
+program id, costs nothing; keep it — redeploys update the same site). The hub
+serves it at `https://sites.openzoo.fun/s/<siteId>` once its
+`OPENZOO_VM_PROGRAM` points at the same runtime.
+
+Deploying the runtime itself (once, ≈2.2 SOL on mainnet for the 313 KB .so,
+upgradeable by the deployer's key):
+
+```sh
+npx openzoo-transmute runtime deploy --cluster mainnet --yes     # keypair → ./zoo-vm-keypair.json
+export OPENZOO_VM_PROGRAM=<printed id>
+```
+
+`--target program` keeps the original path: one Pinocchio program per site,
+compiled from the generated crate with `cargo build-sbf`.
+
+## Quickstart (dedicated program)
+
+```sh
+npx openzoo-transmute build --target program   # → .zoo-out/.zoo/{crate,manifest.json,deploy/*.so}
+npx openzoo-transmute deploy --cluster mainnet --yes
+npx openzoo-transmute serve <programId> --cluster mainnet
 ```
 
 `inspect` prints one line per function with its route, style, runtime,
@@ -115,14 +146,16 @@ POST /api/counter            → 402 payment required   (gateway started without
 
 | command | what it does |
 |---|---|
-| `build [dir] [--out .zoo-out] [--name <crate>] [--arch v0\|v3] [--cluster <c>] [--skip-cargo] [--json]` | read the app (`lib/vercel.js`), transmute (`lib/compile/`), write `<out>/.zoo/{crate/, manifest.json, report.json, static-plan.json, build.json}`, run `cargo build-sbf --arch <arch>` → `.zoo/deploy/<name>.so`, print the cost sheet (`--cluster` only chooses the RPC whose rent parameters price it, default `localnet`; unreachable → the 6.96 SOL/MB rule). Default arch is `v0` (mainnet); `deploy` re-detects the cluster's SBPF version and rebuilds if needed. Exit code 2 when nothing was eligible |
-| `deploy [dir\|outDir] [--cluster mainnet\|devnet\|testnet\|localnet\|<url>] [--keypair <path>] [--yes] [--program <id>] [--concurrency 4] [--skip-assets] [--force] [--json]` | deploy or upgrade the program (keypair kept at `.zoo/program-keypair.json`, so redeploys upgrade in place), upload every static file (unchanged ones skipped by comparing bytes on chain), write `/.zoo/manifest.json`, record `.zoo/deploy.json` |
-| `serve [programId] [--cluster <c>] [--port 4402] [--host 127.0.0.1] [--keypair <path>\|--no-keypair] [--quiet]` | the local gateway; `programId` defaults to the `.zoo/deploy.json` under the current directory (or its `.zoo-out/`). Reads are simulated, writes are signed by the wallet; without a wallet (or with `--no-keypair`) writes answer 402. Without `--cluster`/`OPENZOO_CLUSTER` this command assumes `localnet`, unlike the others |
+| `build [dir] [--target shared\|program] [--runtime <id>] [--out .zoo-out] [--name <crate>] [--arch v0\|v3] [--cluster <c>] [--skip-cargo] [--json]` | `--target shared` (default): transmute to a `ZOOB` bytecode module at `<out>/.zoo/code.bin` for the shared runtime, no cargo, site-sized cost sheet. `--target program`: read the app (`lib/vercel.js`), transmute (`lib/compile/`), write `<out>/.zoo/{crate/, manifest.json, report.json, static-plan.json, build.json}`, run `cargo build-sbf --arch <arch>` → `.zoo/deploy/<name>.so`, print the cost sheet (`--cluster` only chooses the RPC whose rent parameters price it, default `localnet`; unreachable → the 6.96 SOL/MB rule). Default arch is `v0` (mainnet); `deploy` re-detects the cluster's SBPF version and rebuilds if needed. Exit code 2 when nothing was eligible |
+| `deploy [dir\|outDir] [--cluster mainnet\|devnet\|testnet\|localnet\|<url>] [--keypair <path>] [--yes] [--runtime <id>] [--program <id>] [--concurrency 4] [--skip-assets] [--force] [--json]` | shared build: create the site account under `--runtime` (or `OPENZOO_VM_PROGRAM`), upload `code.bin`, assets and manifest as PDAs namespaced by the site id (keypair at `.zoo/site-keypair.json`). Program build: deploy or upgrade the program (keypair kept at `.zoo/program-keypair.json`, so redeploys upgrade in place), upload every static file (unchanged ones skipped by comparing bytes on chain), write `/.zoo/manifest.json`, record `.zoo/deploy.json` |
+| `serve [siteId\|programId] [--runtime <id>] [--cluster <c>] [--port 4402] [--host 127.0.0.1] [--keypair <path>\|--no-keypair] [--quiet]` | the local gateway; with `--runtime` the positional is a site id on the shared runtime. It defaults to the `.zoo/deploy.json` under the current directory (or its `.zoo-out/`). Reads are simulated, writes are signed by the wallet; without a wallet (or with `--no-keypair`) writes answer 402. Without `--cluster`/`OPENZOO_CLUSTER` this command assumes `localnet`, unlike the others |
 | `inspect [dir] [--json]` | the Vercel model (functions, static files, routes, crons) plus the eligibility report |
-| `status <programId> [--cluster <c>] [--json]` | program account, authority, `maxDataLen`, deploy slot, and the on-chain manifest |
+| `status <siteId\|programId> [--runtime <id>] [--cluster <c>] [--json]` | program account, authority, `maxDataLen`, deploy slot, and the on-chain manifest; with `--runtime`, the site account and its manifest |
+| `runtime deploy [--cluster <c>] [--keypair <path>] [--yes] [--program-keypair zoo-vm-keypair.json] [--so <path>]` | deploy (or upgrade in place) the shared `zoo-vm` runtime: `prebuilt/zoo_vm.<arch>.so`, or built from `runtime/zoo-vm` when no prebuilt matches the cluster's SBPF version |
+| `runtime status <id> [--cluster <c>]` | the runtime program's account |
 | `help`, `--version` | |
 
-Environment: `OPENZOO_CLUSTER` (default `mainnet` for `deploy`/`status`, `localnet` for `serve`), `OPENZOO_RPC` (mainnet RPC
+Environment: `OPENZOO_VM_PROGRAM` (shared runtime id; default for `--runtime`), `OPENZOO_TARGET` (`shared`/`program`), `OPENZOO_CLUSTER` (default `mainnet` for `deploy`/`status`, `localnet` for `serve`), `OPENZOO_RPC` (mainnet RPC
 URL), `OPENZOO_KEYPAIR` / `OPENZOO_WALLET` (signer path), `OPENZOO_DEBUG=1`
 (stack traces). Signer discovery order (`lib/wallet.js`): `--keypair` →
 `OPENZOO_KEYPAIR` → `OPENZOO_WALLET` or `~/.openzoo/wallet.json` (the openzoo

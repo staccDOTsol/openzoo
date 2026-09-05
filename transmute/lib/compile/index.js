@@ -8,10 +8,12 @@ import { Ineligible, functionMetaReason, deploymentWarnings, displayFile } from 
 import { readModule } from './parse.js';
 import { lowerRoute } from './ir.js';
 import { emitRoute, emitCrate, RustPrinter, DEFAULT_RUNTIME_PATH, sanitizeCrateName } from './rust.js';
+import { emitModule } from './bytecode.js';
 
 export { readModule, parseModule, stripTypes } from './parse.js';
 export { lowerRoute, IR } from './ir.js';
 export { emitRoute, emitCrate, RustPrinter, DEFAULT_RUNTIME_PATH, sanitizeCrateName, rustStr } from './rust.js';
+export { emitModule, OP } from './bytecode.js';
 export { Ineligible } from '../eligibility.js';
 
 export const MANIFEST_VERSION = 1;
@@ -65,6 +67,7 @@ export function transmute(deployment, opts = {}) {
   const report = { eligible: [], ineligible: [], warnings: deploymentWarnings(deployment) };
   const routes = [];
   const routeSources = [];
+  const loweredIrs = [];
   const mergedEnv = {};
   const referencedEnv = new Set();
   let envDynamic = false;
@@ -92,6 +95,7 @@ export function transmute(deployment, opts = {}) {
       continue;
     }
     routeSources.push(c.rust);
+    loweredIrs.push(c.ir);
     for (const k of c.env) referencedEnv.add(k);
     if (c.envDynamic) envDynamic = true;
     Object.assign(mergedEnv, fn.environment || {});
@@ -118,8 +122,16 @@ export function transmute(deployment, opts = {}) {
     `${deployment.source || 'deployment'}${deployment.framework ? ` (${deployment.framework})` : ''} — ${routes.length} route(s), ${(deployment.staticFiles || []).length} static file(s)`,
     ...routes.map((r) => `route ${r.index}: ${r.routePath}${r.methods ? ' [' + r.methods.join(',') + ']' : ''} ← ${r.name}`),
   ].join('\n');
-  const crateFiles = emitCrate({ name, runtimePath, env, routes: routeSources, routeCount: routes.length, header });
-  const crate = { 'Cargo.toml': crateFiles['Cargo.toml'], 'src/lib.rs': crateFiles['src/lib.rs'] };
+  const target = opts.target === 'shared' ? 'shared' : 'program';
+  let crate = null;
+  let code = null;
+  if (target === 'shared') {
+    // The shared runtime: a bytecode module (a few KB) instead of a crate.
+    code = emitModule({ routes: loweredIrs.map((ir) => ({ ir })), env });
+  } else {
+    const crateFiles = emitCrate({ name, runtimePath, env, routes: routeSources, routeCount: routes.length, header });
+    crate = { 'Cargo.toml': crateFiles['Cargo.toml'], 'src/lib.rs': crateFiles['src/lib.rs'] };
+  }
 
   const manifest = {
     version: MANIFEST_VERSION,
@@ -128,8 +140,9 @@ export function transmute(deployment, opts = {}) {
     static: (deployment.staticFiles || []).map((f) => ({ path: f.path, contentType: f.contentType, size: f.size })),
     env: envNames,
     config: deployment.config,
+    target,
   };
-  return { crate, manifest, report, crateName: crateFiles.crateName };
+  return { crate, code, manifest, report, crateName: crate ? name : null, target };
 }
 
 /** Write a transmuted crate to `dir` (creates src/). Returns the paths written. */

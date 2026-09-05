@@ -15,8 +15,8 @@
 import http from 'node:http';
 import { createHash } from 'node:crypto';
 import { PublicKey, Transaction, TransactionInstruction, ComputeBudgetProgram, SystemProgram } from '@solana/web3.js';
-import { FORWARDED_HEADERS, MANIFEST_PATH, assetPda, decodeAsset, encodeInvoke } from './wire.js';
-import { connect, invoke as chainInvoke, readManifest, getProgramInfo, DEFAULT_CU, DEFAULT_HEAP } from './solana.js';
+import { FORWARDED_HEADERS, MANIFEST_PATH, assetPda, assetPdaFor, decodeAsset, encodeInvoke } from './wire.js';
+import { connect, invoke as chainInvoke, readManifest, getProgramInfo, getSiteInfo, DEFAULT_CU, DEFAULT_HEAP } from './solana.js';
 import { rpcUrl } from './wallet.js';
 
 export const DEFAULT_PORT = 4402;
@@ -46,9 +46,14 @@ const HTML_CT = 'text/html; charset=utf-8';
 export function makeState(o) {
   const programId = new PublicKey(o.programId);
   const cluster = o.cluster || process.env.OPENZOO_CLUSTER || 'localnet';
+  // Shared runtime: `programId` is the runtime program and `site` the site id;
+  // every PDA is namespaced by it and the invoke carries it.
+  const site = o.site ? new PublicKey(o.site) : null;
   const state = {
     programId,
     programIdStr: programId.toBase58(),
+    site,
+    siteStr: site ? site.toBase58() : null,
     cluster,
     rpc: o.connection?.rpcEndpoint || safeRpcUrl(cluster),
     connection: o.connection ?? null,
@@ -103,7 +108,7 @@ export async function getAsset(state, path) {
   const cached = state.assets.get(path);
   if (cached && now - cached.at < state.cacheTtlMs) return cached;
   if (!state.connection) return cached ?? { missing: true, at: now };
-  const [pda] = assetPda(state.programId, path);
+  const [pda] = assetPdaFor(state.programId, state.site, path);
   let entry;
   try {
     const info = await state.connection.getAccountInfo(pda);
@@ -384,7 +389,7 @@ async function serveFunction(state, hit, req, pathname, query, extraHeaders = {}
   state.stats.invokes++;
   let r;
   try {
-    r = await state.invoke({ programId: state.programId, payer, event, mutate });
+    r = await state.invoke({ programId: state.programId, site: state.site, payer, event, mutate });
   } catch (e) {
     const msg = String(e?.message || e);
     if (/signing keypair is required/i.test(msg)) return json(402, { error: 'payment required', message: msg, method, path: pathname }, { 'x-zoo-program': state.programIdStr });
@@ -424,10 +429,11 @@ export async function statusOf(state) {
   let chain = null;
   if (state.connection) {
     try {
-      const [info, slot] = await Promise.all([getProgramInfo(state.connection, state.programId), state.connection.getSlot('confirmed')]);
+      const [info, slot, siteInfo] = await Promise.all([getProgramInfo(state.connection, state.programId), state.connection.getSlot('confirmed'), state.site ? getSiteInfo(state.connection, state.programId, state.site) : null]);
       chain = {
         slot,
         program: { exists: info.exists, executable: info.executable ?? null, authority: info.authority ? info.authority.toBase58() : null, deploySlot: info.slot, maxDataLen: info.maxDataLen, programData: info.programData.toBase58() },
+        site: siteInfo ? { id: state.siteStr, exists: siteInfo.exists, authority: siteInfo.authority ? siteInfo.authority.toBase58() : null, account: siteInfo.pda.toBase58() } : null,
       };
     } catch (e) { chain = { error: String(e?.message || e) }; }
   }
@@ -660,13 +666,13 @@ function readBody(req, limit) {
  * Serve a program over HTTP. Resolves once listening.
  * @returns {Promise<{server:import('node:http').Server, port:number, url:string, state:object, close:()=>Promise<void>}>}
  */
-export async function startGateway({ programId, cluster, port = DEFAULT_PORT, host = '127.0.0.1', keypair, manifest, invoke, connection, cacheTtlMs, log = console.log, quiet = false } = {}) {
+export async function startGateway({ programId, site = null, cluster, port = DEFAULT_PORT, host = '127.0.0.1', keypair, manifest, invoke, connection, cacheTtlMs, log = console.log, quiet = false } = {}) {
   const rpc = safeRpcUrl(cluster || process.env.OPENZOO_CLUSTER || 'localnet');
   connection = connection ?? (rpc ? connect(rpc) : null);
-  const state = makeState({ programId, cluster, connection, keypair, manifest, invoke, cacheTtlMs, port, log: quiet ? () => {} : log });
+  const state = makeState({ programId, site, cluster, connection, keypair, manifest, invoke, cacheTtlMs, port, log: quiet ? () => {} : log });
   if (!manifest && connection) {
     try {
-      const m = await readManifest(connection, state.programId);
+      const m = await readManifest(connection, state.programId, state.site);
       if (m) { state.manifest = normalizeManifest(m); state.manifestAt = Date.now(); }
       else if (!quiet) log(`warning: no manifest at ${MANIFEST_PATH} for ${state.programIdStr}; routing by on-chain lookup only`);
     } catch (e) { if (!quiet) log(`warning: could not read the manifest: ${e?.message || e}`); }

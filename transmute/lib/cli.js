@@ -14,20 +14,25 @@ import path from 'node:path';
 import { PublicKey } from '@solana/web3.js';
 import { readDeployment } from './vercel.js';
 import { build } from './build.js';
-import { deploy, resolveOutDir, clusterLabel } from './deploy.js';
+import { deploy, deployRuntime, resolveOutDir, clusterLabel } from './deploy.js';
 import { startGateway, DEFAULT_PORT } from './gateway.js';
 import { startHub, DEFAULT_HUB_PORT } from './hub.js';
-import { connect, getProgramInfo, readManifest } from './solana.js';
+import { connect, getProgramInfo, getSiteInfo, readManifest } from './solana.js';
 import { loadWallet, rpcUrl } from './wallet.js';
 import { MANIFEST_PATH } from './wire.js';
 
 export const USAGE = `openzoo-transmute — Vercel app → Solana program + asset accounts
 
 usage:
-  openzoo-transmute build   [dir] [--out .zoo-out] [--name <crate>] [--arch v0|v3] [--cluster <c>] [--skip-cargo]
-  openzoo-transmute deploy  [dir|outDir] [--cluster mainnet|devnet|localnet|<url>] [--keypair <path>] [--yes] [--program <id>]
-                            [--concurrency 4] [--skip-assets] [--force] [--headroom 1.5]
-  openzoo-transmute serve   <programId> [--cluster <c>] [--port ${DEFAULT_PORT}] [--keypair <path>] [--host 127.0.0.1] [--quiet]
+  openzoo-transmute build   [dir] [--target shared|program] [--out .zoo-out] [--name <crate>] [--arch v0|v3] [--cluster <c>] [--skip-cargo]
+                            --target shared (default): bytecode for the shared zoo-vm runtime — a site is data accounts only (≈0.05–0.1 SOL)
+                            --target program: your own Pinocchio program per site (≈1 SOL+)
+  openzoo-transmute deploy  [dir|outDir] [--cluster mainnet|devnet|localnet|<url>] [--keypair <path>] [--yes] [--runtime <zoo-vm id>]
+                            [--program <id>] [--concurrency 4] [--skip-assets] [--force] [--headroom 1.5]
+  openzoo-transmute serve   <siteId|programId> [--runtime <zoo-vm id>] [--cluster <c>] [--port ${DEFAULT_PORT}] [--keypair <path>] [--host 127.0.0.1] [--quiet]
+  openzoo-transmute runtime deploy [--cluster <c>] [--keypair <path>] [--yes] [--program-keypair zoo-vm-keypair.json] [--so <path>]
+                            deploy (or upgrade) the shared zoo-vm runtime once per cluster
+  openzoo-transmute runtime status <zoo-vm id> [--cluster <c>]
   openzoo-transmute hub     [--cluster mainnet] [--port 8080] [--host 0.0.0.0] [--public-url <https://…>]
                             hosted explorer for EVERY program on the cluster (/s/<programId>), read-only
   openzoo-transmute inspect [dir]                 print the Vercel model + eligibility report
@@ -35,7 +40,7 @@ usage:
   openzoo-transmute help
 
 clusters: mainnet (default, needs --yes to deploy), devnet, testnet, localnet, or an RPC URL.
-env: OPENZOO_CLUSTER, OPENZOO_RPC (mainnet RPC), OPENZOO_KEYPAIR / OPENZOO_WALLET (signer).
+env: OPENZOO_CLUSTER, OPENZOO_RPC (mainnet RPC), OPENZOO_KEYPAIR / OPENZOO_WALLET (signer), OPENZOO_VM_PROGRAM (shared runtime id).
 `;
 
 /** `--k v`, `--k=v`, `--flag`, `--no-flag`; everything else is positional. */
@@ -114,26 +119,49 @@ async function tryTransmute(deployment) {
   }
 }
 
+export const DEFAULT_TARGET = 'shared';
+
+/** `--runtime` is the zoo-vm program id (shared) — or, for `--target program`, a zoo-host checkout path. */
+function runtimeFlag(f) {
+  const v = f.runtime;
+  if (typeof v !== 'string') return { runtime: process.env.OPENZOO_VM_PROGRAM || null, runtimePath: f.runtimePath || undefined };
+  if (fs.existsSync(v) && fs.existsSync(path.join(v, 'Cargo.toml'))) return { runtime: process.env.OPENZOO_VM_PROGRAM || null, runtimePath: v };
+  new PublicKey(v);
+  return { runtime: v, runtimePath: f.runtimePath || undefined };
+}
+
 async function cmdBuild(p, f, log) {
-  const r = await build(p[0] || '.', { out: f.out, name: f.name, arch: f.arch, cluster: f.cluster, runtimePath: f.runtime, skipCargo: !!f.skipCargo, log });
-  if (f.json) log(JSON.stringify({ outDir: r.outDir, soPath: r.soPath, arch: r.arch, report: r.report, costEstimate: { sol: r.costEstimate.sol, totalSol: r.costEstimate.totalSol, source: r.costEstimate.source } }, null, 2));
+  const target = f.target || process.env.OPENZOO_TARGET || DEFAULT_TARGET;
+  if (!['shared', 'program'].includes(target)) throw new Error(`--target must be shared or program (got ${target})`);
+  const { runtime, runtimePath } = runtimeFlag(f);
+  const r = await build(p[0] || '.', { out: f.out, name: f.name, arch: f.arch, cluster: f.cluster, target, runtime, runtimePath, skipCargo: !!f.skipCargo, log });
+  if (f.json) log(JSON.stringify({ outDir: r.outDir, target: r.target || 'program', soPath: r.soPath, codePath: r.codePath || null, codeSize: r.codeSize || null, arch: r.arch, report: r.report, costEstimate: { sol: r.costEstimate.sol, totalSol: r.costEstimate.totalSol, source: r.costEstimate.source } }, null, 2));
   return r.report.ineligible.length && !r.report.eligible.length && r.manifest.routes.length === 0 && r.deployment.functions.length ? 2 : 0;
 }
 
 async function cmdDeploy(p, f, log) {
-  const r = await deploy({ outDir: p[0] || '.', cluster: f.cluster, keypair: f.keypair, programId: f.program, yes: !!f.yes, concurrency: f.concurrency ? Number(f.concurrency) : undefined, skipAssets: !!f.skipAssets, force: !!f.force, log });
+  const { runtime } = runtimeFlag(f);
+  const r = await deploy({ outDir: p[0] || '.', cluster: f.cluster, keypair: f.keypair, programId: f.program, runtime, yes: !!f.yes, concurrency: f.concurrency ? Number(f.concurrency) : undefined, skipAssets: !!f.skipAssets, force: !!f.force, headroom: f.headroom, log });
   if (f.json) log(JSON.stringify(r, null, 2));
   return 0;
 }
 
 async function cmdServe(p, f, log) {
   let programId = p[0];
+  let { runtime } = runtimeFlag(f);
   if (!programId) {
     // Fall back to the last deploy in ./ or ./.zoo-out.
-    try { programId = JSON.parse(fs.readFileSync(path.join(resolveOutDir('.'), '.zoo', 'deploy.json'), 'utf8')).programId; } catch { /* none */ }
-    if (!programId) throw new Error('usage: serve <programId> (no .zoo/deploy.json found to infer it from)');
+    try {
+      const d = JSON.parse(fs.readFileSync(path.join(resolveOutDir('.'), '.zoo', 'deploy.json'), 'utf8'));
+      programId = d.target === 'shared' ? d.site : d.programId;
+      if (d.target === 'shared' && !runtime) runtime = d.runtime;
+    } catch { /* none */ }
+    if (!programId) throw new Error('usage: serve <siteId|programId> [--runtime <zoo-vm id>] (no .zoo/deploy.json found to infer it from)');
   }
   new PublicKey(programId); // validate
+  // Shared runtime: the positional is the site id, the program is zoo-vm.
+  let site = null;
+  if (runtime) { site = programId; programId = runtime; }
   let keypair = null, walletPath = null;
   if (f.keypair !== false) {
     try { const w = loadWallet({ keypair: typeof f.keypair === 'string' ? f.keypair : undefined }); keypair = w.keypair; walletPath = w.path; }
@@ -142,10 +170,10 @@ async function cmdServe(p, f, log) {
   const port = f.port != null ? Number(f.port) : DEFAULT_PORT;
   const host = f.host || '127.0.0.1';
   if (keypair && !/^(127\.0\.0\.1|localhost|::1|\[::1\])$/.test(host)) log(`warning: binding ${host} with a signer: anyone who can reach this gateway can send transactions paid by ${keypair.publicKey.toBase58()}; use --no-keypair unless that is intended`);
-  const gw = await startGateway({ programId, cluster: f.cluster, port, host, keypair, log, quiet: !!f.quiet });
+  const gw = await startGateway({ programId, site, cluster: f.cluster, port, host, keypair, log, quiet: !!f.quiet });
   const m = gw.state.manifest;
   log(`openzoo-transmute gateway → ${gw.url}/  (explorer ${gw.url}/.zoo/, manifest ${gw.url}${MANIFEST_PATH})`);
-  log(`program ${programId} on ${gw.state.cluster} · ${m.routes.length} function(s), ${m.static ? m.static.length : '?'} asset(s) · signer ${keypair ? keypair.publicKey.toBase58() + (walletPath ? ` (${walletPath})` : '') : 'none (reads only)'}`);
+  log(`${site ? `site ${site} on runtime ${programId}` : `program ${programId}`} on ${gw.state.cluster} · ${m.routes.length} function(s), ${m.static ? m.static.length : '?'} asset(s) · signer ${keypair ? keypair.publicKey.toBase58() + (walletPath ? ` (${walletPath})` : '') : 'none (reads only)'}`);
   for (const r of m.routes) log(`  ${(r.methods && r.methods.length ? r.methods.join('|') : 'ANY').padEnd(16)} ${r.routePath}`);
   const stop = () => gw.close().then(() => process.exit(0));
   process.once('SIGINT', stop);
@@ -165,10 +193,24 @@ async function cmdInspect(p, f, log) {
 }
 
 async function cmdStatus(p, f, log) {
-  if (!p[0]) throw new Error('usage: status <programId> [--cluster <c>]');
-  const programId = new PublicKey(p[0]);
+  if (!p[0]) throw new Error('usage: status <siteId|programId> [--runtime <zoo-vm id>] [--cluster <c>]');
+  const { runtime } = runtimeFlag(f);
   const rpc = rpcUrl(f.cluster);
   const connection = connect(rpc);
+  if (runtime) {
+    const site = new PublicKey(p[0]);
+    const [info, manifest] = await Promise.all([getSiteInfo(connection, new PublicKey(runtime), site), readManifest(connection, new PublicKey(runtime), site).catch(() => null)]);
+    const out = { site: site.toBase58(), runtime, cluster: clusterLabel(f.cluster), rpc: rpc.replace(/\?.*$/, ''), exists: info.exists, authority: info.authority ? info.authority.toBase58() : null, account: info.pda.toBase58(), manifest: manifest ? { name: manifest.name, routes: manifest.routes?.length ?? 0, static: manifest.static?.length ?? 0, deployedAt: manifest.deployedAt } : null };
+    if (f.json) { log(JSON.stringify(out, null, 2)); return info.exists ? 0 : 1; }
+    log(`site        ${out.site} on runtime ${runtime} (${out.cluster})`);
+    if (!info.exists) { log('status      NOT DEPLOYED'); return 1; }
+    log(`authority   ${out.authority}`);
+    log(`account     ${out.account}`);
+    if (manifest) { log(`manifest    ${manifest.name || ''} · ${out.manifest.routes} function(s), ${out.manifest.static} asset(s) · deployed ${manifest.deployedAt || '?'}`); for (const r of manifest.routes || []) log(`  ${(r.methods && r.methods.length ? r.methods.join('|') : 'ANY').padEnd(16)} ${r.routePath}`); }
+    else log(`manifest    none at ${MANIFEST_PATH}`);
+    return 0;
+  }
+  const programId = new PublicKey(p[0]);
   const [info, slot, manifest] = await Promise.all([getProgramInfo(connection, programId), connection.getSlot('confirmed'), readManifest(connection, programId).catch(() => null)]);
   const out = {
     programId: programId.toBase58(), cluster: clusterLabel(f.cluster), rpc: rpc.replace(/\?.*$/, ''), slot,
@@ -215,13 +257,27 @@ async function cmdHub(p, f, log) {
   return 0;
 }
 
+async function cmdRuntime(p, f, log) {
+  const sub = p[0];
+  if (sub === 'deploy') {
+    const r = await deployRuntime({ cluster: f.cluster, keypair: f.keypair, yes: !!f.yes, programKeypair: f.programKeypair, so: f.so, headroom: f.headroom, log });
+    if (f.json) log(JSON.stringify(r, null, 2));
+    return 0;
+  }
+  if (sub === 'status') {
+    if (!p[1]) throw new Error('usage: runtime status <zoo-vm id> [--cluster <c>]');
+    return cmdStatus([p[1]], { ...f, runtime: undefined }, log);
+  }
+  throw new Error('usage: runtime deploy|status');
+}
+
 export async function run(argv = process.argv.slice(2), io = {}) {
   const log = io.log ?? console.log;
   const error = io.error ?? console.error;
   const { cmd, positionals, flags } = parseArgs(argv);
   if (flags.version) { log(JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version); return 0; }
   if (flags.help || cmd === 'help' || cmd === '--help') { log(USAGE); return 0; }
-  const commands = { build: cmdBuild, deploy: cmdDeploy, serve: cmdServe, inspect: cmdInspect, status: cmdStatus, hub: cmdHub };
+  const commands = { build: cmdBuild, deploy: cmdDeploy, serve: cmdServe, inspect: cmdInspect, status: cmdStatus, hub: cmdHub, runtime: cmdRuntime };
   const fn = commands[cmd];
   if (!fn) { error(`unknown command: ${cmd}\n`); error(USAGE); process.exitCode = 1; return 1; }
   try {

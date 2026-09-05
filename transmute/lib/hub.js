@@ -20,7 +20,7 @@
 import http from 'node:http';
 import { PublicKey } from '@solana/web3.js';
 import { makeState, normalizeManifest, handleRequest, safeResponseHeaders, PACKET_DATA_SIZE, BODY_LIMIT } from './gateway.js';
-import { connect, readManifest } from './solana.js';
+import { connect, readManifest, getSiteInfo } from './solana.js';
 import { rpcUrl } from './wallet.js';
 import { MANIFEST_PATH } from './wire.js';
 
@@ -80,6 +80,9 @@ export function makeHub(o = {}) {
     startedAt: Date.now(),
     stats: { requests: 0, sitesLoaded: 0, writes: 0, writesRefused: 0, spentLamports: 0 },
     publicUrl: o.publicUrl || null,
+    // The shared runtime program on this cluster: ids that are site accounts
+    // under it are served as shared sites; anything else as a compiled program.
+    runtime: o.runtime || process.env.OPENZOO_VM_PROGRAM || null,
     // write governor: per-IP token bucket + a daily lamport budget for the signer
     writesPerMin: o.writesPerMin ?? Number(process.env.OPENZOO_HUB_WRITES_PER_MIN || 3),
     budgetLamports: Math.round((o.writeBudgetSol ?? Number(process.env.OPENZOO_HUB_WRITE_BUDGET_SOL || 0.05)) * 1e9),
@@ -115,9 +118,15 @@ async function siteFor(hub, programId) {
   let state;
   if (hub.makeSite) state = await hub.makeSite(programId);
   else {
-    state = makeState({ programId, cluster: hub.cluster, connection: hub.connection, keypair: hub.keypair, log: hub.log, cacheTtlMs: hub.manifestTtlMs });
+    let shared = false;
+    if (hub.runtime) {
+      try { shared = (await getSiteInfo(hub.connection, hub.runtime, programId)).exists; } catch { /* fall through to program mode */ }
+    }
+    state = shared
+      ? makeState({ programId: hub.runtime, site: programId, cluster: hub.cluster, connection: hub.connection, keypair: hub.keypair, log: hub.log, cacheTtlMs: hub.manifestTtlMs })
+      : makeState({ programId, cluster: hub.cluster, connection: hub.connection, keypair: hub.keypair, log: hub.log, cacheTtlMs: hub.manifestTtlMs });
     try {
-      const m = await readManifest(hub.connection, state.programId);
+      const m = await readManifest(hub.connection, state.programId, state.site);
       if (m) { state.manifest = normalizeManifest(m); state.manifestAt = Date.now(); }
       else state.noManifest = true;
     } catch (e) { state.manifestError = String(e?.message || e); }
@@ -135,6 +144,7 @@ function siteSummary(id, entry) {
   const m = entry.state.manifest || {};
   return {
     programId: id,
+    mode: entry.state.site ? 'shared' : 'program',
     name: m.name || null,
     framework: m.framework || null,
     routes: (m.routes || []).length,

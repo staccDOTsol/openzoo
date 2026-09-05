@@ -9,6 +9,8 @@ import {
   BPF_LOADER_UPGRADEABLE, ERR_KV_MISSING, encodeInvoke, parseLogs, decodeResponse, programDataPda,
   assetPda, encodeAssetInit, encodeAssetWrite, encodeAssetClose, decodeAsset, ASSET_FIXED_HEADER,
   ASSET_MAX_INITIAL, kvPda, decodeKv, MANIFEST_PATH,
+  sitePda, assetPdaFor, kvPdaFor, encodeSiteInit, encodeVmInvoke, encodeVmAssetInit, encodeVmAssetWrite, encodeVmAssetClose,
+  decodeSite, CODE_PATH,
 } from './wire.js';
 
 export const WRITE_CHUNK = 900;
@@ -158,10 +160,11 @@ export async function upgradeProgram(connection, { payer, authority = payer, pro
 
 // ---------------------------------------------------------------- assets
 
-function assetKeys(authority, programId, pda) {
+function assetKeys(authority, programId, pda, site = null) {
   return [
     { pubkey: authority.publicKey, isSigner: true, isWritable: true },
-    { pubkey: programDataPda(programId), isSigner: false, isWritable: false },
+    // proof of authority: the program's ProgramData (compiled site) or the site account (shared runtime)
+    { pubkey: site ? sitePda(programId, site)[0] : programDataPda(programId), isSigner: false, isWritable: false },
     { pubkey: pda, isSigner: false, isWritable: true },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   ];
@@ -176,55 +179,59 @@ export async function assetRent(connection, len, contentType = '') {
  * Upload one asset (create/re-init + chunked writes). Skips the upload when
  * the on-chain bytes already match.
  */
-export async function putAsset(connection, { authority, programId, path, contentType, data, onProgress, force = false }) {
+export async function putAsset(connection, { authority, programId, site = null, path, contentType, data, onProgress, force = false }) {
   const pid = new PublicKey(programId);
-  const [pda] = assetPda(pid, path);
+  const [pda] = assetPdaFor(pid, site, path);
+  const initData = site ? encodeVmAssetInit(site, path, data.length, contentType) : encodeAssetInit(path, data.length, contentType);
+  // The shared-runtime write carries the 32-byte site id; keep the tx ≤ 1232 B.
+  const chunk = site ? WRITE_CHUNK - 32 : WRITE_CHUNK;
+  const writeData = (off) => site ? encodeVmAssetWrite(site, path, off, data.subarray(off, off + chunk)) : encodeAssetWrite(path, off, data.subarray(off, off + chunk));
   const existing = await connection.getAccountInfo(pda);
   if (existing && !force) {
     const cur = decodeAsset(existing.data);
     if (cur && cur.complete && cur.contentType === contentType && cur.data.equals(data)) return { pda, skipped: true };
   }
-  const keys = assetKeys(authority, pid, pda);
-  await sendTx(connection, [new TransactionInstruction({ programId: pid, keys, data: encodeAssetInit(path, data.length, contentType) })], [authority], { label: `init ${path}` });
+  const keys = assetKeys(authority, pid, pda, site);
+  await sendTx(connection, [new TransactionInstruction({ programId: pid, keys, data: initData })], [authority], { label: `init ${path}` });
   const header = ASSET_FIXED_HEADER + Buffer.byteLength(contentType.slice(0, 120));
   // The first `ASSET_MAX_INITIAL - header` bytes fit in the created account;
   // later chunks grow it ≤10 KB per tx. Both are just sequential offsets.
   const chunks = [];
-  for (let off = 0; off < data.length; off += WRITE_CHUNK) chunks.push(off);
+  for (let off = 0; off < data.length; off += chunk) chunks.push(off);
   // Writes past the initial allocation resize the account, and a resize's
   // budget is measured from the length at instruction entry; keep those in
   // order so no two growing writes race each other.
   const initialCap = Math.max(0, ASSET_MAX_INITIAL - header);
-  const inPlace = chunks.filter((o) => o + WRITE_CHUNK <= initialCap);
-  const growing = chunks.filter((o) => o + WRITE_CHUNK > initialCap);
-  const write = (off) => sendTx(connection, [new TransactionInstruction({ programId: pid, keys, data: encodeAssetWrite(path, off, data.subarray(off, off + WRITE_CHUNK)) })], [authority], { label: `write ${path}@${off}` });
+  const inPlace = chunks.filter((o) => o + chunk <= initialCap);
+  const growing = chunks.filter((o) => o + chunk > initialCap);
+  const write = (off) => sendTx(connection, [new TransactionInstruction({ programId: pid, keys, data: writeData(off) })], [authority], { label: `write ${path}@${off}` });
   let done = 0;
   await pool(inPlace, async (off) => { await write(off); onProgress?.(++done, chunks.length); }, { concurrency: 8 });
   for (const off of growing) { await write(off); onProgress?.(++done, chunks.length); }
   return { pda, skipped: false, txs: 1 + chunks.length };
 }
 
-export async function closeAsset(connection, { authority, programId, path }) {
+export async function closeAsset(connection, { authority, programId, site = null, path }) {
   const pid = new PublicKey(programId);
-  const [pda] = assetPda(pid, path);
-  return sendTx(connection, [new TransactionInstruction({ programId: pid, keys: assetKeys(authority, pid, pda), data: encodeAssetClose(path) })], [authority], { label: `close ${path}` });
+  const [pda] = assetPdaFor(pid, site, path);
+  return sendTx(connection, [new TransactionInstruction({ programId: pid, keys: assetKeys(authority, pid, pda, site), data: site ? encodeVmAssetClose(site, path) : encodeAssetClose(path) })], [authority], { label: `close ${path}` });
 }
 
-export async function readAsset(connection, programId, path) {
-  const [pda] = assetPda(new PublicKey(programId), path);
+export async function readAsset(connection, programId, path, site = null) {
+  const [pda] = assetPdaFor(new PublicKey(programId), site, path);
   const info = await connection.getAccountInfo(pda);
   if (!info) return null;
   return decodeAsset(info.data);
 }
 
-export async function readManifest(connection, programId) {
-  const a = await readAsset(connection, programId, MANIFEST_PATH);
+export async function readManifest(connection, programId, site = null) {
+  const a = await readAsset(connection, programId, MANIFEST_PATH, site);
   if (!a || !a.complete) return null;
   return JSON.parse(a.data.toString('utf8'));
 }
 
-export async function readKv(connection, programId, key) {
-  const [pda] = kvPda(new PublicKey(programId), key);
+export async function readKv(connection, programId, key, site = null) {
+  const [pda] = kvPdaFor(new PublicKey(programId), site, key);
   const info = await connection.getAccountInfo(pda);
   return info ? decodeKv(info.data) : null;
 }
@@ -242,9 +249,15 @@ export async function readKv(connection, programId, key) {
  *
  * @returns {{status:number, headers:object, body:Buffer, signature?:string, logs:string[], unitsConsumed?:number, accounts:string[]}}
  */
-export async function invoke(connection, { programId, payer, event, mutate = false, computeUnits = DEFAULT_CU, heap = DEFAULT_HEAP, maxDiscovery = 6 }) {
+export async function invoke(connection, { programId, site = null, payer, event, mutate = false, computeUnits = DEFAULT_CU, heap = DEFAULT_HEAP, maxDiscovery = 6 }) {
   const pid = new PublicKey(programId);
   const payerKey = payer.publicKey ?? new PublicKey(payer);
+  // Shared runtime: the instruction names the site and hands the program its
+  // site account and code account after payer + system program.
+  const siteKeys = site ? [
+    { pubkey: sitePda(pid, site)[0], isSigner: false, isWritable: false },
+    { pubkey: assetPdaFor(pid, site, CODE_PATH)[0], isSigner: false, isWritable: false },
+  ] : [];
   if (mutate) {
     // Identical bytes inside one blockhash window dedupe as AlreadyProcessed;
     // a per-request nonce header (ignored on chain) makes every write unique
@@ -252,12 +265,13 @@ export async function invoke(connection, { programId, payer, event, mutate = fal
     const nonce = Math.random().toString(16).slice(2, 10) + Date.now().toString(16);
     event = { ...event, headers: typeof event.headers === 'string' ? event.headers + `x-zoo-nonce:${nonce}\n` : { ...(event.headers || {}), 'x-zoo-nonce': nonce } };
   }
-  const data = encodeInvoke(event);
+  const data = site ? encodeVmInvoke(site, event) : encodeInvoke(event);
   const extra = [];
   for (let round = 0; ; round++) {
     const keys = [
       { pubkey: payerKey, isSigner: true, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ...siteKeys,
       ...extra.map((k) => ({ pubkey: k, isSigner: false, isWritable: true })),
     ];
     const ix = new TransactionInstruction({ programId: pid, keys, data });
@@ -338,4 +352,36 @@ export async function waitForProgram(connection, programId, { timeoutMs = 30_000
     if (Date.now() - t0 > timeoutMs) throw new Error('timed out waiting for the program to become invokable');
     await new Promise((r) => setTimeout(r, 400));
   }
+}
+
+// ---------------------------------------------------------------- shared runtime sites
+
+/** Create the site account (`["site", siteId]`) under the runtime, owned by `authority`. Idempotent. */
+export async function initSite(connection, { authority, runtime, site }) {
+  const pid = new PublicKey(runtime);
+  const [pda] = sitePda(pid, site);
+  const info = await connection.getAccountInfo(pda);
+  if (info) {
+    const s = decodeSite(info.data);
+    if (s && !s.authority.equals(authority.publicKey)) throw new Error(`site ${new PublicKey(site).toBase58()} belongs to ${s.authority.toBase58()}`);
+    return { pda, created: false };
+  }
+  await sendTx(connection, [new TransactionInstruction({
+    programId: pid,
+    keys: [
+      { pubkey: authority.publicKey, isSigner: true, isWritable: true },
+      { pubkey: pda, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: encodeSiteInit(site),
+  })], [authority], { label: 'site init' });
+  return { pda, created: true };
+}
+
+export async function getSiteInfo(connection, runtime, site) {
+  const [pda] = sitePda(new PublicKey(runtime), site);
+  const info = await connection.getAccountInfo(pda);
+  if (!info) return { exists: false, pda };
+  const s = decodeSite(info.data);
+  return { exists: !!s, pda, authority: s?.authority || null };
 }

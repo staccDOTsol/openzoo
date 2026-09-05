@@ -23,6 +23,9 @@ extern crate alloc;
 pub mod assets;
 pub mod ctx;
 pub mod fmt;
+pub mod helpers;
+pub mod site;
+pub mod vm;
 pub mod json;
 pub mod kv;
 pub mod val;
@@ -43,6 +46,16 @@ pub const TAG_INVOKE: u8 = 0;
 pub const TAG_ASSET_INIT: u8 = 1;
 pub const TAG_ASSET_WRITE: u8 = 2;
 pub const TAG_ASSET_CLOSE: u8 = 3;
+// Shared runtime (zoo-vm) tags. Instruction data after the tag starts with
+// the 32-byte site id, then the same payloads as the compiled-site tags.
+pub const TAG_SITE_INIT: u8 = 16;
+pub const TAG_SITE_SET_AUTHORITY: u8 = 17;
+pub const TAG_VM_INVOKE: u8 = 18;
+pub const TAG_VM_ASSET_INIT: u8 = 19;
+pub const TAG_VM_ASSET_WRITE: u8 = 20;
+pub const TAG_VM_ASSET_CLOSE: u8 = 21;
+/// Path of a site's bytecode asset under the shared runtime.
+pub const CODE_PATH: &str = "/.zoo/code.bin";
 
 /// Custom program error: a KV account the handler needed was not passed.
 /// The gateway reads the `ZOOK` log lines, adds the accounts and retries.

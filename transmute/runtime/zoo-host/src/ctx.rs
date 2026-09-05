@@ -17,6 +17,11 @@ pub struct Ctx<'a> {
     pub res: Resp,
     pub sent: bool,
     pub env: &'a [(&'static str, &'static str)],
+    /// Environment from a bytecode module (shared runtime); consulted first.
+    pub env_dyn: Vec<(String, String)>,
+    /// Site namespace for KV/asset seeds: `None` for a compiled site program
+    /// (the program id is the namespace), `Some(site_id)` under the shared runtime.
+    pub ns: Option<[u8; 32]>,
     pub kv: KvState,
     query_cache: Option<Val>,
     body_cache: Option<Val>,
@@ -36,6 +41,8 @@ impl<'a> Ctx<'a> {
             res: Resp::default(),
             sent: false,
             env,
+            env_dyn: Vec::new(),
+            ns: None,
             kv: KvState::default(),
             query_cache: None,
             body_cache: None,
@@ -216,6 +223,11 @@ impl<'a> Ctx<'a> {
 
     pub fn env(&self, name: &Val) -> Val {
         let n = name.to_js_string();
+        for (k, v) in self.env_dyn.iter() {
+            if *k == n {
+                return Val::str(v);
+            }
+        }
         for (k, v) in self.env.iter() {
             if *k == n {
                 return Val::str(v);
@@ -225,6 +237,9 @@ impl<'a> Ctx<'a> {
     }
     pub fn env_obj(&self) -> Val {
         let mut o = Val::obj();
+        for (k, v) in self.env_dyn.iter() {
+            o.set_str(k, Val::str(v));
+        }
         for (k, v) in self.env.iter() {
             o.set_str(k, Val::str(v));
         }

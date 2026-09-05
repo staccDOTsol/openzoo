@@ -1,0 +1,23 @@
+[package]
+name = "zoo-vm"
+version = "0.1.0"
+edition = "2021"
+description = "The shared openzoo-transmute runtime program: every site is accounts (bytecode + assets + manifest + KV); deployed once per cluster."
+license = "MIT"
+
+[lib]
+name = "zoo_vm"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+pinocchio = "0.11.2"
+zoo-host = { path = "../zoo-host" }
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+debug = false
+overflow-checks = false

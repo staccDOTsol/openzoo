@@ -31,6 +31,29 @@ pub fn pda_for_hash(program_id: &Address, hash: &[u8; 32]) -> (Address, u8) {
     Address::find_program_address(&[b"asset", hash], program_id)
 }
 
+/// Asset PDA under the shared runtime: `["asset", site_id, hash]`.
+pub fn pda_for_hash_ns(program_id: &Address, ns: Option<&[u8; 32]>, hash: &[u8; 32]) -> (Address, u8) {
+    match ns {
+        Some(n) => Address::find_program_address(&[b"asset", n, hash], program_id),
+        None => pda_for_hash(program_id, hash),
+    }
+}
+
+/// Who may write assets: a compiled site's upgrade authority, or under the
+/// shared runtime the authority recorded in the site account (`accounts[1]`).
+#[derive(Clone, Copy)]
+pub enum Auth {
+    Upgrade,
+    Site([u8; 32]),
+}
+
+pub fn check_auth(program_id: &Address, accounts: &[AccountView], auth: Auth) -> ProgramResult {
+    match auth {
+        Auth::Upgrade => check_authority(program_id, accounts),
+        Auth::Site(site) => crate::site::check_site_authority(program_id, accounts, &site),
+    }
+}
+
 /// Verify `accounts[0]` signs as the upgrade authority of `program_id`
 /// (read off `accounts[1]`, the ProgramData account).
 pub fn check_authority(program_id: &Address, accounts: &[AccountView]) -> ProgramResult {
@@ -67,7 +90,11 @@ fn split_hash(data: &[u8]) -> Result<(&[u8; 32], &[u8]), ProgramError> {
 /// `[32 hash][u32 total_len][u8 ct_len][ct]`; accounts: authority, program
 /// data, asset PDA, system program.
 pub fn init(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    check_authority(program_id, accounts)?;
+    init_ns(program_id, accounts, data, None, Auth::Upgrade)
+}
+
+pub fn init_ns(program_id: &Address, accounts: &mut [AccountView], data: &[u8], ns: Option<[u8; 32]>, auth: Auth) -> ProgramResult {
+    check_auth(program_id, accounts, auth)?;
     let (hash, rest) = split_hash(data)?;
     if rest.len() < 5 {
         return Err(ProgramError::InvalidInstructionData);
@@ -76,7 +103,7 @@ pub fn init(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> 
     let ct_len = rest[4] as usize;
     let ct = rest.get(5..5 + ct_len).ok_or(ProgramError::InvalidInstructionData)?;
     let header = FIXED_HEADER + ct_len;
-    let (addr, bump) = pda_for_hash(program_id, hash);
+    let (addr, bump) = pda_for_hash_ns(program_id, ns.as_ref(), hash);
     let (head, tail) = accounts.split_at_mut(2);
     let authority = &head[0];
     let asset = tail.first_mut().ok_or(ProgramError::NotEnoughAccountKeys)?;
@@ -94,10 +121,18 @@ pub fn init(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> 
         asset.resize(space)?;
     } else {
         let bump_bytes = [bump];
-        let seeds = [Seed::from(b"asset".as_ref()), Seed::from(hash.as_ref()), Seed::from(bump_bytes.as_ref())];
-        let signer = Signer::from(&seeds);
-        CreateAccount::with_minimum_balance(authority, asset, space as u64, program_id, None)?
-            .invoke_signed(&[signer])?;
+        match ns.as_ref() {
+            Some(n) => {
+                let seeds = [Seed::from(b"asset".as_ref()), Seed::from(n.as_ref()), Seed::from(hash.as_ref()), Seed::from(bump_bytes.as_ref())];
+                let signer = Signer::from(&seeds);
+                CreateAccount::with_minimum_balance(authority, asset, space as u64, program_id, None)?.invoke_signed(&[signer])?;
+            }
+            None => {
+                let seeds = [Seed::from(b"asset".as_ref()), Seed::from(hash.as_ref()), Seed::from(bump_bytes.as_ref())];
+                let signer = Signer::from(&seeds);
+                CreateAccount::with_minimum_balance(authority, asset, space as u64, program_id, None)?.invoke_signed(&[signer])?;
+            }
+        }
     }
     let mut d = asset.try_borrow_mut()?;
     d[0] = 1;
@@ -110,14 +145,18 @@ pub fn init(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> 
 
 /// `[32 hash][u32 offset][bytes]`; same accounts as `init`.
 pub fn write(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    check_authority(program_id, accounts)?;
+    write_ns(program_id, accounts, data, None, Auth::Upgrade)
+}
+
+pub fn write_ns(program_id: &Address, accounts: &mut [AccountView], data: &[u8], ns: Option<[u8; 32]>, auth: Auth) -> ProgramResult {
+    check_auth(program_id, accounts, auth)?;
     let (hash, rest) = split_hash(data)?;
     if rest.len() < 4 {
         return Err(ProgramError::InvalidInstructionData);
     }
     let offset = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]) as usize;
     let bytes = &rest[4..];
-    let (addr, _) = pda_for_hash(program_id, hash);
+    let (addr, _) = pda_for_hash_ns(program_id, ns.as_ref(), hash);
     let (head, tail) = accounts.split_at_mut(2);
     let authority = &head[0];
     let asset = tail.first_mut().ok_or(ProgramError::NotEnoughAccountKeys)?;
@@ -153,9 +192,13 @@ pub fn write(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) ->
 
 /// `[32 hash]`: reclaim the rent to the authority.
 pub fn close(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    check_authority(program_id, accounts)?;
+    close_ns(program_id, accounts, data, None, Auth::Upgrade)
+}
+
+pub fn close_ns(program_id: &Address, accounts: &mut [AccountView], data: &[u8], ns: Option<[u8; 32]>, auth: Auth) -> ProgramResult {
+    check_auth(program_id, accounts, auth)?;
     let (hash, _) = split_hash(data)?;
-    let (addr, _) = pda_for_hash(program_id, hash);
+    let (addr, _) = pda_for_hash_ns(program_id, ns.as_ref(), hash);
     let (head, tail) = accounts.split_at_mut(2);
     let authority = &mut head[0];
     let asset = tail.first_mut().ok_or(ProgramError::NotEnoughAccountKeys)?;

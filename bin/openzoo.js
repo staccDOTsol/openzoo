@@ -170,18 +170,21 @@ usage:
   npx openzoo balance    wallet balance on every rail — Solana (USDC/TOKEN/SOL),
                          Base (USDC/ETH), Robinhood Chain (USDG/memecoins/ETH)
   npx openzoo build [dir]     transmute a Vercel-shaped app (Next.js pages/api,
-                              app/**/route, Vite + api/*) into a Pinocchio Rust
-                              program + asset plan (--out .zoo-out --arch v0|v3)
-  npx openzoo deploy [dir]    deploy the program and the static frontend to
-                              Solana accounts (--cluster mainnet|devnet|localnet,
-                              --yes to accept the rent estimate; burner wallet)
-  npx openzoo serve <program> local gateway/explorer for a deployed site
-                              (--cluster, --port 4402); /api/* reads are free
+                              app/**/route, Vite + api/*) for Solana. Default
+                              --target shared: bytecode for the shared zoo-vm
+                              runtime, no Rust toolchain, a site is data accounts
+                              (~0.03-0.1 SOL). --target program: own Pinocchio
+                              program per site (--arch v0|v3, ~1 SOL+)
+  npx openzoo deploy [dir]    deploy the site to Solana accounts (--cluster mainnet,
+                              --runtime <zoo-vm id> or OPENZOO_VM_PROGRAM, --yes to
+                              accept the rent estimate; burner wallet)
+  npx openzoo serve [site]    local gateway/explorer for a deployed site (--runtime,
+                              --cluster, --port 4402); /api/* reads are free
                               simulations, writes are signed by the burner
+  npx openzoo runtime deploy  deploy the shared zoo-vm runtime once per cluster
   npx openzoo inspect [dir]   print the app in Vercel terms + eligibility report
   npx openzoo hub             hosted explorer for every transmuted site on the
                               cluster (what sites.openzoo.fun runs)
-  npx openzoo hub             hosted explorer for every transmuted site on the cluster
   npx openzoo address    print both funding addresses (Solana + EVM)
   npx openzoo help       this text
 
@@ -421,6 +424,7 @@ async function main() {
     case 'serve':
     case 'inspect':
     case 'hub':
+    case 'runtime':
     case 'transmute': {
       // VERCEL-SHAPED APP -> SOLANA MAINNET. `openzoo build|deploy|serve` hand
       // the argv to openzoo-transmute (a sibling npm package): it reads the

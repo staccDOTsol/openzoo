@@ -7,7 +7,9 @@
 import { createHash } from 'node:crypto';
 import { PublicKey } from '@solana/web3.js';
 
-export const TAG = { INVOKE: 0, ASSET_INIT: 1, ASSET_WRITE: 2, ASSET_CLOSE: 3 };
+export const TAG = { INVOKE: 0, ASSET_INIT: 1, ASSET_WRITE: 2, ASSET_CLOSE: 3, SITE_INIT: 16, SITE_SET_AUTHORITY: 17, VM_INVOKE: 18, VM_ASSET_INIT: 19, VM_ASSET_WRITE: 20, VM_ASSET_CLOSE: 21 };
+/** Path of a site's bytecode module under the shared runtime. */
+export const CODE_PATH = '/.zoo/code.bin';
 export const METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'];
 export const ERR_KV_MISSING = 0x4b560001;
 export const ERR_NOT_AUTHORITY = 0x4b560002;
@@ -164,4 +166,43 @@ export function decodeKv(data) {
   const len = data.readUInt32LE(2);
   if (len === 0) return null;
   try { return JSON.parse(data.subarray(KV_HEADER, KV_HEADER + len).toString('utf8')); } catch { return null; }
+}
+
+// ---- shared runtime (zoo-vm): sites are accounts namespaced by a 32-byte site id
+
+export function siteIdBytes(site) { return site instanceof PublicKey ? site.toBuffer() : new PublicKey(site).toBuffer(); }
+
+export function sitePda(runtime, site) {
+  return PublicKey.findProgramAddressSync([Buffer.from('site'), siteIdBytes(site)], new PublicKey(runtime));
+}
+export function kvPdaNs(runtime, site, key) {
+  return PublicKey.findProgramAddressSync([Buffer.from('kv'), siteIdBytes(site), kvHash(key)], new PublicKey(runtime));
+}
+export function assetPdaNs(runtime, site, path) {
+  return PublicKey.findProgramAddressSync([Buffer.from('asset'), siteIdBytes(site), assetHash(path)], new PublicKey(runtime));
+}
+/** Any-mode asset PDA: program-flavour when `site` is null. */
+export function assetPdaFor(programId, site, path) {
+  return site ? assetPdaNs(programId, site, path) : assetPda(programId, path);
+}
+export function kvPdaFor(programId, site, key) {
+  return site ? kvPdaNs(programId, site, key) : kvPda(programId, key);
+}
+
+export function encodeSiteInit(site) { return Buffer.concat([Buffer.from([TAG.SITE_INIT]), siteIdBytes(site)]); }
+export function encodeSiteSetAuthority(site, newAuthority) { return Buffer.concat([Buffer.from([TAG.SITE_SET_AUTHORITY]), siteIdBytes(site), new PublicKey(newAuthority).toBuffer()]); }
+/** The VM invoke: same bridge event, prefixed by the site id. */
+export function encodeVmInvoke(site, ev) {
+  const inner = encodeInvoke(ev); // [TAG.INVOKE][...]
+  return Buffer.concat([Buffer.from([TAG.VM_INVOKE]), siteIdBytes(site), inner.subarray(1)]);
+}
+export function encodeVmAssetInit(site, path, totalLen, contentType) { return Buffer.concat([Buffer.from([TAG.VM_ASSET_INIT]), siteIdBytes(site), encodeAssetInit(path, totalLen, contentType).subarray(1)]); }
+export function encodeVmAssetWrite(site, path, offset, bytes) { return Buffer.concat([Buffer.from([TAG.VM_ASSET_WRITE]), siteIdBytes(site), encodeAssetWrite(path, offset, bytes).subarray(1)]); }
+export function encodeVmAssetClose(site, path) { return Buffer.concat([Buffer.from([TAG.VM_ASSET_CLOSE]), siteIdBytes(site), encodeAssetClose(path).subarray(1)]); }
+
+export const SITE_LEN = 66;
+/** Decode a site account: { authority, bump } or null. */
+export function decodeSite(data) {
+  if (!data || data.length < SITE_LEN || data[0] !== 1) return null;
+  return { bump: data[1], authority: new PublicKey(data.subarray(2, 34)) };
 }
