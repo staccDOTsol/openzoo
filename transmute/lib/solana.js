@@ -102,12 +102,14 @@ async function writeBuffer(connection, payer, authority, so, { onProgress } = {}
 
 /**
  * Deploy `so` as a new upgradeable program. Returns {programId, signature}.
- * `maxDataLen` defaults to 2× the binary so later upgrades can grow.
+ * `maxDataLen` defaults to the binary's exact size (rent is per byte; an
+ * upgrade that grows the program redeploys to a new id). Pass `headroom`
+ * (a multiplier) or `maxDataLen` to reserve room for in-place upgrades.
  */
-export async function deployProgram(connection, { payer, authority = payer, programKeypair = Keypair.generate(), so, maxDataLen, onProgress }) {
+export async function deployProgram(connection, { payer, authority = payer, programKeypair = Keypair.generate(), so, maxDataLen, headroom = 1, onProgress }) {
   const buffer = await writeBuffer(connection, payer, authority, so, { onProgress });
   const programLamports = await connection.getMinimumBalanceForRentExemption(36);
-  const max = maxDataLen || so.length * 2;
+  const max = maxDataLen || Math.ceil(so.length * Math.max(1, headroom));
   const programData = programDataPda(programKeypair.publicKey);
   const sig = await sendTx(connection, [
     SystemProgram.createAccount({ fromPubkey: payer.publicKey, newAccountPubkey: programKeypair.publicKey, lamports: programLamports, space: 36, programId: BPF_LOADER_UPGRADEABLE }),

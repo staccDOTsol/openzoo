@@ -60,7 +60,8 @@ fn split_hash(data: &[u8]) -> Result<(&[u8; 32], &[u8]), ProgramError> {
         return Err(ProgramError::InvalidInstructionData);
     }
     let (h, rest) = data.split_at(32);
-    Ok((h.try_into().unwrap(), rest))
+    let h: &[u8; 32] = match h.try_into() { Ok(h) => h, Err(_) => return Err(ProgramError::InvalidInstructionData) };
+    Ok((h, rest))
 }
 
 /// `[32 hash][u32 total_len][u8 ct_len][ct]`; accounts: authority, program

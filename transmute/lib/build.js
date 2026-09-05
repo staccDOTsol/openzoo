@@ -150,7 +150,7 @@ export async function estimateCost({ staticFiles = [], soSize = null, manifestBy
     if (upgrade) items.push({ label: 'program upgrade buffer (refunded on success)', kind: 'buffer', bytes: accountBytesFor('buffer', soSize), transient: true });
     else {
       items.push({ label: 'program account', kind: 'program', bytes: accountBytesFor('program', 0) });
-      items.push({ label: `program data (2×.so = ${(soSize * 2).toLocaleString()} B)`, kind: 'programdata', bytes: accountBytesFor('programdata', soSize * 2) });
+      items.push({ label: `program data (.so = ${soSize.toLocaleString()} B)`, kind: 'programdata', bytes: accountBytesFor('programdata', soSize) });
     }
   } else {
     items.push({ label: 'program (no .so built yet)', kind: 'program', bytes: 0, unknown: true });

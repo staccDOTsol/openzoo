@@ -178,5 +178,8 @@ impl<'a> Ctx<'a> {
 
 pub fn err_str(what: &str, e: pinocchio::error::ProgramError) -> String {
     let code: u64 = e.into();
-    alloc::format!("{} failed: program error {}", what, code)
+    let mut m = String::from(what);
+    m.push_str(" failed: program error ");
+    crate::fmt::push_u64(&mut m, code);
+    m
 }

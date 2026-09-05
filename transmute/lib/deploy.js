@@ -159,7 +159,7 @@ export async function deploy(o = {}) {
     signatures.program = r.signature;
     log(`upgraded ${programId.toBase58()} in ${((Date.now() - t0) / 1000).toFixed(1)}s (${r.signature})`);
   } else {
-    const r = await deployProgram(connection, { payer, programKeypair, so, onProgress });
+    const r = await deployProgram(connection, { payer, programKeypair, so, onProgress, headroom: o.headroom ? Number(o.headroom) : 1 });
     signatures.program = r.signature;
     log(`deployed ${programId.toBase58()} in ${((Date.now() - t0) / 1000).toFixed(1)}s (${r.signature}); max data len ${r.maxDataLen.toLocaleString()} B`);
   }

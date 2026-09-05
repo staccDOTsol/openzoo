@@ -23,6 +23,8 @@ solana-sha256-hasher = { version = "3", features = ["sha2"] }
 
 [features]
 default = []
+# Transcendental Math.* (log/exp/trig) and non-integer `**`: +7 KB of libm.
+mathx = []
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

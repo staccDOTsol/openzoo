@@ -741,10 +741,14 @@ libm = "0.2"
 zoo-host = { path = ${JSON.stringify(runtimePath)} }
 
 [profile.release]
-overflow-checks = false
+# Size is rent: every KB of program is ~0.007 SOL on mainnet.
+opt-level = "z"
 lto = "fat"
 codegen-units = 1
-opt-level = 3
+panic = "abort"
+strip = true
+debug = false
+overflow-checks = false
 `;
   const envTable = env.map(([k, v]) => `(${rustStr(k)}, ${rustStr(v)})`).join(', ');
   const routesTable = Array.from({ length: routeCount }, (_, i) => `route_${i}`).join(', ');

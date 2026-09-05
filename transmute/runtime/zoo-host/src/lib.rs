@@ -22,6 +22,7 @@ extern crate alloc;
 
 pub mod assets;
 pub mod ctx;
+pub mod fmt;
 pub mod json;
 pub mod kv;
 pub mod val;

@@ -78,10 +78,31 @@ export function makeHub(o = {}) {
     log: o.log ?? (() => {}),
     makeSite: o.makeSite ?? null,
     startedAt: Date.now(),
-    stats: { requests: 0, sitesLoaded: 0 },
+    stats: { requests: 0, sitesLoaded: 0, writes: 0, writesRefused: 0, spentLamports: 0 },
     publicUrl: o.publicUrl || null,
+    // write governor: per-IP token bucket + a daily lamport budget for the signer
+    writesPerMin: o.writesPerMin ?? Number(process.env.OPENZOO_HUB_WRITES_PER_MIN || 3),
+    budgetLamports: Math.round((o.writeBudgetSol ?? Number(process.env.OPENZOO_HUB_WRITE_BUDGET_SOL || 0.05)) * 1e9),
+    ipHits: new Map(),
+    dayStart: Date.now(),
   };
   return hub;
+}
+
+const READ_METHODS = ['GET', 'HEAD', 'OPTIONS'];
+
+/** Allow a signed write? Refills per minute per IP; budget resets daily. */
+export function allowWrite(hub, ip, now = Date.now()) {
+  if (!hub.keypair) return { ok: false, reason: 'no signer' };
+  if (now - hub.dayStart > 86_400_000) { hub.dayStart = now; hub.stats.spentLamports = 0; }
+  if (hub.stats.spentLamports >= hub.budgetLamports) return { ok: false, reason: 'daily write budget spent' };
+  const key = ip || 'unknown';
+  const win = hub.ipHits.get(key) || { t: now, n: 0 };
+  if (now - win.t > 60_000) { win.t = now; win.n = 0; }
+  if (win.n >= hub.writesPerMin) return { ok: false, reason: `rate limit: ${hub.writesPerMin} writes/min` };
+  win.n++; hub.ipHits.set(key, win);
+  if (hub.ipHits.size > 10_000) hub.ipHits.clear();
+  return { ok: true };
 }
 
 async function siteFor(hub, programId) {
@@ -215,7 +236,17 @@ export async function handleHub(hub, req) {
   if (state.noManifest && (rest === '/' || rest === MANIFEST_PATH)) {
     return json(404, { error: 'no site at this program id', program: target, hint: `no manifest at ${MANIFEST_PATH}; is this an openzoo-transmute deployment on ${hub.cluster}?` }, pin ? { 'set-cookie': setCookie(target) } : {});
   }
+  if (!READ_METHODS.includes(method) && hub.keypair) {
+    const gate = allowWrite(hub, req.remoteAddress || req.headers?.['fly-client-ip'] || req.headers?.['x-forwarded-for']);
+    if (!gate.ok) { hub.stats.writesRefused++; return json(429, { error: 'write refused', reason: gate.reason, hint: 'run `npx openzoo serve <programId>` locally to write with your own wallet' }, { 'x-zoo-site': target }); }
+  }
+  const before = hub.keypair && !READ_METHODS.includes(method) ? await hub.connection.getBalance(hub.keypair.publicKey).catch(() => null) : null;
   const r = await handleRequest(state, { ...req, method, url: rest + (url.search || '') });
+  if (before != null) {
+    hub.stats.writes++;
+    const after = await hub.connection.getBalance(hub.keypair.publicKey).catch(() => before);
+    hub.stats.spentLamports += Math.max(0, before - after);
+  }
   const headers = { ...(r.headers || {}), 'x-zoo-site': target };
   if (pin) headers['set-cookie'] = setCookie(target);
   return { ...r, headers };

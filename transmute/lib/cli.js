@@ -26,7 +26,7 @@ export const USAGE = `openzoo-transmute — Vercel app → Solana program + asse
 usage:
   openzoo-transmute build   [dir] [--out .zoo-out] [--name <crate>] [--arch v0|v3] [--cluster <c>] [--skip-cargo]
   openzoo-transmute deploy  [dir|outDir] [--cluster mainnet|devnet|localnet|<url>] [--keypair <path>] [--yes] [--program <id>]
-                            [--concurrency 4] [--skip-assets] [--force]
+                            [--concurrency 4] [--skip-assets] [--force] [--headroom 1.5]
   openzoo-transmute serve   <programId> [--cluster <c>] [--port ${DEFAULT_PORT}] [--keypair <path>] [--host 127.0.0.1] [--quiet]
   openzoo-transmute hub     [--cluster mainnet] [--port 8080] [--host 0.0.0.0] [--public-url <https://…>]
                             hosted explorer for EVERY program on the cluster (/s/<programId>), read-only
@@ -198,8 +198,14 @@ async function cmdHub(p, f, log) {
   // The hosted explorer: every program on the cluster from one public host,
   // read-only by default (a public signer would be a drain). --keypair opts in.
   const cluster = f.cluster || process.env.OPENZOO_CLUSTER || 'mainnet';
+  // A signer makes the demo real (visitors can POST). It is bounded: a per-IP
+  // rate limit and a daily SOL budget (OPENZOO_HUB_WRITE_BUDGET_SOL), so a
+  // public hub can sign without being drained. Keypair from --keypair or the
+  // OPENZOO_HUB_KEYPAIR secret (JSON byte array).
   let keypair = null;
-  if (typeof f.keypair === 'string') { keypair = loadWallet({ keypair: f.keypair }).keypair; log(`warning: this hub signs writes with ${keypair.publicKey.toBase58()} for anyone who can reach it`); }
+  if (typeof f.keypair === 'string') keypair = loadWallet({ keypair: f.keypair }).keypair;
+  else if (process.env.OPENZOO_HUB_KEYPAIR) { const { Keypair } = await import('@solana/web3.js'); keypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(process.env.OPENZOO_HUB_KEYPAIR))); }
+  if (keypair) log(`hub signs writes with ${keypair.publicKey.toBase58()} (budget ${process.env.OPENZOO_HUB_WRITE_BUDGET_SOL || '0.05'} SOL/day, ${process.env.OPENZOO_HUB_WRITES_PER_MIN || '3'} writes/min/ip)`);
   const port = f.port != null ? Number(f.port) : Number(process.env.PORT || DEFAULT_HUB_PORT);
   const h = await startHub({ cluster, port, host: f.host || '0.0.0.0', keypair, log, quiet: !!f.quiet, publicUrl: f.publicUrl || process.env.OPENZOO_HUB_URL || null, maxSites: f.maxSites ? Number(f.maxSites) : undefined });
   log(`openzoo hub → ${h.url}/.hub  (cluster ${cluster}; sites at ${h.url}/s/<programId>)`);

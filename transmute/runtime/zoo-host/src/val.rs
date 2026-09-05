@@ -1,10 +1,11 @@
 //! A JS-semantics dynamic value. Every expression in a transmuted handler
 //! evaluates to a `Val`; the operators here follow ECMAScript coercion rules
 //! for the subset the transmuter accepts.
-use alloc::{format, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
+use crate::fmt::{push_f64, push_hex2, pow10};
 use core::cmp::Ordering;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum Val {
     Undef,
     Null,
@@ -47,32 +48,11 @@ impl From<bool> for Val {
     }
 }
 
-/// JS Number::toString for the common cases.
+/// JS Number::toString for the common cases (see fmt::push_f64).
 pub fn num_to_string(n: f64) -> String {
-    if n.is_nan() {
-        return String::from("NaN");
-    }
-    if n.is_infinite() {
-        return String::from(if n > 0.0 { "Infinity" } else { "-Infinity" });
-    }
-    if n == 0.0 {
-        return String::from("0");
-    }
-    if n == libm::trunc(n) && libm::fabs(n) < 1e21 {
-        return format!("{}", n as i128);
-    }
-    let a = libm::fabs(n);
-    if !(1e-6..1e21).contains(&a) {
-        // JS switches to exponent notation here; Rust's `{:e}` prints "1e-7"
-        // and JS prints "1e-7" too, so mirror it (JS adds "+" for positive
-        // exponents).
-        let s = format!("{:e}", n);
-        return match s.find('e') {
-            Some(i) if !s[i + 1..].starts_with('-') => format!("{}e+{}", &s[..i], &s[i + 1..]),
-            _ => s,
-        };
-    }
-    format!("{}", n)
+    let mut s = String::new();
+    push_f64(&mut s, n);
+    s
 }
 
 /// JS ToNumber for strings.
@@ -82,10 +62,11 @@ pub fn str_to_num(s: &str) -> f64 {
         return 0.0;
     }
     if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
-        return match u64::from_str_radix(h, 16) {
-            Ok(v) => v as f64,
-            Err(_) => f64::NAN,
-        };
+        let mut v: f64 = 0.0;
+        for c in h.chars() {
+            match c.to_digit(16) { Some(d) => v = v * 16.0 + d as f64, None => return f64::NAN }
+        }
+        return v;
     }
     match t {
         "Infinity" | "+Infinity" => return f64::INFINITY,
@@ -150,9 +131,9 @@ pub fn parse_decimal(s: &str) -> Option<f64> {
     }
     let total = frac_exp + exp;
     let v = if total >= 0 {
-        mant * libm::pow(10.0, total as f64)
+        mant * pow10(total as u32)
     } else {
-        mant / libm::pow(10.0, (-total) as f64)
+        mant / pow10((-total) as u32)
     };
     Some(if neg { -v } else { v })
 }
@@ -435,7 +416,7 @@ impl Val {
         Val::Num(libm::fmod(self.to_num(), o.to_num()))
     }
     pub fn pow(&self, o: &Val) -> Val {
-        Val::Num(libm::pow(self.to_num(), o.to_num()))
+        Val::Num(js_pow(self.to_num(), o.to_num()))
     }
     pub fn neg(&self) -> Val {
         Val::Num(-self.to_num())
@@ -709,17 +690,40 @@ impl Val {
                 "toString" => Ok(Val::Str(self.to_js_string())),
                 _ => Err(type_error(name)),
             },
-            Val::Undef | Val::Null => Err(Val::Str(format!(
-                "TypeError: Cannot read properties of {} (reading '{}')",
-                self.to_js_string(),
-                name
-            ))),
+            Val::Undef | Val::Null => {
+                let mut m = String::from("TypeError: Cannot read properties of ");
+                m.push_str(&self.to_js_string());
+                m.push_str(" (reading '");
+                m.push_str(name);
+                m.push_str("')");
+                Err(Val::Str(m))
+            }
         }
     }
 }
 
 fn type_error(name: &str) -> Val {
-    Val::Str(format!("TypeError: {} is not a function", name))
+    let mut m = String::from("TypeError: ");
+    m.push_str(name);
+    m.push_str(" is not a function");
+    Val::Str(m)
+}
+
+/// `**` / Math.pow: exact for integer exponents (a loop), libm only with the
+/// `mathx` feature.
+pub fn js_pow(base: f64, exp: f64) -> f64 {
+    if exp == libm::trunc(exp) && libm::fabs(exp) <= 64.0 {
+        let mut r = 1.0;
+        let n = libm::fabs(exp) as u32;
+        for _ in 0..n {
+            r *= base;
+        }
+        return if exp < 0.0 { 1.0 / r } else { r };
+    }
+    #[cfg(feature = "mathx")]
+    { libm::pow(base, exp) }
+    #[cfg(not(feature = "mathx"))]
+    { f64::NAN }
 }
 
 fn to_i32(n: f64) -> i32 {
@@ -737,7 +741,9 @@ fn parse_index(s: &str) -> Option<usize> {
     if s.len() > 1 && s.starts_with('0') {
         return None;
     }
-    s.parse::<usize>().ok()
+    let mut v: usize = 0;
+    for b in s.bytes() { v = v * 10 + (b - b'0') as usize; }
+    Some(v)
 }
 
 fn clamp_index(len: usize, v: &Val) -> usize {
@@ -763,24 +769,15 @@ fn slice_bounds(len: usize, start: &Val, end: &Val) -> (usize, usize) {
 }
 
 pub fn to_fixed(n: f64, digits: usize) -> String {
-    if n.is_nan() {
-        return String::from("NaN");
-    }
-    let m = libm::pow(10.0, digits as f64);
-    let r = libm::round(n * m) / m;
-    if digits == 0 {
-        return format!("{}", r as i128);
-    }
-    let s = format!("{:.*}", digits, r);
-    s
+    crate::fmt::to_fixed(n, digits)
 }
 
 fn str_method(s: &mut String, name: &str, args: &[Val]) -> Result<Val, Val> {
     let arg = |i: usize| args.get(i).cloned().unwrap_or(Val::Undef);
     let chars: Vec<char> = s.chars().collect();
     Ok(match name {
-        "toUpperCase" => Val::Str(s.to_uppercase()),
-        "toLowerCase" => Val::Str(s.to_lowercase()),
+        "toUpperCase" => Val::Str(s.to_ascii_uppercase()),
+        "toLowerCase" => Val::Str(s.to_ascii_lowercase()),
         "trim" => Val::Str(String::from(s.trim())),
         "trimStart" => Val::Str(String::from(s.trim_start())),
         "trimEnd" => Val::Str(String::from(s.trim_end())),
@@ -889,18 +886,26 @@ pub fn math(name: &str, args: &[Val]) -> Result<Val, Val> {
         "trunc" => libm::trunc(a(0)),
         "abs" => libm::fabs(a(0)),
         "sqrt" => libm::sqrt(a(0)),
-        "pow" => libm::pow(a(0), a(1)),
+        "pow" => js_pow(a(0), a(1)),
         "sign" => {
             let x = a(0);
             if x > 0.0 { 1.0 } else if x < 0.0 { -1.0 } else { x }
         }
+        #[cfg(feature = "mathx")]
         "log" => libm::log(a(0)),
+        #[cfg(feature = "mathx")]
         "log2" => libm::log2(a(0)),
+        #[cfg(feature = "mathx")]
         "log10" => libm::log10(a(0)),
+        #[cfg(feature = "mathx")]
         "exp" => libm::exp(a(0)),
+        #[cfg(feature = "mathx")]
         "sin" => libm::sin(a(0)),
+        #[cfg(feature = "mathx")]
         "cos" => libm::cos(a(0)),
+        #[cfg(feature = "mathx")]
         "tan" => libm::tan(a(0)),
+        #[cfg(feature = "mathx")]
         "atan2" => libm::atan2(a(0), a(1)),
         "min" => args.iter().map(|v| v.to_num()).fold(f64::INFINITY, f64::min),
         "max" => args.iter().map(|v| v.to_num()).fold(f64::NEG_INFINITY, f64::max),
@@ -998,7 +1003,8 @@ pub fn url_encode(s: &str, component: bool) -> String {
         if keep {
             out.push(b as char);
         } else {
-            out.push_str(&format!("%{:02X}", b));
+            out.push('%');
+            push_hex2(&mut out, b);
         }
     }
     out

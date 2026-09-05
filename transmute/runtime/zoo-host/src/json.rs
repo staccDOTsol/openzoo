@@ -96,7 +96,11 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn err(&self, msg: &str) -> Val {
-        Val::Str(alloc::format!("SyntaxError: {} at position {}", msg, self.i))
+        let mut m = String::from("SyntaxError: ");
+        m.push_str(msg);
+        m.push_str(" at position ");
+        crate::fmt::push_u64(&mut m, self.i as u64);
+        Val::Str(m)
     }
     fn ws(&mut self) {
         while self.i < self.b.len() && matches!(self.b[self.i], b' ' | b'\n' | b'\r' | b'\t') {
@@ -190,8 +194,10 @@ impl<'a> Parser<'a> {
         if self.i + 4 > self.b.len() {
             return Err(self.err("Bad unicode escape"));
         }
-        let s = core::str::from_utf8(&self.b[self.i..self.i + 4]).map_err(|_| self.err("Bad unicode escape"))?;
-        let v = u32::from_str_radix(s, 16).map_err(|_| self.err("Bad unicode escape"))?;
+        let mut v: u32 = 0;
+        for &c in &self.b[self.i..self.i + 4] {
+            v = v * 16 + match (c as char).to_digit(16) { Some(d) => d, None => return Err(self.err("Bad unicode escape")) };
+        }
         self.i += 4;
         Ok(v)
     }

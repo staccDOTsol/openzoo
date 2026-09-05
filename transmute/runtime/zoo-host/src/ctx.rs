@@ -3,7 +3,8 @@ use crate::json;
 use crate::kv::KvState;
 use crate::val::{parse_query, Val};
 use crate::wire::{Req, Resp};
-use alloc::{format, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
+use crate::fmt::{push_i64, push_padded};
 use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, Address,
@@ -54,13 +55,18 @@ impl<'a> Ctx<'a> {
         if self.req.query.is_empty() {
             Val::str(&self.req.path)
         } else {
-            Val::Str(format!("{}?{}", self.req.path, self.req.query))
+            let mut u = String::from(self.req.path.as_str());
+            u.push('?');
+            u.push_str(&self.req.query);
+            Val::Str(u)
         }
     }
     /// Full URL for `new URL(request.url)` in app-router handlers. The origin
     /// is synthetic; only path/search matter on chain.
     pub fn req_full_url(&self) -> Val {
-        Val::Str(format!("https://zoo.sol{}", self.req_url().to_js_string()))
+        let mut u = String::from("https://zoo.sol");
+        u.push_str(&self.req_url().to_js_string());
+        Val::Str(u)
     }
     pub fn req_query(&mut self) -> Val {
         if self.query_cache.is_none() {
@@ -279,17 +285,24 @@ pub fn iso8601(ms: f64) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        y,
-        m,
-        d,
-        sod / 3600,
-        (sod % 3600) / 60,
-        sod % 60,
-        milli
-    )
+    let mut out = String::new();
+    push_i64(&mut out, y);
+    out.push('-');
+    push_padded(&mut out, m as u64, 2);
+    out.push('-');
+    push_padded(&mut out, d as u64, 2);
+    out.push('T');
+    push_padded(&mut out, (sod / 3600) as u64, 2);
+    out.push(':');
+    push_padded(&mut out, ((sod % 3600) / 60) as u64, 2);
+    out.push(':');
+    push_padded(&mut out, (sod % 60) as u64, 2);
+    out.push('.');
+    push_padded(&mut out, milli as u64, 3);
+    out.push('Z');
+    out
 }
+
 
 const B58: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
