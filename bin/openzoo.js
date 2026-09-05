@@ -179,6 +179,9 @@ usage:
                               (--cluster, --port 4402); /api/* reads are free
                               simulations, writes are signed by the burner
   npx openzoo inspect [dir]   print the app in Vercel terms + eligibility report
+  npx openzoo hub             hosted explorer for every transmuted site on the
+                              cluster (what sites.openzoo.fun runs)
+  npx openzoo hub             hosted explorer for every transmuted site on the cluster
   npx openzoo address    print both funding addresses (Solana + EVM)
   npx openzoo help       this text
 
@@ -417,6 +420,7 @@ async function main() {
     case 'deploy':
     case 'serve':
     case 'inspect':
+    case 'hub':
     case 'transmute': {
       // VERCEL-SHAPED APP -> SOLANA MAINNET. `openzoo build|deploy|serve` hand
       // the argv to openzoo-transmute (a sibling npm package): it reads the
@@ -425,19 +429,11 @@ async function main() {
       // route, stores the static build in asset accounts, deploys with the
       // burner wallet at ~/.openzoo/wallet.json, and `serve` runs the local
       // gateway/explorer that maps http://localhost:4402/... onto the program.
-      // Dynamic import so a machine without the package still runs every other
-      // command; the fallback shells out to npx so the very first `openzoo
-      // deploy` works before the dependency is pinned in package.json.
       const argv = process.argv.slice(2).map((a, i) => (i === 0 && a === 'transmute' ? 'help' : a));
-      let cli = null;
-      try { cli = await import('openzoo-transmute/lib/cli.js'); } catch { /* not installed alongside */ }
-      if (cli) {
-        await cli.run(argv);
-      } else {
-        const { spawnSync } = await import('child_process');
-        const r = spawnSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['--yes', 'openzoo-transmute@latest', ...argv], { stdio: 'inherit' });
-        process.exit(r.status === null ? 1 : r.status);
-      }
+      // The transmuter ships inside this package (transmute/): lib/cli.js, the
+      // compiler, the gateway + hub and the on-chain runtime crate
+      // (transmute/runtime/zoo-host) all travel with npm — no second install.
+      await (await import('../transmute/lib/cli.js')).run(argv);
       break;
     }
     case 'address':

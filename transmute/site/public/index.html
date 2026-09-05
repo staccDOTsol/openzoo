@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>openzoo-transmute · a Vercel app running on Solana</title>
+<style>
+:root{color-scheme:light dark;font-family:ui-sans-serif,system-ui,sans-serif}
+body{max-width:52rem;margin:2rem auto;padding:0 1rem;line-height:1.5}
+h1{font-size:1.7rem;margin:.2rem 0}h2{font-size:1.15rem;margin-top:2rem}
+.muted{opacity:.7}code,pre{font-size:.88em}pre{background:#8881;padding:.7rem;border-radius:.4rem;overflow:auto;white-space:pre-wrap}
+table{border-collapse:collapse;width:100%;font-size:.92rem}td,th{padding:.3rem .5rem;border-bottom:1px solid #8883;text-align:left;vertical-align:top}
+button{padding:.4rem .8rem;font:inherit;border:1px solid #8886;border-radius:.4rem;background:#3b82f6;color:#fff;cursor:pointer;margin:.2rem .2rem .2rem 0}
+input{padding:.4rem .6rem;font:inherit;border:1px solid #8884;border-radius:.4rem;background:transparent;color:inherit}
+.demo{border:1px solid #8883;border-radius:.5rem;padding:.8rem;margin:.8rem 0}
+</style>
+</head>
+<body>
+<h1>This page is on Solana.</h1>
+<p class="muted">You are reading bytes out of a Solana account. Every button below runs a function that was a Vercel Lambda and is now an instruction of a Pinocchio program. No server holds this site.</p>
+
+<h2>What you are looking at</h2>
+<p><b>openzoo-transmute</b> takes an app shaped for Vercel (Next.js <code>pages/api</code>, the app router's <code>route.ts</code>, or a Vite repo with <code>api/*.js</code>) and re-hosts it on Solana mainnet:</p>
+<table>
+<tr><th>Vercel term</th><th>Solana term</th></tr>
+<tr><td>Lambda (<code>*.func</code>)</td><td>a route in one Pinocchio program (Rust, generated from your handler)</td></tr>
+<tr><td>node-bridge Invoke event <code>{method, path, headers, body}</code></td><td>instruction data</td></tr>
+<tr><td>bridge response <code>{statusCode, headers, body}</code></td><td>return data + log chunks</td></tr>
+<tr><td>GET</td><td><code>simulateTransaction</code> — free, no signature</td></tr>
+<tr><td>POST / PUT / DELETE</td><td>a signed transaction</td></tr>
+<tr><td><code>@vercel/kv</code></td><td>program-derived accounts, discovered by dry run</td></tr>
+<tr><td><code>static/</code></td><td>asset accounts (this HTML is one)</td></tr>
+<tr><td><code>environment</code></td><td>baked into the program at build time</td></tr>
+<tr><td><code>maxDuration</code>, <code>memory</code></td><td>compute-unit limit, heap frame</td></tr>
+<tr><td>deployment URL</td><td>a program id + any gateway (this one, or <code>npx openzoo serve</code> on your laptop)</td></tr>
+</table>
+
+<h2>Try the functions</h2>
+<div class="demo"><b>/api/hello</b> — <code>req.query</code>, <code>process.env</code>, headers<br>
+<input id="name" placeholder="your name" value="zoo"> <button id="hello">GET /api/hello</button><pre id="o-hello"></pre></div>
+<div class="demo"><b>/api/hits</b> — <code>@vercel/kv</code> counter. GET is a free simulation; POST is a real transaction (needs a signer: run the local gateway with your wallet, or wait for the x402 lane).<br>
+<button id="hits-get">GET /api/hits</button> <button id="hits-post">POST /api/hits</button><pre id="o-hits"></pre></div>
+<div class="demo"><b>/api/time</b> — <code>Date.now()</code> is the cluster clock<br><button id="time">GET /api/time</button><pre id="o-time"></pre></div>
+<div class="demo"><b>/api/echo</b> — app-router <code>POST(request)</code> with <code>await request.json()</code>, answers 201<br><button id="echo">POST /api/echo</button><pre id="o-echo"></pre></div>
+
+<h2>Put your own app here</h2>
+<pre>npx openzoo inspect .                       # your app, in Vercel terms + what is eligible
+npx openzoo build .                         # Rust program + asset plan (needs cargo-build-sbf)
+npx openzoo deploy . --cluster mainnet --yes   # rent quoted first; paid by ~/.openzoo/wallet.json
+# → https://sites.openzoo.fun/s/&lt;programId&gt;
+npx openzoo serve &lt;programId&gt;                # local gateway that signs writes with your wallet</pre>
+<p class="muted">Eligible today: handlers using query/body/headers, JSON, string and array methods, <code>@vercel/kv</code>, <code>Date.now()</code>, <code>process.env</code>. Not eligible: network calls, the filesystem, <code>Math.random</code>, streaming, <code>waitUntil</code>, ISR, middleware. Bodies must fit in one transaction (~900 bytes), responses in the log buffer (~8 KB). Reads are free; writes cost a transaction fee plus rent for new KV accounts.</p>
+
+<h2>Where this is going</h2>
+<p>Writes through the hosted gateway will be paid per request over x402 from the openzoo proxy, at twice cost; adding a site costs a 0.1 SOL dev fee and updating one 0.05 SOL, and those fees are swapped half into TOKEN and paired as SOL/TOKEN liquidity on PumpSwap. A <code>sol://</code> scheme in a browser fork makes the gateway optional.</p>
+
+<h2>This deployment</h2>
+<pre id="o-status" class="muted">loading /.zoo/status…</pre>
+<p class="muted">Source: <code>openzoo-transmute/site</code> in <a href="https://github.com/staccDOTsol/leCore">staccDOTsol/leCore</a> · the transmuter's own docs are in <code>docs/VERCEL_TO_SOLANA.md</code>.</p>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 {
   "name": "openzoo",
-  "version": "0.50.100",
-  "description": "Local x402-paying proxy + MCP server for openzoo.fun — point any OpenAI-compatible harness (Cursor, Claude Code, aider, SDKs) at localhost and it pays per call from a local burner wallet. Solana and Base rails live; Robinhood experimental.",
+  "version": "0.51.0",
+  "description": "Local x402-paying proxy + MCP server for openzoo.fun \u2014 point any OpenAI-compatible harness (Cursor, Claude Code, aider, SDKs) at localhost and it pays per call from a local burner wallet. Solana and Base rails live; Robinhood experimental. `openzoo build|deploy|serve|hub` transmute a Vercel-shaped app (Next.js / Vite + /api) into a Pinocchio program + asset accounts on Solana mainnet.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -10,7 +10,8 @@
   "files": [
     "bin",
     "lib",
-    "README.md"
+    "README.md",
+    "transmute"
   ],
   "engines": {
     "node": ">=18"
@@ -25,7 +26,9 @@
     "dugite": "^3.2.3",
     "selfsigned": "^5.5.0",
     "viem": "^2.21.0",
-    "zod": "^3.24.0"
+    "zod": "^3.24.0",
+    "acorn": "^8.14.0",
+    "acorn-walk": "^8.3.4"
   },
   "repository": {
     "type": "git",

@@ -1,0 +1,28 @@
+[package]
+name = "zoo-host"
+version = "0.1.0"
+edition = "2021"
+description = "On-chain host runtime for openzoo-transmute: runs Vercel-shaped Lambda handlers as Solana instructions (pinocchio, no_std)."
+license = "MIT"
+
+[lib]
+name = "zoo_host"
+crate-type = ["rlib"]
+
+[dependencies]
+pinocchio = { version = "0.11.2", features = ["cpi", "account-resize"] }
+pinocchio-system = "0.6.1"
+solana-sha256-hasher = { version = "3", default-features = false }
+libm = "0.2"
+
+# Host builds (cargo test) need the sha2 + curve25519 fallbacks that the SBF
+# target gets from syscalls.
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+solana-address = { version = "2", features = ["curve25519", "sha2", "std"] }
+solana-sha256-hasher = { version = "3", features = ["sha2"] }
+
+[features]
+default = []
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
