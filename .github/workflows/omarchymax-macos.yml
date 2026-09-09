@@ -71,8 +71,19 @@ jobs:
           path: try-omarchy/guest/packages.lock.json
           if-no-files-found: error
 
+      # TEMPORARY, THIS BRANCH ONLY. The fork's rust pin moved to 1:1.98.1-1 and
+      # its Hyprland now builds against the aquamarine 0.15 ABI, so both
+      # reproducible binaries changed and neither new digest can be written into
+      # spec.json before a build has produced it. OMARCHY_REPIN_DIGESTS=1 makes
+      # the guest's digest gates report
+      #   REPIN supplyChain.<component>.binarySha256 = <digest>
+      # and carry on instead of stopping at the first stale pin, so one run names
+      # every digest that has to move. Drop this env — and the next release build
+      # fails closed on any mismatch again — once the digests are pinned.
       - name: Build the locked guest image
         working-directory: try-omarchy
+        env:
+          OMARCHY_REPIN_DIGESTS: "1"
         run: |
           guest/build-container.sh --output "$PWD/dist/guest"
           ls -l dist/guest
