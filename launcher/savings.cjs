@@ -1,11 +1,12 @@
 const { BrowserWindow, screen, ipcMain, clipboard, shell } = require('electron');
 const path = require('node:path');
-let pill;
+const { watchChatVisibility } = require('./chat-visibility.cjs');
+let pill, revealPill;
 function showSavings(port = Number(process.env.OPENZOO_SAVINGS_PORT) || 8402) {
-  if (pill && !pill.isDestroyed()) { pill.show(); return pill; }
+  if (pill && !pill.isDestroyed()) { revealPill?.(); return pill; }
   const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
   pill = new BrowserWindow({ width: 420, height: 270, x: x + width - 440, y: y + height - 290,
-    frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true, resizable: false,
+    show: false, frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true, resizable: false,
     webPreferences: { preload: path.join(__dirname, 'savings-preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
   pill.setAlwaysOnTop(true, 'floating');
   pill.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -15,25 +16,40 @@ function showSavings(port = Number(process.env.OPENZOO_SAVINGS_PORT) || 8402) {
   const window = pill;
   const visibilityControl = new BrowserWindow({ width: 136, height: 40,
     x: x + 16, y: y + height - 100,
-    frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true, resizable: false,
+    show: false, frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true, resizable: false,
     webPreferences: { preload: path.join(__dirname, 'savings-preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
   visibilityControl.setAlwaysOnTop(true, 'floating');
   visibilityControl.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   visibilityControl.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   visibilityControl.webContents.on('will-navigate', e => e.preventDefault());
   visibilityControl.loadFile(path.join(__dirname, 'savings-toggle.html'));
+  let chatActive = false, userVisible = true;
+  const applyVisibility = () => {
+    if (window.isDestroyed() || visibilityControl.isDestroyed()) return;
+    if (chatActive) {
+      if (!visibilityControl.isVisible()) visibilityControl.showInactive();
+      if (userVisible && !window.isVisible()) window.showInactive();
+      if (!userVisible && window.isVisible()) window.hide();
+    } else {
+      window.hide();
+      visibilityControl.hide();
+    }
+  };
+  revealPill = () => { userVisible = true; applyVisibility(); syncVisibility(); };
   const syncVisibility = () => {
-    if (!visibilityControl.isDestroyed()) visibilityControl.webContents.send('pill-visibility', window.isVisible());
+    if (!visibilityControl.isDestroyed()) visibilityControl.webContents.send('pill-visibility', userVisible);
   };
   const toggleVisibility = event => {
     if (event.sender !== visibilityControl.webContents || window.isDestroyed()) return;
-    if (window.isVisible()) window.hide(); else window.showInactive();
+    userVisible = !userVisible;
+    applyVisibility();
     syncVisibility();
   };
   ipcMain.on('toggle-savings-visibility', toggleVisibility);
   window.on('show', syncVisibility);
   window.on('hide', syncVisibility);
   visibilityControl.webContents.on('did-finish-load', syncVisibility);
+  const stopVisibility = watchChatVisibility(active => { chatActive = active; applyVisibility(); });
   let busy = false, last = null, wallet = null, expandedHeight = 270;
   const resize = height => {
     const b = window.getBounds(), area = screen.getDisplayMatching(b).workArea;
@@ -84,9 +100,9 @@ function showSavings(port = Number(process.env.OPENZOO_SAVINGS_PORT) || 8402) {
     }
   });
   const timer = setInterval(poll, 3000);
-  const close = event => { if (event.sender === window.webContents) window.hide(); };
+  const close = event => { if (event.sender === window.webContents) { userVisible = false; applyVisibility(); syncVisibility(); } };
   ipcMain.on('close-savings', close);
-  window.on('closed', () => { ipcMain.removeListener('toggle-savings-visibility', toggleVisibility); if (!visibilityControl.isDestroyed()) visibilityControl.destroy(); clearInterval(timer); for (const [name, fn] of [["collapse-savings",collapse],["open-deposit",deposit],["copy-deposit",copy],["deposit-card",card],["close-deposit",back]]) ipcMain.removeListener(name,fn); ipcMain.removeListener('close-savings', close); if (pill === window) pill = null; });
+  window.on('closed', () => { stopVisibility(); revealPill = null; ipcMain.removeListener('toggle-savings-visibility', toggleVisibility); if (!visibilityControl.isDestroyed()) visibilityControl.destroy(); clearInterval(timer); for (const [name, fn] of [["collapse-savings",collapse],["open-deposit",deposit],["copy-deposit",copy],["deposit-card",card],["close-deposit",back]]) ipcMain.removeListener(name,fn); ipcMain.removeListener('close-savings', close); if (pill === window) pill = null; });
   return pill;
 }
 module.exports = { showSavings };

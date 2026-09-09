@@ -6,7 +6,7 @@
   "scripts": {
     "prepare:bundle": "node prepare.mjs",
     "dist": "electron-builder",
-    "test": "node --test test.cjs"
+    "test": "node --test test.cjs chat-visibility.test.cjs"
   },
   "devDependencies": {
     "electron": "44.3.0",
@@ -25,7 +25,8 @@
       "savings.html",
       "savings-renderer.js",
       "savings-toggle.html",
-      "savings-toggle.js"
+      "savings-toggle.js",
+      "chat-visibility.cjs"
     ],
     "extraResources": [
       {
