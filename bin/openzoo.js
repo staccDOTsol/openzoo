@@ -180,6 +180,11 @@ usage:
   npx openzoo balance    wallet balance on every rail — Solana (USDC/TOKEN/SOL),
                          Base (USDC/ETH), Robinhood Chain (USDG/memecoins/ETH)
   npx openzoo address    print both funding addresses (Solana + EVM)
+  npx openzoo model [id] pin the model every chat uses, whatever the app sends
+                         (no id = show it · reset|off = clear). Same override the
+                         chat command \`/model <id>\` sets from inside ChatGPT,
+                         Cursor or Claude Code — a running proxy picks it up
+                         without a restart.
   npx openzoo help       this text
 
 point any OpenAI-compatible harness at:
@@ -419,6 +424,12 @@ async function main() {
     }
     case 'address':
       (await import('../lib/info.js')).printAddress();
+      break;
+    // Same override file the in-chat `/model` command writes. Two doors on one
+    // switch: a harness with no model picker (ChatGPT/Codex) uses the chat
+    // command, everyone else can just type it here.
+    case 'model':
+      await (await import('../lib/modelcommand.js')).cliModel(process.argv[3]);
       break;
     case 'help':
     case '--help':
