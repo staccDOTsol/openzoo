@@ -32,6 +32,9 @@ jobs:
           cache-dependency-path: launcher/package-lock.json
       - run: npm ci
       - run: npm test
+      - name: Validate packaged Windows launch scripts
+        if: matrix.platform == 'win'
+        run: node --test ../test/windows-script.test.js
       - name: Bound macOS signing file probes
         if: matrix.platform == 'mac'
         run: node patch-signing.cjs
