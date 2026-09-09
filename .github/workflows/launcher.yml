@@ -77,6 +77,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "OpenZoo Launcher ${TAG#launcher-v}" --notes 'Install OpenZoo Launcher, then choose ChatGPT or Grok Bot. Includes Node and npm; checks for the latest OpenZoo at launch with a bundled fallback. Downloads the chat app when missing. Each available platform is uploaded independently. Windows installers are unsigned.' || gh release view "$TAG" --repo "$GITHUB_REPOSITORY"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "OpenZoo Launcher ${TAG#launcher-v}" --notes 'Install OpenZoo Launcher, then launch ChatGPT. Includes a first-run funding walkthrough and a Deposit button in the savings overlay. Includes Node and npm; checks for the latest OpenZoo at launch with a bundled fallback. Downloads the chat app when missing. Each available platform is uploaded independently. Windows installers are unsigned.' || gh release view "$TAG" --repo "$GITHUB_REPOSITORY"
           shopt -s nullglob
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber dist/*.dmg dist/*.exe dist/*.AppImage dist/SHA256SUMS-*.txt
