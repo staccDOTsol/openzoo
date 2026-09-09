@@ -1,0 +1,216 @@
+name: omarchymax macos
+
+# Omarchy Max for Apple Silicon: the staccDOTsol/try-omarchy fork (Try Omarchy
+# with openzoo seeded at first launch) built, signed with the Developer ID and
+# notarized with the same secrets openzoo-bot-macos.yml uses, and published as
+# a DMG on THIS repo's releases (openzoo.fun/omarchymax-mac reads them).
+#
+# Two legs, because the pieces need different machines:
+#   guest    — the ARM64 Arch factory image. Needs privileged linux/arm64
+#              Docker, which GitHub's macOS runners do not have; the arm64
+#              Ubuntu runner does.
+#   package  — QEMU GPU runtime from source, the Swift launcher, the .app,
+#              codesign, notarytool, DMG. macOS 15 on Apple Silicon only.
+#
+# Tag `omarchymax-mac-vX.Y.Z` publishes; workflow_dispatch builds and attaches
+# the DMG to the run without a release.
+on:
+  push:
+    tags: ["omarchymax-mac-v*"]
+    # A branch named like the tag is the same trigger — see the Windows twin.
+    branches: ["omarchymax-mac-v*"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: try-omarchy fork ref to build
+        required: false
+        default: openzoo-first-launch
+
+env:
+  FORK: staccDOTsol/try-omarchy
+  FORK_REF: ${{ inputs.ref || 'openzoo-first-launch' }}
+
+jobs:
+  guest:
+    name: ARM64 factory guest
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - name: Check out the fork
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FORK }}
+          ref: ${{ env.FORK_REF }}
+          path: try-omarchy
+
+      - name: Free disk (the raw image alone is 6 GiB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h / | tail -1
+
+      # THE LOCK DRIFTS WEEKLY. packages.lock.json pins exact Arch Linux ARM
+      # package versions and the mirror is rolling, so a week-old pin fails
+      # with "could not satisfy dependencies" (measured 2026-09-09, run 4).
+      # Resolve today's transaction first; when it differs, build with it and
+      # upload it so the fork's pin can be moved forward deliberately.
+      - name: Refresh the package lock against today's Arch Linux ARM
+        working-directory: try-omarchy
+        run: |
+          docker info >/dev/null
+          guest/build-container.sh --refresh-package-lock "$PWD/dist/packages.lock.json"
+          if cmp -s dist/packages.lock.json guest/packages.lock.json; then
+            echo "package lock is current"
+          else
+            echo "::warning::the fork's guest/packages.lock.json drifted from Arch Linux ARM — building with today's resolve; pin it back from the omarchymax-guest-lock artifact"
+            cp dist/packages.lock.json guest/packages.lock.json
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omarchymax-guest-lock
+          path: try-omarchy/guest/packages.lock.json
+          if-no-files-found: error
+
+      - name: Build the locked guest image
+        working-directory: try-omarchy
+        run: |
+          guest/build-container.sh --output "$PWD/dist/guest"
+          ls -l dist/guest
+
+      - name: Drop the raw image (the app ships rootfs.ext4.zst)
+        run: |
+          rm -f try-omarchy/dist/guest/rootfs.ext4
+          du -sh try-omarchy/dist/guest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omarchymax-guest
+          path: try-omarchy/dist/guest
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  package:
+    name: Sign, notarize, DMG
+    needs: guest
+    runs-on: macos-15
+    timeout-minutes: 300
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the fork
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FORK }}
+          ref: ${{ env.FORK_REF }}
+          path: try-omarchy
+
+      - name: Toolchain
+        run: |
+          sw_vers -productVersion; uname -m
+          for tool in curl pkg-config python3 swift xcrun; do command -v "$tool" >/dev/null || { echo "missing $tool" >&2; exit 1; }; done
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: omarchymax-guest
+          path: try-omarchy/dist/guest
+
+      - name: Import the Developer ID certificate
+        env:
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        shell: bash
+        run: |
+          set -eu
+          [[ -n "$MAC_CERT_P12" ]] || { echo "MAC_CERT_P12 secret is empty" >&2; exit 1; }
+          KC="$RUNNER_TEMP/omarchymax.keychain-db"
+          KCPW="$(uuidgen)"
+          echo "$MAC_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KCPW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KCPW" "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
+          ID="$(security find-identity -v -p codesigning "$KC" | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')"
+          [[ -n "$ID" ]] || { echo "no Developer ID Application identity in the certificate" >&2; security find-identity -v -p codesigning "$KC"; exit 1; }
+          echo "SIGN_IDENTITY=$ID" >> "$GITHUB_ENV"
+          echo "signing as: $ID"
+
+      - name: Store the notarytool profile
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          set -eu
+          if [[ -n "$APPLE_API_KEY_P8" ]]; then
+            echo "$APPLE_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+            xcrun notarytool store-credentials try-omarchy --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER"
+            echo "notarize: api key"
+          elif [[ -n "$APPLE_ID" && -n "$APPLE_APP_SPECIFIC_PASSWORD" ]]; then
+            xcrun notarytool store-credentials try-omarchy --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID"
+            echo "notarize: apple id"
+          else
+            echo "no notarization credentials in secrets" >&2; exit 1
+          fi
+
+      - name: Build the QEMU GPU runtime (source, pinned bottles)
+        working-directory: try-omarchy
+        run: macos/build-qemu-gpu-runtime.sh
+
+      - name: Build, sign, notarize, DMG
+        working-directory: try-omarchy
+        shell: bash
+        run: |
+          set -eu
+          macos/build-app.sh --guest-dir "$PWD/dist/guest" --sign-identity "$SIGN_IDENTITY" --notarize-profile try-omarchy
+          ls -lh dist/TryOmarchy.dmg
+
+      - name: Verify signature and notarization
+        working-directory: try-omarchy
+        shell: bash
+        run: |
+          set -eu
+          APP="dist/app.noindex/Try Omarchy.app"
+          codesign --verify --deep --strict "$APP"
+          codesign -dv --verbose=2 "$APP" 2>&1 | grep -E 'Authority|TeamIdentifier'
+          spctl -a -vvv -t install "$APP"
+          xcrun stapler validate dist/TryOmarchy.dmg || true
+          shasum -a 256 dist/TryOmarchy.dmg | tee dist/TryOmarchy.dmg.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omarchymax-mac-dmg
+          path: |
+            try-omarchy/dist/TryOmarchy.dmg
+            try-omarchy/dist/TryOmarchy.dmg.sha256
+          if-no-files-found: error
+
+      - name: Publish the DMG to the release
+        if: startsWith(github.ref, 'refs/tags/omarchymax-mac-v') || startsWith(github.ref, 'refs/heads/omarchymax-mac-v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          TAG="$GITHUB_REF_NAME"
+          NOTES="Omarchy Max for Apple Silicon — Try Omarchy with openzoo seeded at first launch (agent, bar, ingest, ChatGPT desktop's Codex side paid per call). Built from $FORK@$FORK_REF."
+          for i in 1 2 3 4 5 6; do
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Omarchy Max (macOS) ${TAG#omarchymax-mac-}" --notes "$NOTES" 2>/dev/null && break
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            echo "release not ready (attempt $i) — retrying"; sleep $((i * 10))
+          done
+          for i in 1 2 3 4 5 6; do
+            if gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber try-omarchy/dist/TryOmarchy.dmg try-omarchy/dist/TryOmarchy.dmg.sha256; then
+              echo "uploaded"; exit 0
+            fi
+            echo "upload failed (attempt $i) — retrying"; sleep $((i * 10))
+          done
+          echo "FAILED to upload after 6 attempts; the DMG is attached to this run"
+          exit 1

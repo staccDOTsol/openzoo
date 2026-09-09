@@ -1,0 +1,340 @@
+name: omarchymax windows
+
+# Omarchy Max for Windows: the staccDOTsol/try-omarchy-windows fork (Try
+# Omarchy for Windows with openzoo seeded at first launch) built and published
+# on THIS repo's releases under `omarchymax-win-vX.Y.Z`.
+#
+# Three legs, modelled on the fork's own .github/workflows/release.yml:
+#   guest     — the locked x86_64 Arch factory image (Docker + KVM on Ubuntu):
+#               the fork's scripts/release/build-guest.sh clones the pinned
+#               jorge-huxley/try-omarchy-win commit, applies guest-build/*.patch
+#               (0045 seeds openzoo), builds, then prepare-assets.sh adds the
+#               prebuilt WINQ-EMU GPU runtime from guest-build/runtime.lock.json
+#               (upstream omacom release asset, SHA256-verified) and
+#               smoke-guest.py boots the result under headless QEMU.
+#   launcher  — app/TryOmarchy.exe on windows-2025, UNSIGNED (the fork uses
+#               Azure Trusted Signing; we have no certificate).
+#   publish   — attaches the guest assets, runtime pointer + checksums and the
+#               exe to the release on a tag push.
+#
+# HOW THE LAUNCHER FINDS OUR PAYLOAD (app/manifest.go, app/main.go):
+#   The launcher downloads `<defaultReleaseURL>/SHA256SUMS`, authenticates it
+#   against the embedded digest `defaultSumsSHA256`, and then fetches every
+#   guest/runtime asset from the same base URL, verified against that manifest.
+#   Both are package-level `var`s that upstream itself pins with
+#   `-ldflags -X` (see the fork's sign-runtime-test.yml), so this workflow sets
+#     main.defaultReleaseURL   = https://github.com/<this repo>/releases/download/<tag>/
+#     main.defaultSumsSHA256   = sha256(SHA256SUMS) produced by the guest job
+#   and no source edit is needed. Nothing in the exe points at upstream's
+#   omacom payload any more.
+#
+#   The trailing slash is deliberate: normalizedRelease() strips it, so the
+#   runtime comparison `normalizedRelease(release) == defaultReleaseURL` is
+#   false, which (a) makes releaseSums() fetch and authenticate OUR manifest
+#   instead of the embedded upstream fixture, and (b) makes
+#   automaticUpdatesEnabled() false. (b) matters: `defaultUpdateURL` is a
+#   const pointing at omacom's ed25519-signed update-v2.json; we do not hold
+#   that key (secrets.UPDATE_SIGNING_KEY), and an enabled check would silently
+#   replace this launcher with upstream's next release, which downloads the
+#   upstream payload. No signed update feed is published here.
+#
+#   The data directory is isolated to %LOCALAPPDATA%\OmarchyMax via
+#   main.defaultDataDirectoryName so an existing upstream Try Omarchy install
+#   keeps its own disk and runtime receipts.
+#
+# Tag `omarchymax-win-vX.Y.Z` publishes; workflow_dispatch builds and attaches
+# everything to the run without a release (that exe is pinned to
+# `omarchymax-win-dev-r<run number>`, so it only runs if you create that
+# release from the run's guest artifact).
+on:
+  push:
+    tags: ["omarchymax-win-v*"]
+    # A branch named like the tag is the same trigger: this session's git
+    # proxy refuses tag pushes, branch pushes go through, and gh creates the
+    # tag server-side at publish time (--target $GITHUB_SHA).
+    branches: ["omarchymax-win-v*"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: try-omarchy-windows fork ref to build
+        required: false
+        default: openzoo-first-launch
+
+env:
+  FORK: staccDOTsol/try-omarchy-windows
+  FORK_REF: ${{ inputs.ref || 'openzoo-first-launch' }}
+  RELEASE_TAG: ${{ (startsWith(github.ref, 'refs/tags/omarchymax-win-v') || startsWith(github.ref, 'refs/heads/omarchymax-win-v')) && github.ref_name || format('omarchymax-win-dev-r{0}', github.run_number) }}
+
+jobs:
+  guest:
+    name: Locked x86_64 factory guest
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    outputs:
+      sums_sha256: ${{ steps.pin.outputs.sums_sha256 }}
+    env:
+      ARTIFACT_DIR: ${{ github.workspace }}/guest-release
+    steps:
+      - name: Check out the fork
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FORK }}
+          ref: ${{ env.FORK_REF }}
+          path: try-omarchy-windows
+
+      - name: Free disk (the raw image alone is 6 GiB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h / | tail -1
+
+      - name: Check runner capacity (the fork's release gate)
+        run: |
+          test "$(df --output=avail -B1G "$RUNNER_TEMP" | tail -1)" -ge 14
+          test -e /dev/kvm
+          sudo chmod 666 /dev/kvm
+          docker info >/dev/null
+          df -h "$RUNNER_TEMP" /var/lib/docker
+
+      - name: Install headless QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends qemu-system-x86
+
+      # THE LOCK DRIFTS WEEKLY. The fork's own refresh-guest-lock.sh resolves
+      # today's Arch transaction and, when it moved, writes the next numbered
+      # guest-build patch; the build below then applies it with the rest.
+      # Uploaded so the fork's pin can be moved forward deliberately.
+      - name: Refresh the guest package lock if Arch moved
+        working-directory: try-omarchy-windows
+        run: |
+          scripts/release/refresh-guest-lock.sh
+          git status --porcelain guest-build || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omarchymax-win-guest-lock-patch
+          path: try-omarchy-windows/guest-build/*Refresh-the-guest-package-lock*.patch
+          if-no-files-found: ignore
+
+      - name: Build the locked guest image (pinned source + guest-build patches)
+        working-directory: try-omarchy-windows
+        run: scripts/release/build-guest.sh --output "$ARTIFACT_DIR"
+
+      - name: Add and verify the locked WINQ-EMU runtime
+        working-directory: try-omarchy-windows
+        run: scripts/release/prepare-assets.sh "$ARTIFACT_DIR"
+
+      - name: Smoke-test instant first boot
+        working-directory: try-omarchy-windows
+        run: scripts/release/smoke-guest.py "$ARTIFACT_DIR"
+
+      - name: Drop the raw image (the launcher downloads rootfs.ext4.zst)
+        run: |
+          rm -- "$ARTIFACT_DIR/rootfs.ext4"
+          du -sh "$ARTIFACT_DIR"
+          ls -l "$ARTIFACT_DIR"
+
+      - name: Record the manifest pin and the runtime pointer
+        id: pin
+        shell: bash
+        run: |
+          set -eu
+          cp try-omarchy-windows/guest-build/runtime.lock.json "$ARTIFACT_DIR/runtime.lock.json"
+          digest=$(sha256sum "$ARTIFACT_DIR/SHA256SUMS" | cut -d' ' -f1)
+          echo "sums_sha256=$digest" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Guest ready"
+            echo
+            echo "Built from \`$FORK@$FORK_REF\` for release \`$RELEASE_TAG\`."
+            echo
+            echo "SHA256SUMS digest pinned into the launcher: \`$digest\`"
+            echo
+            echo '```'
+            cat "$ARTIFACT_DIR/SHA256SUMS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omarchymax-win-guest
+          path: guest-release
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omarchymax-win-manifest
+          path: |
+            guest-release/SHA256SUMS
+            guest-release/build-spec.json
+            guest-release/guest-manifest.json
+            guest-release/provenance.json
+            guest-release/runtime.lock.json
+          if-no-files-found: error
+          retention-days: 7
+
+  launcher:
+    name: Launcher (unsigned)
+    needs: guest
+    runs-on: windows-2025
+    timeout-minutes: 40
+    env:
+      SUMS_SHA256: ${{ needs.guest.outputs.sums_sha256 }}
+    steps:
+      - name: Check out the fork
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FORK }}
+          ref: ${{ env.FORK_REF }}
+          path: try-omarchy-windows
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: try-omarchy-windows/app/go.mod
+          cache-dependency-path: try-omarchy-windows/app/go.sum
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: omarchymax-win-manifest
+          path: guest-manifest
+
+      - name: Pin the launcher to this repo's release
+        shell: bash
+        run: |
+          set -eu
+          [[ "$SUMS_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "guest job produced no manifest digest" >&2; exit 1; }
+          actual=$(sha256sum guest-manifest/SHA256SUMS | cut -d' ' -f1)
+          [[ "$actual" == "$SUMS_SHA256" ]] || { echo "SHA256SUMS digest mismatch: $actual != $SUMS_SHA256" >&2; exit 1; }
+          for name in rootfs.ext4.zst vmlinuz-linux initramfs-linux.img guest-manifest.json build-spec.json winq-emu-alpha10-portable.zip; do
+            grep -qE "[[:space:]]\*?${name}$" guest-manifest/SHA256SUMS || { echo "SHA256SUMS lacks $name" >&2; exit 1; }
+          done
+          # Trailing slash on purpose — see the header comment.
+          RELEASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/"
+          echo "RELEASE_URL=$RELEASE_URL" >> "$GITHUB_ENV"
+          echo "launcher pinned to $RELEASE_URL with SHA256SUMS $SUMS_SHA256"
+          if sed -n '/^const (/,/^)/p' try-omarchy-windows/app/update.go | grep -q 'defaultUpdateURL'; then
+            echo "defaultUpdateURL is a const (upstream signed feed); automatic updates are disabled by the non-normalized pin"
+          else
+            echo "defaultUpdateURL is a var; also pointing it at this release (no signed feed is published there, so checks fail closed)"
+            echo "UPDATE_LDFLAG=-X main.defaultUpdateURL=${RELEASE_URL}update-v2.json" >> "$GITHUB_ENV"
+          fi
+
+      - name: Test the launcher
+        working-directory: try-omarchy-windows/app
+        shell: bash
+        run: |
+          go vet -unsafeptr=false ./...
+          go test ./...
+
+      - name: Build the pinned launcher
+        working-directory: try-omarchy-windows/app
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p "$GITHUB_WORKSPACE/release"
+          go build -trimpath -ldflags "-H windowsgui -s -w -X main.defaultReleaseURL=${RELEASE_URL} -X main.defaultSumsSHA256=${SUMS_SHA256} -X main.defaultDataDirectoryName=OmarchyMax ${UPDATE_LDFLAG:-}" -o "$GITHUB_WORKSPACE/release/TryOmarchy.exe" .
+          ls -l "$GITHUB_WORKSPACE/release/TryOmarchy.exe"
+
+      - name: Checksum (unsigned — no Authenticode certificate available)
+        working-directory: release
+        shell: bash
+        run: |
+          set -eu
+          sha256sum TryOmarchy.exe | tee TryOmarchy.exe.sha256
+          grep -a -q "${RELEASE_URL}" TryOmarchy.exe && echo "release URL is embedded" || { echo "release URL not found in the binary" >&2; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omarchymax-win-launcher
+          path: |
+            release/TryOmarchy.exe
+            release/TryOmarchy.exe.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Publish to the release
+    if: startsWith(github.ref, 'refs/tags/omarchymax-win-v') || startsWith(github.ref, 'refs/heads/omarchymax-win-v')
+    needs: [guest, launcher]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SUMS_SHA256: ${{ needs.guest.outputs.sums_sha256 }}
+    steps:
+      - name: Check out the fork (release verification scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FORK }}
+          ref: ${{ env.FORK_REF }}
+          path: try-omarchy-windows
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: omarchymax-win-guest
+          path: release-assets
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: omarchymax-win-launcher
+          path: release-assets
+
+      - name: Verify every asset against the pinned manifest
+        shell: bash
+        run: |
+          set -eu
+          actual=$(sha256sum release-assets/SHA256SUMS | cut -d' ' -f1)
+          [[ "$actual" == "$SUMS_SHA256" ]] || { echo "SHA256SUMS digest drifted: $actual != $SUMS_SHA256" >&2; exit 1; }
+          python3 try-omarchy-windows/scripts/release/verify-release-assets.py release-assets/SHA256SUMS release-assets \
+            build-spec.json guest-manifest.json initramfs-linux.img LICENSE.omarchy packages.lock.txt provenance.json \
+            rootfs.ext4.zst vmlinuz-linux winq-emu-alpha10-portable.zip winq-emu-alpha10-source.zip
+          (cd release-assets && sha256sum --check TryOmarchy.exe.sha256)
+          ls -l release-assets
+
+      - name: Write the release notes
+        shell: bash
+        run: |
+          set -eu
+          RUNTIME_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runtime"]["url"])' release-assets/runtime.lock.json)
+          RUNTIME_SHA=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["runtime"]["sha256"])' release-assets/runtime.lock.json)
+          EXE_SHA=$(cut -d' ' -f1 release-assets/TryOmarchy.exe.sha256)
+          cat > notes.md <<'EOF'
+          Omarchy Max for Windows — Try Omarchy with openzoo seeded at first launch (root bootstrap installs the openzoo CLI on the first online boot, a localhost-only x402 pay-per-call proxy on :8402, the openzoo.fun/omarchymax one-liner at first login, ChatGPT desktop's Codex side paid per call). Built from `@FORK@@@FORK_REF@`.
+
+          **Download `TryOmarchy.exe` and run it.** On first run it downloads the guest image and the graphics runtime from *this* release (`@RELEASE_URL@`), verifying `SHA256SUMS` against the digest `@SUMS_SHA256@` compiled into the exe, and every asset against that manifest. Data lives in `%LOCALAPPDATA%\OmarchyMax`.
+
+          **Unsigned.** This exe carries no Authenticode signature (upstream signs with Azure Trusted Signing, which this project does not have). Windows SmartScreen will warn: choose *More info → Run anyway*. Verify it yourself: `TryOmarchy.exe` SHA256 `@EXE_SHA@` (also in `TryOmarchy.exe.sha256`). There is no signed update feed either — this launcher does not self-update; install a newer Omarchy Max release by downloading its exe.
+
+          **GPU runtime.** `winq-emu-alpha10-portable.zip` is upstream's prebuilt WINQ-EMU runtime, pinned by `runtime.lock.json` (@RUNTIME_URL@, SHA256 `@RUNTIME_SHA@`) and re-verified during this build; `winq-emu-alpha10-source.zip` is its corresponding source.
+
+          Assets: `SHA256SUMS` (manifest), `rootfs.ext4.zst`, `vmlinuz-linux`, `initramfs-linux.img`, `guest-manifest.json`, `build-spec.json`, `provenance.json`, `packages.lock.txt`, `LICENSE.omarchy`, `winq-emu-alpha10-portable.zip`, `winq-emu-alpha10-source.zip`, `runtime.lock.json`, `TryOmarchy.exe`, `TryOmarchy.exe.sha256`.
+          EOF
+          sed -i \
+            -e "s|@FORK@|$FORK|g" -e "s|@FORK_REF@|$FORK_REF|g" -e "s|@RELEASE_URL@|https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/|g" \
+            -e "s|@SUMS_SHA256@|$SUMS_SHA256|g" -e "s|@EXE_SHA@|$EXE_SHA|g" -e "s|@RUNTIME_URL@|$RUNTIME_URL|g" -e "s|@RUNTIME_SHA@|$RUNTIME_SHA|g" \
+            notes.md
+          cat notes.md
+
+      - name: Publish the assets to the release
+        shell: bash
+        run: |
+          set -u
+          TAG="$RELEASE_TAG"
+          for i in 1 2 3 4 5 6; do
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Omarchy Max (Windows) ${TAG#omarchymax-win-}" --notes-file notes.md 2>/dev/null && break
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            echo "release not ready (attempt $i) — retrying"; sleep $((i * 10))
+          done
+          cd release-assets
+          ASSETS="SHA256SUMS build-spec.json guest-manifest.json initramfs-linux.img LICENSE.omarchy packages.lock.txt provenance.json rootfs.ext4.zst vmlinuz-linux winq-emu-alpha10-portable.zip winq-emu-alpha10-source.zip runtime.lock.json TryOmarchy.exe TryOmarchy.exe.sha256"
+          for i in 1 2 3 4 5 6; do
+            if gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber $ASSETS; then
+              echo "uploaded"; exit 0
+            fi
+            echo "upload failed (attempt $i) — retrying"; sleep $((i * 10))
+          done
+          echo "FAILED to upload after 6 attempts; the assets are attached to this run"
+          exit 1
