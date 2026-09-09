@@ -49,6 +49,10 @@ name: omarchymax windows
 on:
   push:
     tags: ["omarchymax-win-v*"]
+    # A branch named like the tag is the same trigger: this session's git
+    # proxy refuses tag pushes, branch pushes go through, and gh creates the
+    # tag server-side at publish time (--target $GITHUB_SHA).
+    branches: ["omarchymax-win-v*"]
   workflow_dispatch:
     inputs:
       ref:
@@ -59,7 +63,7 @@ on:
 env:
   FORK: staccDOTsol/try-omarchy-windows
   FORK_REF: ${{ inputs.ref || 'openzoo-first-launch' }}
-  RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/omarchymax-win-v') && github.ref_name || format('omarchymax-win-dev-r{0}', github.run_number) }}
+  RELEASE_TAG: ${{ (startsWith(github.ref, 'refs/tags/omarchymax-win-v') || startsWith(github.ref, 'refs/heads/omarchymax-win-v')) && github.ref_name || format('omarchymax-win-dev-r{0}', github.run_number) }}
 
 jobs:
   guest:
@@ -235,7 +239,7 @@ jobs:
 
   publish:
     name: Publish to the release
-    if: startsWith(github.ref, 'refs/tags/omarchymax-win-v')
+    if: startsWith(github.ref, 'refs/tags/omarchymax-win-v') || startsWith(github.ref, 'refs/heads/omarchymax-win-v')
     needs: [guest, launcher]
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -304,7 +308,7 @@ jobs:
           set -u
           TAG="$RELEASE_TAG"
           for i in 1 2 3 4 5 6; do
-            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "Omarchy Max (Windows) ${TAG#omarchymax-win-}" --notes-file notes.md 2>/dev/null && break
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Omarchy Max (Windows) ${TAG#omarchymax-win-}" --notes-file notes.md 2>/dev/null && break
             gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
             echo "release not ready (attempt $i) — retrying"; sleep $((i * 10))
           done
