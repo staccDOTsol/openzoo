@@ -89,6 +89,10 @@ function showSavings(port = Number(process.env.OPENZOO_SAVINGS_PORT) || 8402) {
       const d = await r.json();
       if (!r.ok || d.youAreTalkingTo !== 'openzoo proxy') throw Error('Unavailable');
       last = d;
+      if (wallet && d.solana && typeof d.evm === 'string' && (wallet.solana !== d.solana || wallet.evm !== d.evm)) {
+        wallet = { solana: d.solana, evm: d.evm };
+        if (!window.isDestroyed()) window.webContents.send('deposit-wallet', wallet);
+      }
       if (!window.isDestroyed()) window.webContents.send('savings', { ...d, online: true });
     } catch { if (!window.isDestroyed()) window.webContents.send('savings', { ...last, online: false }); }
     finally { busy = false; }
