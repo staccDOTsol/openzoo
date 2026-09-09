@@ -154,7 +154,7 @@ usage:
                          tab still talks to chatgpt.com.
                          Arch / no dpkg: --deb ~/Downloads/chatgpt_amd64.deb unpacks it
                          (a chatgpt*.deb in ~/Downloads is picked up automatically)
-                         --model <id> (claude-opus-5) --wire responses|chat --bearer
+                         --model <id> (deepseek-v4-flash) --wire responses|chat --bearer
                          --no-launch (config only) --no-proxy --tunnel --print
   npx openzoo openclaw   write the zoo into ~/.openclaw/openclaw.json as a model
                          provider WITH REAL PRICES (OpenClaw's own custom-provider
