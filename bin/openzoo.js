@@ -146,6 +146,16 @@ usage:
                          voice login / voice watch      PREHOOK your own outgoing Telegram
                                messages: type raw, the watcher revises in place (userbot;
                                "." prefix sends raw). X has no edit API — no equivalent.
+  npx openzoo chatgpt    OpenAI's ChatGPT desktop app on the zoo. Writes the zoo as
+                         the Codex provider in ~/.codex/config.toml (other tables kept,
+                         old file backed up), starts a background proxy if none is up,
+                         and launches the app — the Codex / agent side pays x402 per
+                         turn; pick "sign in with API key" (any key). The plain chat
+                         tab still talks to chatgpt.com.
+                         Arch / no dpkg: --deb ~/Downloads/chatgpt_amd64.deb unpacks it
+                         (a chatgpt*.deb in ~/Downloads is picked up automatically)
+                         --model <id> (claude-opus-5) --wire responses|chat --bearer
+                         --no-launch (config only) --no-proxy --tunnel --print
   npx openzoo openclaw   write the zoo into ~/.openclaw/openclaw.json as a model
                          provider WITH REAL PRICES (OpenClaw's own custom-provider
                          path hard-codes $0.00 and ignores /v1/models pricing)
@@ -215,6 +225,10 @@ async function main() {
       // ~/.grok/config.toml — so pointing that model table at the local proxy
       // is enough; no patching of the app bundle.
       await (await import('../lib/grokcli.js')).setupGrokBot(process.argv.slice(3));
+      break;
+    case 'chatgpt':
+    case 'codex':
+      await (await import('../lib/chatgpt.js')).setupChatGpt(process.argv.slice(3));
       break;
     case 'openclaw':
       await (await import('../lib/openclaw.js')).setupOpenClaw(process.argv.slice(3));
