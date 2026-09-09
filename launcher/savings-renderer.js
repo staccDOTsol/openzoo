@@ -1,3 +1,15 @@
+let collapsed = false;
+function setCollapsed(value) {
+  collapsed=value;
+  document.querySelector('main').hidden=value;
+  const button=document.getElementById('collapse');
+  button.textContent=value ? '+' : '−';
+  button.setAttribute('aria-expanded', String(!value));
+  button.setAttribute('aria-label', value ? 'Expand savings' : 'Collapse savings');
+  button.title=value ? 'Expand' : 'Collapse';
+  window.savings.collapse(value);
+}
+document.getElementById('collapse').addEventListener('click',()=>setCollapsed(!collapsed));
 let onboarding = false;
 const finishOnboarding = () => {
   try { localStorage.setItem('openzoo-onboarded-v1','yes'); } catch {}
@@ -25,6 +37,7 @@ window.savings.listen(d => {
 document.getElementById('close').addEventListener('click',()=>window.savings.close());
 
 document.getElementById('deposit').addEventListener('click', () => {
+  if (collapsed) setCollapsed(false);
   try { onboarding = localStorage.getItem('openzoo-onboarded-v1') !== 'yes'; } catch {}
   document.getElementById('welcome').hidden=!onboarding;
   document.getElementById('totals').hidden=onboarding;

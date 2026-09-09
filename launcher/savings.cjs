@@ -13,14 +13,36 @@ function showSavings(port = Number(process.env.OPENZOO_SAVINGS_PORT) || 8402) {
   pill.webContents.on('will-navigate', e => e.preventDefault());
   pill.loadFile(path.join(__dirname, 'savings.html'));
   const window = pill;
-  let busy = false, last = null, wallet = null;
+  const visibilityControl = new BrowserWindow({ width: 136, height: 40,
+    x: x + 16, y: y + height - 100,
+    frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true, resizable: false,
+    webPreferences: { preload: path.join(__dirname, 'savings-preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
+  visibilityControl.setAlwaysOnTop(true, 'floating');
+  visibilityControl.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  visibilityControl.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  visibilityControl.webContents.on('will-navigate', e => e.preventDefault());
+  visibilityControl.loadFile(path.join(__dirname, 'savings-toggle.html'));
+  const syncVisibility = () => {
+    if (!visibilityControl.isDestroyed()) visibilityControl.webContents.send('pill-visibility', window.isVisible());
+  };
+  const toggleVisibility = event => {
+    if (event.sender !== visibilityControl.webContents || window.isDestroyed()) return;
+    if (window.isVisible()) window.hide(); else window.showInactive();
+    syncVisibility();
+  };
+  ipcMain.on('toggle-savings-visibility', toggleVisibility);
+  window.on('show', syncVisibility);
+  window.on('hide', syncVisibility);
+  visibilityControl.webContents.on('did-finish-load', syncVisibility);
+  let busy = false, last = null, wallet = null, expandedHeight = 270;
   const resize = height => {
     const b = window.getBounds(), area = screen.getDisplayMatching(b).workArea;
     window.setBounds({ ...b, height: Math.min(height, area.height), y: Math.max(area.y, Math.min(b.y, area.y + area.height - height)) });
   };
   const deposit = async event => {
     if (event.sender !== window.webContents) return;
-    resize(620);
+    expandedHeight = 620;
+    resize(expandedHeight);
     try {
       const r = await fetch(`http://127.0.0.1:${port}/v1/wallet`, { signal: AbortSignal.timeout(5000) });
       if (!r.ok) throw Error("Unavailable");
@@ -34,7 +56,11 @@ function showSavings(port = Number(process.env.OPENZOO_SAVINGS_PORT) || 8402) {
     window.webContents.send("deposit-copied", chain);
   };
   const card = event => { if (event.sender === window.webContents) shell.openExternal("https://whop.com/staccoverflow/openzoo"); };
-  const back = event => { if (event.sender === window.webContents) resize(270); };
+  const back = event => { if (event.sender === window.webContents) { expandedHeight = 270; resize(expandedHeight); } };
+  const collapse = (event, collapsed) => {
+    if (event.sender === window.webContents && typeof collapsed === "boolean") resize(collapsed ? 68 : expandedHeight);
+  };
+  ipcMain.on("collapse-savings", collapse);
   ipcMain.on("open-deposit", deposit);
   ipcMain.on("copy-deposit", copy);
   ipcMain.on("deposit-card", card);
@@ -58,9 +84,9 @@ function showSavings(port = Number(process.env.OPENZOO_SAVINGS_PORT) || 8402) {
     }
   });
   const timer = setInterval(poll, 3000);
-  const close = event => { if (event.sender === window.webContents) window.close(); };
+  const close = event => { if (event.sender === window.webContents) window.hide(); };
   ipcMain.on('close-savings', close);
-  window.on('closed', () => { clearInterval(timer); for (const [name, fn] of [["open-deposit",deposit],["copy-deposit",copy],["deposit-card",card],["close-deposit",back]]) ipcMain.removeListener(name,fn); ipcMain.removeListener('close-savings', close); if (pill === window) pill = null; });
+  window.on('closed', () => { ipcMain.removeListener('toggle-savings-visibility', toggleVisibility); if (!visibilityControl.isDestroyed()) visibilityControl.destroy(); clearInterval(timer); for (const [name, fn] of [["collapse-savings",collapse],["open-deposit",deposit],["copy-deposit",copy],["deposit-card",card],["close-deposit",back]]) ipcMain.removeListener(name,fn); ipcMain.removeListener('close-savings', close); if (pill === window) pill = null; });
   return pill;
 }
 module.exports = { showSavings };

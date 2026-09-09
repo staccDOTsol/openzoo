@@ -23,7 +23,9 @@
       "savings.cjs",
       "savings-preload.cjs",
       "savings.html",
-      "savings-renderer.js"
+      "savings-renderer.js",
+      "savings-toggle.html",
+      "savings-toggle.js"
     ],
     "extraResources": [
       {

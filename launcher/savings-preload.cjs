@@ -7,5 +7,8 @@ contextBridge.exposeInMainWorld('savings', {
   card: () => ipcRenderer.send("deposit-card"),
   wallet: fn => ipcRenderer.on("deposit-wallet", (_event, value) => fn(value)),
   copied: fn => ipcRenderer.on("deposit-copied", (_event, value) => fn(value)),
+  collapse: collapsed => ipcRenderer.send("collapse-savings", collapsed),
+  toggleVisibility: () => ipcRenderer.send("toggle-savings-visibility"),
+  visibility: fn => ipcRenderer.on("pill-visibility", (_event, visible) => fn(visible)),
   close: () => ipcRenderer.send('close-savings'),
 });
