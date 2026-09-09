@@ -4,6 +4,6 @@ window.savings.listen(d => {
   const saved=d.comparison?.calls > 0 ? d.comparison.directUsd-d.comparison.spentUsd : null;
   document.getElementById('saved').textContent=usd(saved);
   document.getElementById('saving-label').textContent=saved!==null && saved<0 ? 'Extra cost' : 'Saved';
-  document.getElementById('state').textContent=d.online ? (d.billing?.calls > 0 ? 'Final charges · since connection started' : 'Waiting for final billing · balance is live') : 'Reconnecting · showing last known amounts';
+  document.getElementById('state').textContent=d.online ? (d.billing?.calls > 0 ? 'Final charges · saved receipts' : 'Waiting for final billing · balance is live') : 'Reconnecting · showing last known amounts';
 });
 document.getElementById('close').addEventListener('click',()=>window.savings.close());
