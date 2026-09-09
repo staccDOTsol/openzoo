@@ -1,0 +1,78 @@
+# PUBLISH openzoo TO npm FROM CI, SO NOBODY TYPES AN OTP AGAIN.
+#
+# Every push to main runs a cheap check: is package.json's version already on
+# the registry? If yes, nothing happens. If no, it publishes exactly that
+# commit. So a release is "bump the version on main" and nothing else — no
+# local login, no one-time code, no forgetting.
+#
+# Auth, in order of preference:
+#   1. npm TRUSTED PUBLISHING (OIDC). No secret anywhere. One-time setup on
+#      npmjs.com → package openzoo → Settings → Trusted Publisher → GitHub
+#      Actions: owner staccDOTsol, repo openzoo, workflow npm-publish.yml.
+#      Needs npm ≥ 11.5.1 on the runner, hence the npm upgrade step, and
+#      `id-token: write` below. Publishes with provenance for free.
+#   2. An NPM_TOKEN repo secret (granular token, "bypass 2FA" on). If it is
+#      set it is used; if it is empty the step falls through to OIDC.
+#
+# The test suite is NOT a gate here on purpose: it carries a known
+# environmental failure (multimodal) that would block every release, and the
+# tests that matter ran on the commit before it was merged. Add a gate when
+# the suite is green in CI.
+name: npm publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: npm new enough for trusted publishing
+        run: npm install -g npm@latest && npm --version
+
+      - name: Is this version already on the registry?
+        id: check
+        run: |
+          set -euo pipefail
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version is already published — nothing to do"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$name@$version is not on the registry — publishing"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        if: steps.check.outputs.publish == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ "${{ steps.check.outputs.publish }}" = "true" ]; then
+            echo "published openzoo@${{ steps.check.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "openzoo@${{ steps.check.outputs.version }} already published, skipped" >> "$GITHUB_STEP_SUMMARY"
+          fi
