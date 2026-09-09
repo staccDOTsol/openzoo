@@ -62,17 +62,43 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Publish
+      # TRUSTED PUBLISHING FIRST, THE TOKEN ONLY AS A FALLBACK.
+      #
+      # Run 4 (2026-09-09) failed with ENEEDAUTH: the NPM_TOKEN secret exists
+      # but the registry no longer accepts it (npm is retiring tokens that
+      # bypass 2FA), and because setup-node had already written it into
+      # .npmrc, npm used the dead token instead of the OIDC identity this job
+      # carries. So: publish with NO token first — that is trusted publishing,
+      # which works the moment the package trusts this workflow on npmjs.com —
+      # and only if that fails try the secret, for the interim before that
+      # one-time setup is done.
+      - name: Publish (trusted publishing, no token)
+        id: oidc
         if: steps.check.outputs.publish == 'true'
+        continue-on-error: true
+        env:
+          NODE_AUTH_TOKEN: ""
+        run: npm publish --access public --provenance
+
+      - name: Publish (NPM_TOKEN fallback)
+        id: token
+        if: steps.check.outputs.publish == 'true' && steps.oidc.outcome != 'success'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public --provenance
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::error::trusted publishing failed and no NPM_TOKEN secret is set. One-time fix: npmjs.com → package openzoo → Settings → Trusted Publisher → GitHub Actions: owner staccDOTsol, repo openzoo, workflow npm-publish.yml. Or add a granular NPM_TOKEN secret with 2FA bypass."
+            exit 1
+          fi
+          npm publish --access public --provenance
 
       - name: Summary
         if: always()
         run: |
-          if [ "${{ steps.check.outputs.publish }}" = "true" ]; then
-            echo "published openzoo@${{ steps.check.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.check.outputs.publish }}" = "true" ] && { [ "${{ steps.oidc.outcome }}" = "success" ] || [ "${{ steps.token.outcome }}" = "success" ]; }; then
+            echo "published openzoo@${{ steps.check.outputs.version }} (${{ steps.oidc.outcome == 'success' && 'trusted publishing' || 'NPM_TOKEN' }})" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${{ steps.check.outputs.publish }}" = "true" ]; then
+            echo "FAILED to publish openzoo@${{ steps.check.outputs.version }} — see the publish steps" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "openzoo@${{ steps.check.outputs.version }} already published, skipped" >> "$GITHUB_STEP_SUMMARY"
           fi
