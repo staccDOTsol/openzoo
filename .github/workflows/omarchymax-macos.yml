@@ -48,10 +48,32 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
           df -h / | tail -1
 
-      - name: Build the locked guest image
+      # THE LOCK DRIFTS WEEKLY. packages.lock.json pins exact Arch Linux ARM
+      # package versions and the mirror is rolling, so a week-old pin fails
+      # with "could not satisfy dependencies" (measured 2026-09-09, run 4).
+      # Resolve today's transaction first; when it differs, build with it and
+      # upload it so the fork's pin can be moved forward deliberately.
+      - name: Refresh the package lock against today's Arch Linux ARM
         working-directory: try-omarchy
         run: |
           docker info >/dev/null
+          guest/build-container.sh --refresh-package-lock "$PWD/dist/packages.lock.json"
+          if cmp -s dist/packages.lock.json guest/packages.lock.json; then
+            echo "package lock is current"
+          else
+            echo "::warning::the fork's guest/packages.lock.json drifted from Arch Linux ARM — building with today's resolve; pin it back from the omarchymax-guest-lock artifact"
+            cp dist/packages.lock.json guest/packages.lock.json
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omarchymax-guest-lock
+          path: try-omarchy/guest/packages.lock.json
+          if-no-files-found: error
+
+      - name: Build the locked guest image
+        working-directory: try-omarchy
+        run: |
           guest/build-container.sh --output "$PWD/dist/guest"
           ls -l dist/guest
 

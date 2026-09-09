@@ -100,6 +100,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends qemu-system-x86
 
+      # THE LOCK DRIFTS WEEKLY. The fork's own refresh-guest-lock.sh resolves
+      # today's Arch transaction and, when it moved, writes the next numbered
+      # guest-build patch; the build below then applies it with the rest.
+      # Uploaded so the fork's pin can be moved forward deliberately.
+      - name: Refresh the guest package lock if Arch moved
+        working-directory: try-omarchy-windows
+        run: |
+          scripts/release/refresh-guest-lock.sh
+          git status --porcelain guest-build || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omarchymax-win-guest-lock-patch
+          path: try-omarchy-windows/guest-build/*Refresh-the-guest-package-lock*.patch
+          if-no-files-found: ignore
+
       - name: Build the locked guest image (pinned source + guest-build patches)
         working-directory: try-omarchy-windows
         run: scripts/release/build-guest.sh --output "$ARTIFACT_DIR"
