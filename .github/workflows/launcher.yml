@@ -32,6 +32,9 @@ jobs:
           cache-dependency-path: launcher/package-lock.json
       - run: npm ci
       - run: npm test
+      - name: Bound macOS signing file probes
+        if: matrix.platform == 'mac'
+        run: node patch-signing.cjs
       - name: Set release version
         if: startsWith(github.ref, 'refs/tags/launcher-v')
         run: npm version "${GITHUB_REF#refs/tags/launcher-v}" --no-git-tag-version --allow-same-version
