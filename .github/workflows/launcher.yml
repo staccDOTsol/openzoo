@@ -54,6 +54,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           if [ '${{ matrix.platform }}' != mac ]; then unset CSC_LINK CSC_KEY_PASSWORD; fi
+          ulimit -n 65535 2>/dev/null || ulimit -n unlimited 2>/dev/null || true
           npm run dist -- --${{ matrix.platform }} --${{ matrix.arch }} --publish never
       - name: Checksums
         run: |
