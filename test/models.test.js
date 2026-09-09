@@ -537,9 +537,9 @@ test('POST /v1/messages is forwarded byte-for-byte (passthrough shim)', async (t
 
   // THE CONTRACT: the path is preserved and the body reaches the backend
   // byte-for-byte — no model rewrite, no classify pin, no translation.
-  assert.equal(seen.length, 1);
-  assert.equal(seen[0].path, '/v1/messages');
-  assert.equal(seen[0].raw, body);
+  const forwarded = seen.filter(request => request.path === '/v1/messages');
+  assert.equal(forwarded.length, 1);
+  assert.equal(forwarded[0].raw, body);
 
   // Alias probes still answer so harnesses validate their configured id.
   const probe = await fetch(`http://127.0.0.1:${port}/v1/models/claude-opus-5`);

@@ -1,14 +1,15 @@
-<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-tSi7QfLod+ettC5ahyIfNN6Ah/VHV3kAKLT8rKCersI='"><title>OpenZoo Launcher</title><style>
-*{box-sizing:border-box}body{margin:0;padding:40px;background:#101110;color:#f5f3ed;font:16px system-ui}small{color:#b6b8ad;text-transform:uppercase;letter-spacing:3px}h1{font-size:38px;margin:14px 0}p{color:#b6b8ad;line-height:1.6}.choices{display:flex;gap:14px;margin:28px 0}button{flex:1;padding:20px;border:1px solid #f18a3c;border-radius:12px;background:#f18a3c;color:#17110c;font:600 18px system-ui;cursor:pointer}button:last-child{background:transparent;color:#f5f3ed}button:disabled{opacity:.5;cursor:wait}pre{white-space:pre-wrap;overflow:auto;height:230px;padding:18px;border:1px solid #353830;border-radius:12px;font:12px/1.5 monospace;color:#b6b8ad}button:focus-visible{outline:3px solid white;outline-offset:4px}
-</style></head><body><small>OpenZoo / Launcher</small><h1>Your chat. Your choice.</h1><p>Choose an app. OpenZoo checks for updates, prepares your local connection, and installs the chat app if it’s missing.</p><div class="choices"><button data-command="chatgpt">Launch ChatGPT</button><button data-command="bot">Launch Grok Bot</button></div><p id="status" role="status">Node is included. No terminal required.</p><pre id="log" aria-label="Setup log"></pre><script>
+<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-dZOyaM33mvtccndsMgEnYc8iCylzQ+F5KNeydqFoOzg='"><title>OpenZoo Launcher</title><style>
+*{box-sizing:border-box}body{margin:0;padding:40px;background:#101110;color:#f5f3ed;font:16px system-ui}small{color:#b6b8ad;text-transform:uppercase;letter-spacing:3px}h1{font-size:38px;margin:14px 0}p{color:#b6b8ad;line-height:1.6}.choices{display:flex;gap:14px;margin:28px 0}button{flex:1;padding:20px;border:1px solid #f18a3c;border-radius:12px;background:#f18a3c;color:#17110c;font:600 18px system-ui;cursor:pointer}button:disabled{opacity:.5;cursor:wait}pre{white-space:pre-wrap;overflow:auto;height:230px;padding:18px;border:1px solid #353830;border-radius:12px;font:12px/1.5 monospace;color:#b6b8ad}button:focus-visible{outline:3px solid white;outline-offset:4px}
+</style></head><body><small>OpenZoo / Launcher</small><h1>ChatGPT, ready to go.</h1><p>OpenZoo checks for updates, prepares your connection, and installs ChatGPT if it’s missing.</p><div class="choices"><button data-command="chatgpt">Launch ChatGPT</button></div><p id="status" role="status">Node is included. No terminal required.</p><pre id="log" aria-label="Setup log"></pre><script>
 const buttons = [...document.querySelectorAll('button')];
 const status = document.querySelector('#status');
 const log = document.querySelector('#log');
 window.openzoo.onLog(text => { log.textContent = (log.textContent + text).slice(-24000); log.scrollTop = log.scrollHeight; });
 buttons.forEach(button => button.addEventListener('click', async () => {
-  buttons.forEach(b => b.disabled = true); log.textContent = ''; status.textContent = 'Getting your app ready…';
-  try { await window.openzoo.launch(button.dataset.command); status.textContent = 'Your app is ready.'; }
+  buttons.forEach(b => b.disabled = true); log.textContent = ''; status.textContent = 'Getting ChatGPT ready…';
+  try { await window.openzoo.launch(button.dataset.command); status.textContent = 'ChatGPT is ready.'; }
   catch { status.textContent = 'Setup could not finish. See details below and try again.'; }
   finally { buttons.forEach(b => b.disabled = false); }
 }));
+buttons[0].click();
 </script></body></html>

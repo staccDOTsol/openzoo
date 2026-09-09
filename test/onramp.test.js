@@ -23,8 +23,8 @@ test('withOnrampLink is Whop copy-paste, no Stripe URL', async () => {
       solana: 'CBnJMDJeso1anaaddr111111111111111111oTTy',
       usd: 0.0736,
     });
-    assert.match(out, /^Hey — buy this: https:\/\/whop\.com\/checkout\/plan_test/);
-    assert.match(out, /Copy-paste THIS Solana address into "what is your Solana address\?" so it ties to your account:/);
+    assert.match(out, /Card: https:\/\/whop\.com\/checkout\/plan_test/);
+    assert.match(out, /At checkout, use this Solana wallet address/);
     assert.match(out, /CBnJMDJeso1anaaddr111111111111111111oTTy/);
     assert.match(out, /underfunded/);
     assert.ok(!/crypto\.link\.com/.test(out));
@@ -59,7 +59,7 @@ test('withOnrampLink defaults to the OpenZoo Whop product URL', async () => {
     const out = await withOnrampLink('underfunded', {
       solana: 'CBnJMDJeso1anaaddr111111111111111111oTTy',
     });
-    assert.match(out, /^Hey — buy this: https:\/\/whop\.com\/staccoverflow\/openzoo/);
+    assert.match(out, /Card: https:\/\/whop\.com\/staccoverflow\/openzoo/);
   } finally {
     if (prev === undefined) delete process.env.OPENZOO_WHOP_CHECKOUT;
     else process.env.OPENZOO_WHOP_CHECKOUT = prev;
@@ -82,25 +82,26 @@ test('isFundInstruction is true only for genuine fund-me copy', () => {
 
 test('settleFailCopy surfaces gateway reason, never wallet underfunded', () => {
   const a = settleFailCopy({ error: { message: 'payment failed: facilitator timeout' } });
-  assert.equal(a.message, 'openzoo payment did not settle: payment failed: facilitator timeout');
+  assert.doesNotMatch(a.message, /facilitator|payload|402/);
+  assert.match(a.message, /don’t need to add/);
   assert.doesNotMatch(a.message, /wallet underfunded/);
   assert.equal(a.fund, false);
-  assert.equal(a.status, 502);
+  assert.equal(a.status, 503);
 
   const b = settleFailCopy({ error: 'payer balance insufficient', advice: { code: 'insufficient_funds' } });
-  assert.equal(b.message, 'openzoo payment did not settle: payer balance insufficient');
+  assert.match(b.message, /available balance/);
   assert.doesNotMatch(b.message, /wallet underfunded/);
   assert.equal(b.fund, true);
   assert.equal(b.code, 'insufficient_funds');
   assert.equal(b.status, 402);
 
   const c = settleFailCopy({ advice: { message: 'payment failed: nonce already used' } });
-  assert.equal(c.message, 'openzoo payment did not settle: payment failed: nonce already used');
+  assert.doesNotMatch(c.message, /nonce/);
   assert.equal(c.fund, false);
 
   const d = settleFailCopy(null);
-  assert.equal(d.message, 'openzoo payment did not settle');
-  assert.equal(d.status, 402);
+  assert.match(d.message, /couldn’t complete the payment/);
+  assert.equal(d.status, 503);
   assert.doesNotMatch(d.message, /underfunded/);
 });
 

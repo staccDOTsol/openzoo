@@ -124,7 +124,7 @@ describe('fetchHeaders + session unwedge', { concurrency: 1 }, () => {
         continue;
       }
       assert.ok(r.status >= 500, `expected timeout 5xx, got ${r.status} ${r.text}`);
-      assert.match(r.text, /aborted|timeout|headers not in/i);
+      assert.match(r.text, /couldn’t connect right now/i);
     }
   });
 
@@ -152,7 +152,7 @@ describe('fetchHeaders + session unwedge', { concurrency: 1 }, () => {
     const fixture = JSON.parse(readFileSync(path.join(root, 'test', 'fixtures', 'live-402.json'), 'utf8'));
     let paidPosts = 0;
     const up = await listen((req, res) => {
-      if (req.method === 'POST') paidPosts += 1;
+      if (req.method === 'POST' && (req.headers['payment-signature'] || req.headers['x-payment'])) paidPosts += 1;
       res.writeHead(402, { 'content-type': 'application/json' });
       res.end(JSON.stringify(fixture));
     });

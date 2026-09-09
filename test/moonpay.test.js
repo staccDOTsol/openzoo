@@ -51,7 +51,7 @@ test('withOnrampLink no longer prepends MoonPay', async () => {
       solana: 'CBnJMDJeso1anaaddr111111111111111111oTTy',
       usd: 0.07,
     });
-    assert.match(out, /Hey — buy this:/);
+    assert.match(out, /Funding options:/);
     assert.ok(!/moonpay\.com/.test(out));
     assert.ok(!/crypto\.link\.com/.test(out));
   } finally {
