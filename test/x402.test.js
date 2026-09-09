@@ -211,8 +211,8 @@ test('both header names carry the same payload', () => {
 test('receiptLine covers both pricing bases and names the rail', () => {
   const quote = pickAccept(fixture, 'USDC');
   const line = receiptLine(quote, { transaction: 'SIG123' });
-  assert.match(line, /^paid \$0\.0000\d+ \(at OpenRouter price — nothing to compress; bind a corpus to save\) · rail solana · tx SIG123$/);
-  assert.doesNotMatch(line, /markup 3/);
+  assert.match(line, /^paid \$0\.0000\d+ \(direct-price comparison unavailable\) · rail solana · tx SIG123$/);
+  assert.doesNotMatch(line, /OpenRouter price|nothing to compress|markup 3/);
   assert.doesNotMatch(line, /3×/);
 
   const leftoverMarkup = {
