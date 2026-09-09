@@ -146,16 +146,17 @@ usage:
                          voice login / voice watch      PREHOOK your own outgoing Telegram
                                messages: type raw, the watcher revises in place (userbot;
                                "." prefix sends raw). X has no edit API — no equivalent.
-  npx openzoo chatgpt    OpenAI's ChatGPT desktop app on the zoo. Writes the zoo as
-                         the Codex provider in ~/.codex/config.toml (other tables kept,
-                         old file backed up), starts a background proxy if none is up,
-                         and launches the app — the Codex / agent side pays x402 per
-                         turn; pick "sign in with API key" (any key). The plain chat
-                         tab still talks to chatgpt.com.
-                         Arch / no dpkg: --deb ~/Downloads/chatgpt_amd64.deb unpacks it
-                         (a chatgpt*.deb in ~/Downloads is picked up automatically)
+  npx openzoo chatgpt    Configure, install if missing, and launch official ChatGPT
+                         on macOS / Windows / Linux (x64 / ARM64), no TryOmarchy.
+                         Downloads current official DMG / MSIX / .deb as needed.
+                         Uses ~/.openzoo/chatgpt/config.toml (or CODEX_HOME), keeps
+                         other tables and the original backup, starts a local proxy.
+                         Codex / agent mode pays x402; plain chat uses chatgpt.com.
+                         Choose "sign in with API key" (sk-openzoo) if prompted.
+                         --deb <file> (Linux) --config /path/to/config.toml
                          --model <id> (deepseek-v4-flash) --wire responses|chat --bearer
                          --no-launch (config only) --no-proxy --tunnel --print
+                         -- <app flags>
   npx openzoo openclaw   write the zoo into ~/.openclaw/openclaw.json as a model
                          provider WITH REAL PRICES (OpenClaw's own custom-provider
                          path hard-codes $0.00 and ignores /v1/models pricing)
