@@ -1,6 +1,6 @@
 {
   "name": "openzoo",
-  "version": "0.51.8",
+  "version": "0.51.9",
   "description": "Local x402-paying proxy + MCP server for openzoo.fun — point any OpenAI-compatible harness (Cursor, Claude Code, aider, SDKs) at localhost and it pays per call from a local burner wallet. Solana and Base rails live; Robinhood experimental.",
   "license": "MIT",
   "type": "module",
@@ -10,7 +10,14 @@
   "files": [
     "bin",
     "lib",
-    "README.md"
+    "README.md",
+    "launcher/main.cjs",
+    "launcher/runtime.cjs",
+    "launcher/package.json",
+    "launcher/savings.cjs",
+    "launcher/savings.html",
+    "launcher/savings-preload.cjs",
+    "launcher/savings-renderer.js"
   ],
   "engines": {
     "node": ">=18"

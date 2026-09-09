@@ -3,9 +3,13 @@ const path = require('node:path');
 const { resolveCLI, run } = require('./runtime.cjs');
 const { showSavings } = require('./savings.cjs');
 let window, busy = false;
-if (!app.requestSingleInstanceLock()) app.quit();
+if (!app.requestSingleInstanceLock({ savingsReady: process.env.OPENZOO_SAVINGS_READY })) app.quit();
 else {
-  app.on('second-instance', (_event, argv) => { if (argv.includes('--savings-only')) showSavings(); else { window?.show(); window?.focus(); } });
+  app.on('second-instance', (_event, argv, _cwd, data) => { if (argv.includes('--savings-only')) {
+    const pill = showSavings();
+    const ready = () => { if (data?.savingsReady) { try { require('node:fs').writeFileSync(data.savingsReady, 'ready'); } catch {} } };
+    if (pill.webContents.isLoading()) pill.webContents.once('did-finish-load', ready); else ready();
+  } else { window?.show(); window?.focus(); } });
   app.whenReady().then(() => {
     if (process.argv.includes('--savings-only')) { showSavings(); return; }
     window = new BrowserWindow({ width: 740, height: 660, backgroundColor: '#101110', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true } });
