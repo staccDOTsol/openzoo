@@ -13,7 +13,7 @@ async function fetchOK(url) {
 }
 const releases = await (await fetchOK('https://nodejs.org/dist/index.json')).json();
 const version = releases.find(r => r.lts).version;
-const base = `node-${version}-${process.platform}-${process.arch}`;
+const base = `node-${version}-${process.platform === 'win32' ? 'win' : process.platform}-${process.arch}`;
 const archive = `${base}.${process.platform === 'win32' ? 'zip' : 'tar.gz'}`;
 await mkdir('bundle', { recursive: true });
 const bytes = Buffer.from(await (await fetchOK(`https://nodejs.org/dist/${version}/${archive}`)).arrayBuffer());
