@@ -1,0 +1,16 @@
+{
+  "name": "openzoo-launcher", "version": "1.0.0", "private": true,
+  "main": "main.cjs",
+  "scripts": { "prepare:bundle": "node prepare.mjs", "dist": "electron-builder", "test": "node --test test.cjs" },
+  "devDependencies": { "electron": "44.3.0", "electron-builder": "26.15.3" },
+  "build": {
+    "appId": "fun.openzoo.launcher", "productName": "OpenZoo Launcher",
+    "files": ["main.cjs", "runtime.cjs", "preload.cjs", "index.html"],
+    "extraResources": [{ "from": "bundle", "to": "bundle" }],
+    "artifactName": "OpenZoo-Launcher-${version}-${os}-${arch}.${ext}",
+    "mac": { "target": "dmg", "hardenedRuntime": true },
+    "win": { "target": "nsis" },
+    "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true },
+    "linux": { "target": "AppImage", "category": "Network" }
+  }
+}
