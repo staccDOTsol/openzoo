@@ -1,5 +1,4 @@
 let onboarding = false;
-try { onboarding = localStorage.getItem('openzoo-onboarded-v1') !== 'yes'; } catch {}
 const finishOnboarding = () => {
   try { localStorage.setItem('openzoo-onboarded-v1','yes'); } catch {}
   onboarding=false;
@@ -26,6 +25,10 @@ window.savings.listen(d => {
 document.getElementById('close').addEventListener('click',()=>window.savings.close());
 
 document.getElementById('deposit').addEventListener('click', () => {
+  try { onboarding = localStorage.getItem('openzoo-onboarded-v1') !== 'yes'; } catch {}
+  document.getElementById('welcome').hidden=!onboarding;
+  document.getElementById('totals').hidden=onboarding;
+  document.getElementById('later').hidden=!onboarding;
   document.getElementById('funding').hidden=false;
   if (!onboarding) { document.getElementById('back').disabled=false; document.getElementById('back').textContent='Back to savings'; }
   window.savings.deposit();
@@ -42,11 +45,3 @@ window.savings.copied(chain => { document.getElementById('fund-status').textCont
 document.getElementById('card').addEventListener('click',()=>window.savings.card());
 document.getElementById('back').addEventListener('click',finishOnboarding);
 document.getElementById('later').addEventListener('click',finishOnboarding);
-if (onboarding) {
-  document.getElementById('welcome').hidden=false;
-  document.getElementById('totals').hidden=true;
-  document.getElementById('later').hidden=false;
-  document.getElementById('funding').hidden=false;
-  if (!onboarding) { document.getElementById('back').disabled=false; document.getElementById('back').textContent='Back to savings'; }
-  window.savings.deposit();
-}
