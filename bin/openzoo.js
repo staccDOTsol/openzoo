@@ -155,6 +155,8 @@ usage:
                          Choose "sign in with API key" (sk-openzoo) if prompted.
                          --deb <file> (Linux) --config /path/to/config.toml
                          --model <id> (deepseek-v4-flash) --wire responses|chat --bearer
+                         Savings pill: live shared proxy spend / direct estimate / saved
+                         --no-pill disables the overlay
                          --no-launch (config only) --no-proxy --tunnel --print
                          -- <app flags>
   npx openzoo openclaw   write the zoo into ~/.openclaw/openclaw.json as a model

@@ -35,6 +35,8 @@ Configuration defaults to `~/.openzoo/chatgpt/config.toml`, with a separate desk
 
 `--model <id>` overrides `deepseek-v4-flash`; `--bearer` stores the non-secret placeholder token instead of requiring an environment variable. `--no-launch` writes config only (no download, install, proxy, or launch); `--no-proxy` skips proxy startup; `--print` previews without side effects. Pass app flags after `--`, for example `openzoo chatgpt -- --ozone-platform=wayland`. `OPENZOO_CHATGPT_BIN` selects an explicit executable. Failed downloads, installation, or launch commands return an error.
 
+The **savings pill** is enabled by default: an orange, draggable overlay shows spent and saved, with estimated direct cost in its expanded view. These are **all-time shared proxy totals**, not per-task ChatGPT billing; ordinary ChatGPT chats are excluded. Negative savings appear as extra cost, and unavailable totals are marked disconnected. The bridge reads `/v1/info` outside the renderer and updates only its own overlay, without modifying the signed app or its security policy. It uses a loopback-only, dynamically assigned Chromium debugging port on the OpenZoo desktop profile, exits after the app is gone for 60 seconds, and logs to `<CODEX_HOME>/desktop/openzoo-savings.log`. Use `--no-pill` to launch without the overlay/debugging flag. Run the command again to attach the pill after a separate app restart.
+
 Installer references: [ChatGPT downloads](https://chatgpt.com/download/), [Windows MSIX deployment](https://learn.chatgpt.com/docs/enterprise/windows-deployment), [Linux packages](https://learn.chatgpt.com/docs/linux/linux-app).
 
 

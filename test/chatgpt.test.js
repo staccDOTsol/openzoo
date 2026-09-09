@@ -114,7 +114,7 @@ for (const platform of ['darwin', 'win32', 'linux']) {
   }
   test(`${platform}: configure, install if missing, start proxy, then launch`, async (t) => {
     const home = temporaryHome(t), calls = [];
-    await setupChatGpt([], { home, platform, env: {}, resolve: () => null,
+    await setupChatGpt([], { home, platform, env: {}, overlay: async () => {}, resolve: () => null,
       findWindows: async () => null,
       install: async () => { calls.push('install'); return '/test/app'; },
       proxy: async () => { calls.push('proxy'); return { started: true }; },
@@ -138,7 +138,7 @@ test('existing app skips download; --config controls launched CODEX_HOME; backup
       assert.equal(env.CODEX_HOME, home);
       assert.deepEqual(args, ['--ozone-platform=wayland']);
     } };
-  const args = ['--config', file, '--no-proxy', '--', '--ozone-platform=wayland'];
+  const args = ['--config', file, '--no-proxy', '--no-pill', '--', '--ozone-platform=wayland'];
   await setupChatGpt(args, deps);
   await setupChatGpt(args, deps);
   assert.equal(fs.readFileSync(`${file}.openzoo-backup`, 'utf8'), 'model = "old"\n[other]\nvalue = true\n');
