@@ -7,7 +7,7 @@ const vm = require('node:vm');
 
 async function launcher({ packaged = true, savingsOnly = false, lockedProfiles = new Set(), loading = false } = {}) {
   const app = new EventEmitter();
-  const paths = { appData: '/app-data', userData: '/app-data/openzoo-launcher' };
+  const paths = { appData: '/app-data', userData: path.join('/app-data', 'openzoo-launcher') };
   const state = { windows: [], handlers: new Map(), savings: 0, writes: [], runs: [] };
   Object.assign(app, {
     isPackaged: packaged,
@@ -62,8 +62,8 @@ async function launcher({ packaged = true, savingsOnly = false, lockedProfiles =
 test('an existing npm overlay cannot take the packaged launcher lock', async () => {
   const overlay = await launcher({ packaged: false, savingsOnly: true });
   const desktop = await launcher({ lockedProfiles: new Set([overlay.state.lockPath]) });
-  assert.equal(overlay.state.lockPath, '/app-data/openzoo-launcher');
-  assert.equal(desktop.state.lockPath, '/app-data/openzoo-launcher-desktop');
+  assert.equal(overlay.state.lockPath, path.join('/app-data', 'openzoo-launcher'));
+  assert.equal(desktop.state.lockPath, path.join('/app-data', 'openzoo-launcher-desktop'));
   assert.equal(desktop.state.quit, undefined);
   assert.equal(desktop.state.windows.length, 1);
   assert.equal(overlay.state.windows.length, 0);
