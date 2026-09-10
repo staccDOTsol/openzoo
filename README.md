@@ -230,6 +230,14 @@ Pin the key with `OPENZOO_TUNNEL_TOKEN` if your IDE stores it. Keys never leave 
 
 **MCP clients don't need any of this.** If your tool speaks MCP, use the hosted server at `https://mcp.openzoo.fun/mcp` — cloud-reachable, no local process, mint a wallet with `zoo_wallet`.
 
+## Memory authentication
+
+Every memory request uses a wallet-signed namespace. Signing errors stop the request; unsigned requests and the shared default bucket are rejected by the gateway. Voice and Sonar now use that same gateway, including scored recall. Re-ingest contexts previously stored in a local daemon or the old shared bucket.
+
+The gateway signs each storage request over its exact payload, route, timestamp, tenant and context. The backing store verifies that proof and retains signed receipts with saved contexts or the tenant's memory notes. Signing authenticates access and integrity; it does not encrypt uploaded text. Never include private keys in an uploaded corpus.
+
+Public proxy tunnels require the configured token for memory and inference. Arbitrary first-use tokens and anonymous binds are no longer accepted. Quote discovery uses an unfunded signing identity so it cannot consume the operator's credit.
+
 ## The wallet model
 
 - **Burner, local, yours.** A keypair in `~/.openzoo/wallet.json`, created on first run, chmod 600. Keys never leave your machine — the zoo only ever sees signed transfers.
