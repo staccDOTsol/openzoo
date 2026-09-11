@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { withOnrampLink, stripeUsdcOnrampLink, resetOnrampCache, isFundInstruction, settleFailCopy } from '../lib/stripeOnramp.js';
+import { withOnrampLink, stripeUsdcOnrampLink, resetOnrampCache, isFundInstruction, settleFailCopy, whopFundBlurb } from '../lib/stripeOnramp.js';
 
 function restoreEnv(prev, prevF) {
   if (prev === undefined) delete process.env.STRIPE_SECRET_KEY;
@@ -72,7 +72,7 @@ test('isFundInstruction is true only for genuine fund-me copy', () => {
   assert.equal(isFundInstruction('openzoo wallet underfunded: this call needs ≈$1.31'), true);
   assert.equal(isFundInstruction('the wallet is empty'), true);
   assert.equal(isFundInstruction('this call needs more than the wallet holds'), true);
-  assert.equal(isFundInstruction('Send USDC (or TOKEN/LEOS) on Solana to Abc.'), true);
+  assert.equal(isFundInstruction('Send USDC (or KISS/LEOS) on Solana to Abc.'), true);
   assert.equal(isFundInstruction('payment failed: facilitator timeout'), false);
   assert.equal(isFundInstruction('openzoo payment did not settle: payment failed: facilitator timeout'), false);
   assert.equal(isFundInstruction('openzoo payment did not settle: payer balance insufficient'), false);
@@ -127,4 +127,12 @@ test('stripe 400 does not swallow into a URL-less success', async () => {
     restoreEnv(prev, process.env.STRIPE_SECRET_FILE);
     resetOnrampCache();
   }
+});
+
+test('funding prompt separates deposit address from LEOS and KISS mint addresses', () => {
+ const text=whopFundBlurb('DEPOSIT_WALLET','BASE_WALLET');
+ assert.match(text,/Solana deposit wallet.*DEPOSIT_WALLET/);
+ assert.match(text,/LEOS mint \(CA\): 5xgsnby6P9zqGK71J7H4yJLxzqPvNbC7rDZxNzjHmj7e/);
+ assert.match(text,/KISS mint \(CA\): 7K2iAPzHddrghwBF7S7oA9qHr7dDR4QvFmdD1sZgRJxF/);
+ assert.match(text,/not the mint address/);
 });

@@ -52,7 +52,7 @@ test('release gives a claim back only to its holder; garbage file is tolerated',
 });
 
 test('composePlan: real click on the box, then line / Enter / line, then a readback that checks Reply is enabled', () => {
-  const p = composePlan('answer line\n\nhttps://openzoo.fun/core\nx402 · PAID $0.004 TOKEN', { x: 400, y: 300 });
+  const p = composePlan('answer line\n\nhttps://openzoo.fun/core\nx402 · PAID $0.004 KISS', { x: 400, y: 300 });
   assert.equal(p.lines, 4);
   const seq = p.ops.map((o) => o.tool);
   assert.deepEqual(seq, ['click_at', 'type_text', 'press_key', 'press_key', 'type_text', 'press_key', 'type_text', 'evaluate_script']);

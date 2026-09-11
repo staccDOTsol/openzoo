@@ -4,7 +4,7 @@ import {
   openclawModelEntry, mergeOpenClawConfig, isReasoningId, PROVIDER_KEY,
 } from '../lib/openclaw.js';
 
-// The one conversion that matters: gateway pricing is USD PER TOKEN
+// The one conversion that matters: gateway pricing is USD PER KISS
 // (OpenRouter units), OpenClaw's cost block is USD PER MILLION tokens.
 // $3/Mtok in, $15/Mtok out — the classic Sonnet shape.
 test('openclawModelEntry converts USD/token to USD/Mtok', () => {

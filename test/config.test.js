@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { railFundingHint, unfundableRails, fundingLine, USDC_MINT, TOKEN_MINT } from '../lib/config.js';
 
 test('the funding hint follows the rails a live 402 offers', () => {
-  assert.equal(railFundingHint(['solana']), 'USDC or TOKEN or LEOS on Solana');
+  assert.equal(railFundingHint(['solana']), 'USDC or KISS or LEOS on Solana');
   assert.equal(railFundingHint(['base']), 'USDC on Base');
   assert.equal(
     railFundingHint(['solana', 'base']),
-    'USDC or TOKEN or LEOS on Solana · USDC on Base',
+    'USDC or KISS or LEOS on Solana · USDC on Base',
   );
 });
 
@@ -20,7 +20,7 @@ test('the funding hint follows the rails a live 402 offers', () => {
 test('robinhood funds with USDG only, and needs no conversion gas', () => {
   assert.equal(
     railFundingHint(['solana', 'base', 'robinhood']),
-    'USDC or TOKEN or LEOS on Solana · USDC on Base · USDG on Robinhood Chain',
+    'USDC or KISS or LEOS on Solana · USDC on Base · USDG on Robinhood Chain',
   );
   assert.deepEqual(unfundableRails(['solana', 'base', 'robinhood']), []);
   assert.deepEqual(unfundableRails(['solana', 'base']), []);

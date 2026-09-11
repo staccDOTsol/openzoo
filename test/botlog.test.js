@@ -50,7 +50,7 @@ test('pay banner says where to send money, the card link, the chrome toggle, and
   assert.match(text, /HOW TO PAY/);
   assert.match(text, /Solana +HLyP…kku/);
   assert.match(text, /USDC +EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/);
-  assert.match(text, /TOKEN +EVULoNF4DeMBN4dGiZiDfpiiTfNZgoCvXWWgaV3epump +\(half price\)/);
+  assert.match(text, /KISS +7K2iAPzHddrghwBF7S7oA9qHr7dDR4QvFmdD1sZgRJxF +\(half price\)/);
   assert.match(text, /LEOS +5xgsnby6P9zqGK71J7H4yJLxzqPvNbC7rDZxNzjHmj7e +\(half price\)/);
   assert.match(text, /USDC +0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913/);
   assert.match(text, /Base +0x6409…9AA1/);
@@ -68,7 +68,7 @@ test('payBannerChat is the same facts shaped for a canvas', () => {
   assert.match(c, /^\[how to pay\]\nHOW TO PAY/);
   assert.doesNotMatch(c, /openzoo: /);
   assert.match(c, /LEOS +5xgsnby6/);
-  assert.match(c, /TOKEN 2 units · LEOS 3 units/);
+  assert.match(c, /KISS 2 units · LEOS 3 units/);
 });
 
 test('quiet mode still writes every line to the full log file', async () => {
