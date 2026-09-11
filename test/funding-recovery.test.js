@@ -21,7 +21,7 @@ test('payment failures stay failed, but stream readable copy without transport d
  paymentError({writeHead:s=>status=s,end:s=>data=s},{url:'/v1/responses'},{body:JSON.stringify({stream:true,model:'test'})},copy.status,message);
  assert.equal(status,200);assert.match(data,/response.failed/);assert.match(data,/"status":"failed"/);
  assert.doesNotMatch(data,/402|payload|execution reverted|localhost|Hey — buy/);
- assert.match(data,/whop.com/);assert.match(data,/Solana deposit wallet \(USDC \/ LEOS \/ KISS \/ TOKEN\): solana-address/);assert.match(data,/Base \(USDC\): base-address/);
+ assert.match(data,/whop.com/);assert.match(data,/Solana deposit wallet \(native USDC \/ cooked LEOS \/ cooked KISS \/ cooked TOKEN\): solana-address/);assert.match(data,/Base \(USDC\): base-address/);
 });
 test('a failed payment method is not preferred over a newly funded Solana wallet', async () => {
  resetRailMemory(); const original=global.fetch;
