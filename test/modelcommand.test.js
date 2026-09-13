@@ -257,3 +257,60 @@ test('anthropic messages: object and event script', () => {
   ]);
   assert.equal(anthropicStreamEvents('ok', 'm')[2].data.delta.text, 'ok');
 });
+
+// --- per-chat overrides -----------------------------------------------------
+import { chatKeyFrom, readOverrideFor, writeOverrideFor, clearOverrideFor, chatModelsPath } from '../lib/modelcommand.js';
+import { writeFileSync as wfs } from 'node:fs';
+
+const tmpHome = () => mkdtempSync(path.join(os.tmpdir(), 'ozchat-'));
+
+test('the chat key comes from whichever id Codex sent', () => {
+  assert.equal(chatKeyFrom({ 'thread-id': 't1' }), 't1');
+  assert.equal(chatKeyFrom({ 'session-id': 's1' }), 's1');
+  // Two panes of one window are two chats, so the :N suffix must survive.
+  assert.equal(chatKeyFrom({ 'x-codex-window-id': 'w1:0' }), 'w1:0');
+  assert.equal(chatKeyFrom({}, { prompt_cache_key: 'p1' }), 'p1');
+  assert.equal(chatKeyFrom({}, { client_metadata: { 'x-codex-turn-metadata': JSON.stringify({ session_id: 'm1' }) } }), 'm1');
+  assert.equal(chatKeyFrom({}, {}), '');
+});
+
+test('two chats hold two different models, and an unkeyed caller gets the default', () => {
+  const home = tmpHome();
+  const file = path.join(home, '.openzoo', 'model');
+  const chatFile = chatModelsPath(home);
+
+  writeOverrideFor('chatA', 'abliterated-model', file, chatFile);
+  writeOverrideFor('chatB', 'claude-fable-5-1', file, chatFile);
+  assert.equal(readOverrideFor('chatA', file, chatFile), 'abliterated-model');
+  assert.equal(readOverrideFor('chatB', file, chatFile), 'claude-fable-5-1');
+
+  // No entry of its own → machine-wide default, not another chat's pick.
+  assert.equal(readOverrideFor('chatC', file, chatFile), null);
+  wfs(file, 'grok-4.6\n');
+  assert.equal(readOverrideFor('chatC', file, chatFile), 'grok-4.6');
+  assert.equal(readOverrideFor('', file, chatFile), 'grok-4.6');
+  // A chat with its own pick ignores the default.
+  assert.equal(readOverrideFor('chatA', file, chatFile), 'abliterated-model');
+
+  // Clearing one chat leaves the other alone.
+  clearOverrideFor('chatA', file, chatFile);
+  assert.equal(readOverrideFor('chatA', file, chatFile), 'grok-4.6');
+  assert.equal(readOverrideFor('chatB', file, chatFile), 'claude-fable-5-1');
+});
+
+test('applyModelCommand writes to the chat, not the machine', () => {
+  const home = tmpHome();
+  const file = path.join(home, '.openzoo', 'model');
+  const ids = ['abliterated-model', 'claude-fable-5-1'];
+  const outA = applyModelCommand('abliterated', ids, file, 'winA');
+  assert.match(outA.text, /^Switched to abliterated-model\. This chat/);
+  // The machine-wide file is untouched by a keyed switch.
+  assert.equal(existsSync(file), false);
+  const outB = applyModelCommand('fable-5-1', ids, file, 'winB');
+  assert.equal(outB.model, 'claude-fable-5-1');
+  assert.equal(readOverrideFor('winA', file, chatModelsPath(os.homedir())) !== 'claude-fable-5-1', true);
+  // Unkeyed still says "Every chat" and uses the single-line file.
+  const outG = applyModelCommand('abliterated', ids, file, '');
+  assert.match(outG.text, /^Switched to abliterated-model\. Every chat/);
+  assert.equal(readFileSync(file, 'utf8').trim(), 'abliterated-model');
+});
